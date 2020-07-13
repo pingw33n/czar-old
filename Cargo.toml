@@ -1,0 +1,15 @@
+[package]
+name = "tsar"
+version = "0.1.0"
+authors = ["Dmytro Lysai <d@emphased.net>"]
+edition = "2018"
+build = "build.rs"
+
+[dependencies]
+enum-as-inner = "0.3"
+if_chain = "1"
+llvm-sys = "100"
+matches = "0.1"
+measure_time = "0.6"
+num_enum = "0.5"
+slab = "0.4"

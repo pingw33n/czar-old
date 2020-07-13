@@ -1,0 +1,16 @@
+use one;
+pub use one::two;
+use super::one::two::*;
+use super::super::{*,self,foo,BAR,};
+use optional::comma::{a,b};
+use package::{};
+use package::*;
+pub use foo::{
+  bar::{baz::{
+      self,A,
+      b,
+    },
+    FOO__BAR,
+  },
+  baz::X,
+};

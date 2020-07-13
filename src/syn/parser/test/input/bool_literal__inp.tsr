@@ -1,0 +1,4 @@
+fn f() {
+  false;
+  true;
+}

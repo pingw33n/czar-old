@@ -1,0 +1,10 @@
+fn foo();
+pub fn foo();
+extern fn foo();
+pub extern fn foo();
+pub extern fn foo(s: *u8) -> i32;
+
+pub fn main() -> i32 {
+}
+
+fn foo(s: &str) {}
