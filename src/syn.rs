@@ -234,7 +234,7 @@ pub struct FnDecl {
     pub ty_args: Vec<S<Ident>>,
     pub args: Vec<FnDeclArg>,
     pub ret_ty: Option<S<NodeId>>,
-    pub ext_linkage: Option<S<()>>,
+    pub unsaf: Option<S<()>>,
     pub variadic: Option<S<()>>,
     pub body: Option<S<NodeId>>,
 }

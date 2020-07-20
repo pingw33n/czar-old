@@ -81,7 +81,7 @@ impl<'a> Parser<'a> {
         let vis = self.maybe_vis();
         let tok0 = self.nth(0);
         Ok(Some(match tok0.value {
-            Token::Keyword(Keyword::Extern) => {
+            Token::Keyword(Keyword::Unsafe) => {
                 let tok1 = self.nth(1);
                 match tok1.value {
                     Token::Keyword(Keyword::Fn) => self.fn_decl(vis)?,
@@ -220,12 +220,12 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_decl(&mut self, vis: Option<S<Vis>>) -> PResult<S<NodeId>> {
-        let ext_linkage = self.maybe(Token::Keyword(Keyword::Extern))
+        let unsaf = self.maybe(Token::Keyword(Keyword::Unsafe))
             .map(|v| v.map(|_| {}));
 
         let tok = self.expect(Token::Keyword(Keyword::Fn))?;
         let span_start = vis.as_ref().map(|v| v.span.start)
-            .or(ext_linkage.as_ref().map(|v| v.span.start))
+            .or(unsaf.as_ref().map(|v| v.span.start))
             .unwrap_or(tok.span.start);
 
         let name = self.ident()?;
@@ -278,7 +278,7 @@ impl<'a> Parser<'a> {
             ty_args,
             args,
             ret_ty,
-            ext_linkage,
+            unsaf,
             variadic,
             body,
         })))
@@ -543,7 +543,7 @@ impl<'a> Parser<'a> {
         loop {
             let tok = self.nth(0);
             let term = match tok.value {
-                Token::Keyword(Keyword::SelfLowercase) if list.is_some() => {
+                Token::Keyword(Keyword::SelfLower) if list.is_some() => {
                     self.consume();
                     let renamed_as = self.maybe_as_ident()?;
                     let span_end = renamed_as.as_ref().map(|v| v.span.end)

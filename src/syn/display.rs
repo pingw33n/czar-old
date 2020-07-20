@@ -54,14 +54,14 @@ impl Display<'_> {
                     ty_args,
                     args,
                     ret_ty,
-                    ext_linkage,
+                    unsaf,
                     variadic,
                     body,
                 } = self.ast.fn_decl(node);
 
                 self.vis(vis, p)?;
-                if ext_linkage.is_some() {
-                    p.print_sep("extern")?;
+                if unsaf.is_some() {
+                    p.print_sep("unsafe")?;
                 }
                 p.print_sep("fn")?;
                 p.print_sep(&name.value)?;
