@@ -1,0 +1,12 @@
+fn f() {
+  let x;
+  let x = "test";
+  let x = foo + {
+    42 + bar.baz
+  };
+  let x: Type;
+  let x: MyType<Ta1, Foo::<X, Y>>;
+  let mut x: T;
+  let x: mut T;
+  let _unused: mut MyType::<T>::Foo<U>::Bar::<V>;
+}

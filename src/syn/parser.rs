@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod test;
 
+use std::collections::VecDeque;
+
 use super::*;
-use super::lex::S;
-use crate::syn::lex::FloatLiteral;
 
 #[derive(Debug)]
 pub enum PError {
@@ -21,9 +21,7 @@ pub trait Fs {
 pub struct Parser<'a> {
     s: &'a str,
     lex: Lexer<'a>,
-    buf: [S<Token>; 4],
-    buf_pos: usize,
-    buf_len: usize,
+    buf: VecDeque<S<Token>>,
     ast: &'a mut Ast,
     mod_name: Option<&'a Ident>,
     path: PathBuf,
@@ -41,9 +39,7 @@ impl<'a> Parser<'a> {
         Self {
             s,
             lex: Lexer::new(s),
-            buf: [S::new(Span::new(0, 0), Token::Eof); 4],
-            buf_pos: 0,
-            buf_len: 0,
+            buf: VecDeque::new(),
             ast,
             mod_name,
             path,
@@ -176,44 +172,33 @@ impl<'a> Parser<'a> {
         })))
     }
 
-    #[inline(always)]
-    fn buf_pos(&self, offset: usize) -> usize {
-        (self.buf_pos + offset) % self.buf.len()
-    }
-
-    fn fill_buf(&mut self) {
-        while self.buf_len < self.buf.len() {
-            self.buf[self.buf_pos(self.buf_len)] = self.lex.next();
-            self.buf_len += 1;
+    fn fill_buf(&mut self, len: usize) {
+        while self.buf.len() < len {
+            self.buf.push_back(self.lex.next());
         }
     }
 
     fn nth(&mut self, i: usize) -> S<Token> {
-        assert!(i < self.buf.len());
-        self.fill_buf();
-        self.buf[self.buf_pos(i)]
+        self.fill_buf(i + 1);
+        self.buf[i]
     }
 
     #[must_use]
     fn next(&mut self) -> S<Token> {
         let r = self.nth(0);
-        self.buf_pos = self.buf_pos(1);
-        self.buf_len -= 1;
+        self.buf.pop_front().unwrap();
         r
     }
 
     fn prepend_buf(&mut self, tok: S<Token>) {
-        assert!(self.buf_len < self.buf.len());
-        if self.buf_pos == 0 {
-            self.buf_pos = self.buf_len - 1;
-        } else {
-            self.buf_pos -= 1;
-        }
-        self.buf[self.buf_pos] = tok;
-        self.buf_len += 1;
+        self.buf.insert(0, tok);
     }
 
     fn fatal<T>(&self, span: Span, msg: &str) -> PResult<T> {
+        Self::fatal0(span, msg)
+    }
+
+    fn fatal0<T>(span: Span, msg: &str) -> PResult<T> {
         panic!("[{:?}] {}", span.range(), msg);
         eprintln!("[{:?}] {}", span.range(), msg);
         Err(PError::Parse)
@@ -431,100 +416,89 @@ impl<'a> Parser<'a> {
     }
 
     fn sym_path(&mut self, in_type_pos: bool) -> PResult<S<NodeId>> {
-        #[derive(Clone, Copy, Debug)]
-        enum State {
-            Done,
-            IdentOrTyArgs,
-            SepOrEnd,
-        }
-
         let anchor = self.maybe_path_anchor()?;
 
-        let mut state = State::IdentOrTyArgs;
+        #[derive(Default)]
+        struct Builder {
+            items: Vec<PathItem>,
+            ident: Option<S<Ident>>,
+        }
 
-        let mut items = Vec::new();
-        let mut ident = None;
-        let mut ty_args = Vec::new();
+        impl Builder {
+            pub fn ident(&mut self, ident: Option<S<Ident>>) {
+                if let Some(ident) = std::mem::replace(&mut self.ident, ident) {
+                    self.items.push(PathItem {
+                        ident,
+                        ty_args: Vec::new(),
+                    });
+                }
+            }
 
-        loop {
-            state = match state {
-                State::IdentOrTyArgs => {
-                    if let Some(next_ident) = self.maybe_ident()? {
-                        if let Some(ident) = std::mem::replace(&mut ident, Some(next_ident)) {
-                            let ty_args = if in_type_pos {
-                                self.maybe_path_ty_args()?
-                            } else {
-                                None
-                            }.unwrap_or(Vec::new());
-                            items.push(PathItem {
-                                ident,
-                                ty_args,
-                            });
-                        }
-                        State::SepOrEnd
-                    } else if let Some(next_ty_args) = self.maybe_path_ty_args()? {
-                        let ty_args = std::mem::replace(&mut ty_args, next_ty_args);
-                        if !ty_args.is_empty() {
-                            if let Some(ident) = ident.take() {
-                                items.push(PathItem {
-                                    ident,
-                                    ty_args,
-                                });
-                            } else {
-                                // Misplaced ty args.
-                                return self.fatal(ty_args[0].span, "unexpected type arguments");
-                            }
-                        }
-                        State::SepOrEnd
-                    } else {
-                        let tok = self.nth(0);
-                        if in_type_pos {
-                            return self.fatal(tok.span,
-                                &format!("expected type expression, found `{:?}`", tok.value));
-                        } else {
-                            return self.fatal(tok.span,
-                                &format!("expected expression, found `{:?}`", tok.value));
-                        }
-                    }
+            pub fn ty_args(&mut self, ty_args: Vec<S<NodeId>>) -> PResult<()> {
+                assert!(!ty_args.is_empty());
+                if let Some(ident) = self.ident.take() {
+                    self.items.push(PathItem {
+                        ident,
+                        ty_args,
+                    });
+                } else {
+                    // Misplaced ty args.
+                    return Parser::fatal0(ty_args[0].span, "unexpected type arguments");
                 }
-                State::SepOrEnd => {
-                    let tok = self.nth(0);
-                    match tok.value {
-                        Token::ColonColon => {
-                            self.consume();
-                            State::IdentOrTyArgs
-                        }
-                        _ => {
-                            if items.is_empty() && ident.is_none() {
-                                return self.fatal(tok.span,
-                                    &format!("unexpected {:?}", tok.value));
-                            } else {
-                                State::Done
-                            }
-                        }
-                    }
-                }
-                State::Done => break,
+                Ok(())
             }
         }
 
-        // Flush ident.
-        if let Some(ident) = ident {
-            items.push(PathItem {
-                ident,
-                ty_args: Vec::new(),
-            });
+        let mut builder = Builder::default();
+
+        loop {
+            let was_ident = if let Some(ident) = self.maybe_ident()? {
+                builder.ident(Some(ident));
+                true
+            } else {
+                false
+            };
+            let was_ty_args = if was_ident && in_type_pos || !was_ident {
+                if let Some(ty_args) = self.maybe_path_ty_args()? {
+                    builder.ty_args(ty_args)?;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if !was_ident && !was_ty_args {
+                let tok = self.nth(0);
+                if in_type_pos {
+                    return self.fatal(tok.span,
+                        &format!("expected type expression, found `{:?}`", tok.value));
+                } else {
+                    return self.fatal(tok.span,
+                        &format!("expected expression, found `{:?}`", tok.value));
+                }
+            }
+            let tok = self.nth(0);
+            match tok.value {
+                Token::ColonColon => {
+                    self.consume();
+                }
+                Token::Ident | Token::Lt => {}
+                _ => break,
+            }
         }
 
+        builder.ident(None);
+
         let span_start = anchor.map(|v| v.span.start)
-            .unwrap_or(items[0].ident.span.start);
-        let last = items.last().unwrap();
+            .unwrap_or(builder.items[0].ident.span.start);
+        let last = builder.items.last().unwrap();
         let span_end = last.ty_args.last()
             .map(|s| s.span.end)
             .unwrap_or(last.ident.span.end);
         Ok(Span::new(span_start, span_end).spanned(self.ast.insert_sym_path(SymPath {
             anchor,
-            items,
+            items: builder.items,
         })))
     }
 

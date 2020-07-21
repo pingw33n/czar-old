@@ -36,7 +36,7 @@ impl Display<'_> {
                     }
                 }
                 p.unindent()?;
-                p.println("}")?;
+                p.print("}")?;
             }
             NodeKind::Cast => unimplemented!(),
             NodeKind::FieldAccess => {
@@ -95,8 +95,9 @@ impl Display<'_> {
                     p.print(" ")?;
                     self.node(body.value, false, p)?;
                 } else {
-                    p.println(";")?;
+                    p.print(";")?;
                 }
+                p.println("")?;
             }
             NodeKind::FnCall => unimplemented!(),
             NodeKind::Literal => {
@@ -186,13 +187,7 @@ impl Display<'_> {
                         p.print("::")?;
                     }
 
-                    // Disambiguate foor float literal tests.
-                    match ident.value.to_ascii_lowercase().as_str() {
-                        "inf" | "infinity" | "nan" =>  p.print("r#")?,
-                        _ => {}
-                    }
-
-                    p.print(&ident.value)?;
+                    self.ident(ident, p)?;
                     if !ty_args.is_empty() {
                         if !in_type_pos {
                             p.print("::")?;
@@ -211,7 +206,7 @@ impl Display<'_> {
             NodeKind::TyExpr => {
                 let TyExpr { muta, data } = self.ast.ty_expr(node);
                 if muta.is_some() {
-                    p.print_sep("mut")?;
+                    p.print("mut ")?;
                 }
                 match &data.value {
                     TyData::Array(Array { ty, len }) => {
@@ -260,7 +255,22 @@ impl Display<'_> {
                 p.println(";")?;
             }
             NodeKind::UsePath => unimplemented!(),
-            NodeKind::VarDecl => unimplemented!(),
+            NodeKind::VarDecl => {
+                let VarDecl { muta, name, ty, init } = self.ast.var_decl(node);
+                p.print("let ")?;
+                if muta.is_some() {
+                    p.print("mut ")?;
+                }
+                self.ident(name, p)?;
+                if let Some(ty) = ty {
+                    p.print(": ")?;
+                    self.node(ty.value, true, p)?;
+                }
+                if let Some(init) = init {
+                    p.print(" = ")?;
+                    self.node(init.value, false, p)?;
+                }
+            }
             NodeKind::Empty => {
                 p.println(";")?;
             }
@@ -341,6 +351,20 @@ impl Display<'_> {
             p.print_sep(&v.value)?;
         }
         Ok(())
+    }
+
+    fn ident(&self, ident: &S<Ident>, p: &mut Printer) -> fmt::Result {
+        let raw = match ident.value.to_ascii_lowercase().as_str() {
+            // Disambiguate for float literal tests.
+            "inf" | "infinity" | "nan" => true,
+            _ => ident.value.parse::<Keyword>().is_ok(),
+        };
+
+        if raw {
+            p.print("r#")?;
+        }
+
+        p.print(&ident.value)
     }
 }
 
