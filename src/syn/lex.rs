@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use enum_as_inner::EnumAsInner;
 use if_chain::if_chain;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -386,6 +387,7 @@ impl<'a> Lexer<'a> {
             '%' => Token::Percent,
 
             '"' => self.string(start),
+            '\'' => self.char(start),
 
             c if c.is_ascii_digit() => self.number(c, start),
 
@@ -579,6 +581,22 @@ impl<'a> Lexer<'a> {
         }
         Token::Literal(Literal::String)
     }
+
+    fn char(&mut self, start: usize) -> Token {
+        loop {
+            let c = self.next_char();
+            match c {
+                '\n' | '\r' | EOF => {
+                    self.error(Span::new(start, self.pos()), "unterminated char literal");
+                    break;
+                }
+                '\\' => { self.next_char(); }
+                '\'' => break,
+                _ => {}
+            }
+        }
+        Token::Literal(Literal::Char)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -598,18 +616,6 @@ impl TryFrom<char> for Radix {
             _ => return Err(()),
         })
     }
-}
-
-#[derive(Debug)]
-pub struct StringLiteralError {
-    pub pos: usize,
-    pub kind: StringErrorKind,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StringErrorKind {
-    BadEscape,
-    BadUnicodeEscape,
 }
 
 static INT_TYPE_SUFFIXES: [&str; 12] = [
@@ -840,84 +846,117 @@ fn deunderscore(s: &str, had_suffix: bool, mut buf: impl FnMut(u8, usize) -> boo
     Ok(i)
 }
 
+fn decode_literal_char(it: &mut Chars, newline_escape: bool) -> Result<Option<char>, ()> {
+    Ok(Some(loop {
+        let c = if let Some(c) = it.next() {
+            c
+        } else {
+            return Ok(None);
+        };
+        break match c {
+            '\\' => {
+                let c = it.next().ok_or(())?;
+                match c {
+                    | '\\'
+                    | '\''
+                    | '"'
+                    => c,
+                    't' => '\t',
+                    'n' => '\n',
+                    'r' => '\r',
+                    'x' => {
+                        let h = it.next().ok_or(())?;
+                        let l = it.next().ok_or(())?;
+                        let v = hex2_to_dec(h, l);
+                        if let Some(v) = v.filter(|&v| v <= 0x7f) {
+                            v as char
+                        } else {
+                            return Err(());
+                        }
+                    }
+                    '\n' => {
+                        assert!(newline_escape);
+                        continue;
+                    }
+                    '\r' => {
+                        assert!(newline_escape);
+                        assert_eq!(it.next().ok_or(())?, '\n');
+                        continue;
+                    }
+                    'u' => {
+                        it.next()
+                            .filter(|&c| c == '{')
+                            .ok_or(())?;
+                        let mut digs = ArrayVec::<[_; 6]>::new();
+                        loop {
+                            match it.next().ok_or(())? {
+                                '}' => break,
+                                c if c.is_ascii_hexdigit() => {
+                                    digs.try_push(c as u8).map_err(|_| {})?;
+                                }
+                                _ => {
+                                    return Err(())
+                                }
+                            }
+                        }
+                        if digs.is_empty() {
+                            return Err(());
+                        }
+                        // The unwraps below should never panic.
+                        let digs = std::str::from_utf8(&digs).unwrap();
+                        let c = u32::from_str_radix(digs, 16).unwrap();
+                        if let Ok(c) = char::try_from(c) {
+                            c
+                        } else {
+                            return Err(());
+                        }
+                    }
+                    _ => return Err(()),
+                }
+            }
+            '\r' => {
+                assert!(newline_escape);
+                // Normalize line ending.
+                assert_eq!(it.next().ok_or(())?, '\n');
+                '\n'
+            }
+            _ => c,
+        };
+    }))
+}
+
+#[derive(Debug)]
+pub struct CharLiteralError;
+
+pub fn char_literal(s: &str) -> Result<char, CharLiteralError> {
+    assert!(s.len() >= 3);
+    assert_eq!(s.as_bytes()[0], b'\'');
+    assert_eq!(s.as_bytes()[s.len() - 1], b'\'');
+    let mut it = s[1..s.len() - 1].chars();
+    let c = decode_literal_char(&mut it, false)
+        .map_err(|_| CharLiteralError)?
+        .unwrap();
+    if it.next().is_none() {
+        Ok(c)
+    } else {
+        Err(CharLiteralError)
+    }
+}
+
+#[derive(Debug)]
+pub struct StringLiteralError;
+
 pub fn string_literal(s: &str) -> Result<String, StringLiteralError> {
     assert!(s.len() >= 2);
     assert_eq!(s.as_bytes()[0], b'"');
     assert_eq!(s.as_bytes()[s.len() - 1], b'"');
 
     let mut r = String::with_capacity(s.len());
-    let mut it = s[1..s.len() - 1].char_indices()
-        .map(|(i, c)| (i + 1, c));
-
-    while let Some((_, c)) = it.next() {
-        match c {
-            '\\' => {
-                let (pos, c) = it.next().unwrap();
-                match c {
-                    '\\' | '\'' | '"' => r.push(c),
-                    'r' => r.push('\r'),
-                    'n' => r.push('\n'),
-                    't' => r.push('\t'),
-                    'x' => {
-                        let (pos, h) = it.next().unwrap();
-                        let l = it.next().unwrap().1;
-                        let v = hex2_to_dec(h, l);
-                        if let Some(v) = v.filter(|&v| v <= 0x7f) {
-                            r.push(v as char);
-                        } else {
-                            return Err(StringLiteralError { pos, kind: StringErrorKind::BadEscape });
-                        }
-                    }
-                    '\n' => {}
-                    '\r' => {
-                        assert_eq!(it.next().unwrap().1, '\n');
-                    }
-                    'u' => {
-                        let c = it.next();
-                        if c.is_none() || c.unwrap().1 != '{' {
-                            return Err(StringLiteralError { pos, kind: StringErrorKind::BadUnicodeEscape })
-                        }
-                        let mut digs = [0; 6];
-                        let mut digs_len = 0;
-                        loop {
-                            match it.next() {
-                                Some((_, c)) => {
-                                    match c {
-                                        '}' => break,
-                                        _ if digs_len < digs.len() && c.is_ascii_hexdigit() => {
-                                            digs[digs_len] = c as u8;
-                                            digs_len += 1;
-                                        }
-                                        _ => {
-                                            return Err(StringLiteralError { pos, kind: StringErrorKind::BadUnicodeEscape })
-                                        }
-                                    }
-                                }
-                                None => return Err(StringLiteralError { pos, kind: StringErrorKind::BadUnicodeEscape }),
-                            }
-                        }
-                        if digs_len == 0 {
-                            return Err(StringLiteralError { pos, kind: StringErrorKind::BadUnicodeEscape });
-                        }
-                        // The unwraps below should never panic.
-                        let digs = std::str::from_utf8(&digs[..digs_len]).unwrap();
-                        let c = u32::from_str_radix(digs, 16).unwrap();
-                        if let Ok(c) = char::try_from(c) {
-                            r.push(c);
-                        } else {
-                            return Err(StringLiteralError { pos, kind: StringErrorKind::BadUnicodeEscape });
-                        }
-                    }
-                    _ => return Err(StringLiteralError { pos, kind: StringErrorKind::BadEscape }),
-                }
-            }
-            '\r' => {
-                // Normalize line ending.
-                assert_eq!(it.next().unwrap().1, '\n');
-                r.push('\n');
-            }
-            _ => r.push(c),
-        }
+    let mut it = s[1..s.len() - 1].chars();
+    while let Some(c) = decode_literal_char(&mut it, true)
+        .map_err(|_| StringLiteralError)?
+    {
+        r.push(c);
     }
 
     Ok(r)
@@ -999,15 +1038,14 @@ mod test {
     fn string_literal_err() {
         fn q(s: &str) -> String { format!("\"{}\"", s) }
 
-        use StringErrorKind::*;
-        for (inp, exp) in &[
-            (q(r"\u"), BadUnicodeEscape),
-            (q(r"\u{"), BadUnicodeEscape),
-            (q(r"\u{0"), BadUnicodeEscape),
-            (q(r"\u0"), BadUnicodeEscape),
-            (q(r"\u{110000}"), BadUnicodeEscape),
+        for inp in &[
+            q(r"\u"),
+            q(r"\u{"),
+            q(r"\u{0"),
+            q(r"\u0"),
+            q(r"\u{110000}"),
         ] {
-            assert_eq!(string_literal(&inp).unwrap_err().kind, *exp);
+            assert!(string_literal(&inp).is_err());
         }
     }
 }

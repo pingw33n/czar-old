@@ -994,28 +994,20 @@ impl<'a> Parser<'a> {
         let s = &self.s[span.range()];
         match lex::string_literal(s) {
             Ok(s) => Ok(Literal::String(s)),
-            Err(lex::StringLiteralError { pos, kind }) => {
-                let span = Span::new(pos, pos + 1);
-                match kind {
-                    lex::StringErrorKind::BadEscape => self.fatal(span, "invalid string escape"),
-                    lex::StringErrorKind::BadUnicodeEscape => self.fatal(span, "invalid string unicode escape"),
-                }
+            Err(lex::StringLiteralError) => {
+                self.fatal(span, "invalid string literal")
             }
         }
     }
 
     fn char_literal(&mut self, span: Span) -> PResult<Literal> {
         let s = &self.s[span.range()];
-        // match lex::string_literal(s) {
-        //     Ok(s) => Ok(Literal::String(s)),
-        //     Err(lex::StringError { pos, kind }) => {
-        //         let span = Span::new(pos, pos + 1);
-        //         match kind {
-        //             lex::StringErrorKind::BadEscape => self.fatal(span, "invalid string escape"),
-        //         }
-        //     }
-        // }
-        unimplemented!()
+        match lex::char_literal(s) {
+            Ok(s) => Ok(Literal::Char(s)),
+            Err(lex::CharLiteralError) => {
+                self.fatal(span, "invalid char literal")
+            }
+        }
     }
 }
 

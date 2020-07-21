@@ -104,23 +104,15 @@ impl Display<'_> {
                 let node = self.ast.literal(node);
                 match node {
                     &Literal::Bool(v) => p.print(if v { "true" } else { "false" })?,
-                    Literal::Char(_) => unimplemented!(),
+                    &Literal::Char(v) => {
+                        p.print('\'')?;
+                        self.char(v, true, p)?;
+                        p.print('\'')?;
+                    }
                     Literal::String(v) => {
                         p.print("\"")?;
                         for c in v.chars() {
-                            match c {
-                                '\n' => p.print(r"\n")?,
-                                '\r' => p.print(r"\r")?,
-                                '\t' => p.print(r"\t")?,
-                                '\\' => p.print(r"\\")?,
-                                '\"' => p.print(r#"\""#)?,
-                                '\x00'..='\x1f' | '\x7f' => {
-                                    p.print(format_args!(r"\x{:02x}", c as u8))?;
-                                }
-                                _ => {
-                                    p.print(c)?;
-                                }
-                            }
+                            self.char(c, false, p)?;
                         }
                         p.print("\"")?;
                     }
@@ -366,6 +358,23 @@ impl Display<'_> {
 
         p.print(&ident.value)
     }
+
+    fn char(&self, c: char, escape_single_quote: bool, p: &mut Printer) -> fmt::Result {
+        match c {
+            '\n' => p.print(r"\n"),
+            '\r' => p.print(r"\r"),
+            '\t' => p.print(r"\t"),
+            '\\' => p.print(r"\\"),
+            '\'' if escape_single_quote => p.print(r#"\'"#),
+            '\"' if !escape_single_quote => p.print(r#"\""#),
+            '\x00'..='\x1f' | '\x7f' => {
+                p.print(format_args!(r"\x{:02x}", c as u8))
+            }
+            _ => {
+                p.print(c)
+            }
+        }
+    }
 }
 
 struct Printer<'a, 'b: 'a> {
@@ -436,8 +445,6 @@ impl Printer<'_, '_> {
         Ok(())
     }
 }
-
-
 
 impl<'a> fmt::Display for Display<'a> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
