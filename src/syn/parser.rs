@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod test;
 
-use std::collections::VecDeque;
 use std::convert::TryFrom;
 
 use super::*;
@@ -19,27 +18,31 @@ pub trait Fs {
     fn read_file(&mut self, path: &Path) -> io::Result<String>;
 }
 
-/// `(precedence, associativity)`
-/// `associativity == 0` => right-associativity
-///  `associativity == 1` => left-associativity
-type Prec = (u32, u32);
+#[derive(Clone, Copy)]
+struct PrecAssoc {
+    prec: u32,
 
-const FIELD_ACCESS_PREC: Prec = (180, 1);
-const FN_CALL_PREC: Prec = (170, 1);
-const UNWRAP_PREC: Prec = (160, 1);
-const UNARY_PREC: Prec = (150, 1);
-const AS_PREC: Prec = (140, 1);
-const MUL_PREC: Prec = (130, 1);
-const PLUS_PREC: Prec = (120, 1);
-const SHIFT_PREC: Prec = (110, 1);
-const BIT_AND_PREC: Prec = (100, 1);
-const BIT_XOR_PREC: Prec = (90, 1);
-const BIT_OR_PREC: Prec = (80, 1);
-const CMP_PREC: Prec = (70, 1);
-const AND_PREC: Prec = (60, 1);
-const OR_PREC: Prec = (50, 1);
-const RANGE_PREC: Prec = (40, 1);
-const ASSIGN_PREC: Prec = (30, 0);
+    /// `assoc == 0` => right-assoc
+    ///  `assoc == 1` => left-assoc
+    assoc: u32,
+}
+
+const FIELD_ACCESS_PREC: PrecAssoc = PrecAssoc { prec: 180, assoc: 1 };
+const FN_CALL_PREC: PrecAssoc = PrecAssoc { prec: 170, assoc: 1 };
+const UNWRAP_PREC: PrecAssoc = PrecAssoc { prec: 160, assoc: 1 };
+const UNARY_PREC: PrecAssoc = PrecAssoc { prec: 150, assoc: 1 };
+const AS_PREC: PrecAssoc = PrecAssoc { prec: 140, assoc: 1 };
+const MUL_PREC: PrecAssoc = PrecAssoc { prec: 130, assoc: 1 };
+const PLUS_PREC: PrecAssoc = PrecAssoc { prec: 120, assoc: 1 };
+const SHIFT_PREC: PrecAssoc = PrecAssoc { prec: 110, assoc: 1 };
+const BIT_AND_PREC: PrecAssoc = PrecAssoc { prec: 100, assoc: 1 };
+const BIT_XOR_PREC: PrecAssoc = PrecAssoc { prec: 90, assoc: 1 };
+const BIT_OR_PREC: PrecAssoc = PrecAssoc { prec: 80, assoc: 1 };
+const CMP_PREC: PrecAssoc = PrecAssoc { prec: 70, assoc: 1 };
+const AND_PREC: PrecAssoc = PrecAssoc { prec: 60, assoc: 1 };
+const OR_PREC: PrecAssoc = PrecAssoc { prec: 50, assoc: 1 };
+const RANGE_PREC: PrecAssoc = PrecAssoc { prec: 40, assoc: 1 };
+const ASSIGN_PREC: PrecAssoc = PrecAssoc { prec: 30, assoc: 0 };
 
 pub struct Parser<'a> {
     s: &'a str,
@@ -809,7 +812,7 @@ impl<'a> Parser<'a> {
     }
 
     fn unary_op(&mut self, span: Span, kind: UnaryOpKind) -> PResult<S<NodeId>> {
-        let arg = self.expr(UNARY_PREC.0)?;
+        let arg = self.expr(UNARY_PREC.prec)?;
         Ok(Span::new(span.start, arg.span.end)
             .spanned(self.ast.insert_op(Op::Unary(UnaryOp {
                 kind: span.spanned(kind),
@@ -975,7 +978,7 @@ impl<'a> Parser<'a> {
         // Handle infix/postfix position.
         loop {
             let tok = self.lex.nth(0);
-            let (prec, assoc) = match tok.value {
+            let PrecAssoc { prec, assoc } = match tok.value {
                 // Field access or method call
                 Token::Dot => FIELD_ACCESS_PREC,
 
