@@ -1,7 +1,7 @@
 fn f() {
   ((-*&&mut! break return false.foo += (true *= "a"()) = (a[..]!, &b[10..]?, c[..=0_f32 % 2]) * 1 as u32 / 'c'
     >> 10 % 2 - 1 << 100 | foo || foo.bar(42 & 5 && 100 = a) != ()) < 0)
-    > (({ continue; }! >= 1usize) <= Vec::new::<u8>() ^ 10 -= () /= 0 %= 0) >>= 0 as T<U, V> <<= 11
+    > (({ continue; }! >= 1usize) <= Vec::new<u8>() ^ 10 -= () /= 0 %= 0) >>= 0 as T<U, V> <<= 11
     ^= { x |= y }? &= 0
     ;
 

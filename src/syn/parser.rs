@@ -44,7 +44,6 @@ const ASSIGN_PREC: Prec = (30, 0);
 pub struct Parser<'a> {
     s: &'a str,
     lex: Lexer<'a>,
-    buf: VecDeque<S<Token>>,
     ast: &'a mut Ast,
     mod_name: Option<&'a Ident>,
     path: PathBuf,
@@ -62,7 +61,6 @@ impl<'a> Parser<'a> {
         Self {
             s,
             lex: Lexer::new(s),
-            buf: VecDeque::new(),
             ast,
             mod_name,
             path,
@@ -98,10 +96,10 @@ impl<'a> Parser<'a> {
 
     fn maybe_decl_item(&mut self) -> PResult<Option<S<NodeId>>> {
         let vis = self.maybe_vis();
-        let tok0 = self.nth(0);
+        let tok0 = self.lex.nth(0);
         Ok(Some(match tok0.value {
             Token::Keyword(Keyword::Unsafe) => {
-                let tok1 = self.nth(1);
+                let tok1 = self.lex.nth(1);
                 match tok1.value {
                     Token::Keyword(Keyword::Fn) => self.fn_decl(vis)?,
                     Token::Keyword(Keyword::Static) => unimplemented!(),
@@ -131,7 +129,7 @@ impl<'a> Parser<'a> {
             if let Some(item) = self.maybe_decl_item()? {
                 items.push(item);
             } else {
-                let tok = self.nth(0);
+                let tok = self.lex.nth(0);
                 if tok.value != Token::Eof {
                     return self.fatal(tok.span,
                         &format!("expected `extern`, `fn` or `static`, found `{:?}`", tok.value));
@@ -156,8 +154,8 @@ impl<'a> Parser<'a> {
             name,
             vis,
         };
-        let mut r = if let Token::BlockOpen(lex::Block::Brace) = self.nth(0).value {
-            self.consume();
+        let mut r = if let Token::BlockOpen(lex::Block::Brace) = self.lex.nth(0).value {
+            self.lex.consume();
             let r = self.module_decl_inner(Some(name))?;
             self.expect(Token::BlockClose(lex::Block::Brace))?;
             r
@@ -195,34 +193,11 @@ impl<'a> Parser<'a> {
         })))
     }
 
-    fn fill_buf(&mut self, len: usize) {
-        while self.buf.len() < len {
-            self.buf.push_back(self.lex.next());
-        }
-    }
-
-    fn nth(&mut self, i: usize) -> S<Token> {
-        self.fill_buf(i + 1);
-        self.buf[i]
-    }
-
-    #[must_use]
-    fn next(&mut self) -> S<Token> {
-        let r = self.nth(0);
-        self.buf.pop_front().unwrap();
-        r
-    }
-
-    fn prepend_buf(&mut self, tok: S<Token>) {
-        self.buf.insert(0, tok);
-    }
-
     fn fatal<T>(&self, span: Span, msg: &str) -> PResult<T> {
         Self::fatal0(span, msg)
     }
 
     fn fatal0<T>(span: Span, msg: &str) -> PResult<T> {
-        panic!("[{:?}] {}", span.range(), msg);
         eprintln!("[{:?}] {}", span.range(), msg);
         Err(PError::Parse)
     }
@@ -243,9 +218,9 @@ impl<'a> Parser<'a> {
         self.expect(Token::BlockOpen(lex::Block::Paren))?;
         let mut delimited = true;
         let mut variadic = None;
-        while self.nth(0).value != Token::BlockClose(lex::Block::Paren) {
+        while self.lex.nth(0).value != Token::BlockClose(lex::Block::Paren) {
             if !delimited {
-                let tok = self.nth(0);
+                let tok = self.lex.nth(0);
                 return self.fatal(tok.span, &format!("expected `,` but found `{:?}`", tok.value));
             }
             if variadic.is_some() {
@@ -253,8 +228,8 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            if self.nth(0).value == Token::DotDotDot {
-                let tok = self.next();
+            if self.lex.nth(0).value == Token::DotDotDot {
+                let tok = self.lex.next();
                 variadic = Some(tok.map(|_| {}));
             } else {
                 let arg_name = self.ident()?;
@@ -265,7 +240,7 @@ impl<'a> Parser<'a> {
 
             delimited = self.maybe(Token::Comma).is_some();
         }
-        assert_eq!(self.next().value, Token::BlockClose(lex::Block::Paren));
+        assert_eq!(self.lex.next().value, Token::BlockClose(lex::Block::Paren));
 
         let ret_ty = if self.maybe(Token::RArrow).is_some() {
             Some(self.ty_expr()?)
@@ -292,12 +267,8 @@ impl<'a> Parser<'a> {
         })))
     }
 
-    fn consume(&mut self) {
-        let _ = self.next();
-    }
-
     fn expect(&mut self, tok: Token) -> PResult<S<Token>> {
-        let actual = self.next();
+        let actual = self.lex.next();
         if actual.value == tok {
             Ok(actual)
         } else {
@@ -306,8 +277,8 @@ impl<'a> Parser<'a> {
     }
 
     fn maybe(&mut self, tok: Token) -> Option<S<Token>> {
-        if self.nth(0).value == tok {
-            Some(self.next())
+        if self.lex.nth(0).value == tok {
+            Some(self.lex.next())
         } else {
             None
         }
@@ -342,13 +313,13 @@ impl<'a> Parser<'a> {
     fn ty_expr(&mut self) -> PResult<S<NodeId>> {
         let muta = self.maybe(Token::Keyword(Keyword::Mut))
             .map(|tok| tok.map(|_| {}));
-        let tok = self.nth(0);
+        let tok = self.lex.nth(0);
         let span_start = muta.map(|s| s.span.start)
             .unwrap_or(tok.span.start);
 
         let (span_end, data) = match tok.value {
             Token::Amp | Token::AmpAmp => {
-                self.consume();
+                self.lex.consume();
                 let ty = self.ty_expr()?;
                 let span_end = ty.span.end;
                 let data = if tok.value == Token::AmpAmp {
@@ -363,12 +334,12 @@ impl<'a> Parser<'a> {
                 (span_end, data)
             }
             Token::Star => {
-                self.consume();
+                self.lex.consume();
                 let ty = self.ty_expr()?;
                 (ty.span.end, TyData::Ptr(ty.value))
             },
             Token::BlockOpen(lex::Block::Bracket) => {
-                self.consume();
+                self.lex.consume();
                 let ty = self.ty_expr()?;
                 let data = if self.maybe(Token::Semi).is_some() {
                     let len = self.expr(0)?;
@@ -398,23 +369,23 @@ impl<'a> Parser<'a> {
     }
 
     fn maybe_path_anchor(&mut self) -> PResult<Option<S<PathAnchor>>> {
-        let tok = self.nth(0);
+        let tok = self.lex.nth(0);
 
         let mut span_end = tok.span.end;
         let r = if tok.value == Token::Keyword(Keyword::Super) {
             let mut count = 1;
             loop {
-                self.consume();
+                self.lex.consume();
 
-                if self.nth(0).value != Token::ColonColon {
+                if self.lex.nth(0).value != Token::ColonColon {
                     break;
                 }
 
-                let tok = self.nth(1);
+                let tok = self.lex.nth(1);
                 if tok.value != Token::Keyword(Keyword::Super) {
                     break;
                 }
-                self.consume();
+                self.lex.consume();
                 span_end = tok.span.end;
                 count += 1;
             }
@@ -422,11 +393,11 @@ impl<'a> Parser<'a> {
         } else {
             tok.with_value(match tok.value {
                 Token::ColonColon => {
-                    self.consume();
+                    self.lex.consume();
                     PathAnchor::Root
                 }
                 Token::Keyword(Keyword::Package) => {
-                    self.consume();
+                    self.lex.consume();
                     PathAnchor::Package
                 }
                 _ => return Ok(None),
@@ -441,86 +412,66 @@ impl<'a> Parser<'a> {
     fn sym_path(&mut self, in_type_pos: bool) -> PResult<S<NodeId>> {
         let anchor = self.maybe_path_anchor()?;
 
-        #[derive(Default)]
-        struct Builder {
-            items: Vec<PathItem>,
-            ident: Option<S<Ident>>,
-        }
-
-        impl Builder {
-            pub fn ident(&mut self, ident: Option<S<Ident>>) {
-                if let Some(ident) = std::mem::replace(&mut self.ident, ident) {
-                    self.items.push(PathItem {
-                        ident,
-                        ty_args: Vec::new(),
-                    });
-                }
-            }
-
-            pub fn ty_args(&mut self, ty_args: Vec<S<NodeId>>) -> PResult<()> {
-                assert!(!ty_args.is_empty());
-                if let Some(ident) = self.ident.take() {
-                    self.items.push(PathItem {
-                        ident,
-                        ty_args,
-                    });
-                } else {
-                    // Misplaced ty args.
-                    return Parser::fatal0(ty_args[0].span, "unexpected type arguments");
-                }
-                Ok(())
-            }
-        }
-
-        let mut builder = Builder::default();
+        let mut items = Vec::new();
 
         loop {
-            let was_ident = if let Some(ident) = self.maybe_ident()? {
-                builder.ident(Some(ident));
-                true
-            } else {
-                false
-            };
-            let was_ty_args = if was_ident && in_type_pos || !was_ident {
-                if let Some(ty_args) = self.maybe_path_ty_args()? {
-                    builder.ty_args(ty_args)?;
-                    true
-                } else {
-                    false
+            let ident = self.ident()?;
+
+            let ty_args = if self.lex.nth(0).value == Token::Lt {
+                self.lex.save_state();
+                // FIXME remove added AST nodes when restoring state
+                match self.path_ty_args() {
+                    Ok(ty_args) => {
+                        assert!(!ty_args.is_empty());
+                        if !in_type_pos {
+                            let tok = self.lex.nth(0);
+                            match tok.value {
+                                | Token::BlockOpen(lex::Block::Paren)
+                                | Token::BlockClose(_)
+                                | Token::Semi
+                                | Token::ColonColon
+                                => Ok(ty_args),
+                                _ => {
+                                    self.lex.restore_state();
+                                    Err(())
+                                }
+                            }
+                        } else {
+                            Ok(ty_args)
+                        }
+                    }
+                    Err(e) => {
+                        if in_type_pos {
+                            return Err(e);
+                        }
+                        self.lex.restore_state();
+                        Err(())
+                    }
                 }
             } else {
-                false
+                Ok(Vec::new())
             };
-            if !was_ident && !was_ty_args {
-                let tok = self.nth(0);
-                if in_type_pos {
-                    return self.fatal(tok.span,
-                        &format!("expected type expression, found `{:?}`", tok.value));
-                } else {
-                    return self.fatal(tok.span,
-                        &format!("expected expression, found `{:?}`", tok.value));
-                }
-            }
-            let tok = self.nth(0);
-            match tok.value {
-                Token::ColonColon => {
-                    self.consume();
-                }
-                _ => break,
+
+            let done = ty_args.is_err();
+            items.push(PathItem {
+                ident,
+                ty_args: ty_args.unwrap_or_default(),
+            });
+
+            if done || self.maybe(Token::ColonColon).is_none() {
+                break;
             }
         }
 
-        builder.ident(None);
-
         let span_start = anchor.map(|v| v.span.start)
-            .unwrap_or(builder.items[0].ident.span.start);
-        let last = builder.items.last().unwrap();
+            .unwrap_or(items[0].ident.span.start);
+        let last = items.last().unwrap();
         let span_end = last.ty_args.last()
             .map(|s| s.span.end)
             .unwrap_or(last.ident.span.end);
         Ok(Span::new(span_start, span_end).spanned(self.ast.insert_sym_path(SymPath {
             anchor,
-            items: builder.items,
+            items,
         })))
     }
 
@@ -537,10 +488,10 @@ impl<'a> Parser<'a> {
         let list = self.maybe(Token::BlockOpen(lex::Block::Brace));
         let mut span_end = None;
         loop {
-            let tok = self.nth(0);
+            let tok = self.lex.nth(0);
             let term = match tok.value {
                 Token::Keyword(Keyword::SelfLower) if list.is_some() => {
-                    self.consume();
+                    self.lex.consume();
                     let renamed_as = self.maybe_as_ident()?;
                     let span_end = renamed_as.as_ref().map(|v| v.span.end)
                         .unwrap_or(tok.span.end);
@@ -549,12 +500,12 @@ impl<'a> Parser<'a> {
                     }))
                 }
                 Token::Star => {
-                    self.consume();
+                    self.lex.consume();
                     tok.with_value(PathTerm::Star)
                 }
                 Token::Ident => {
                     // Is this a leaf?
-                    if list.is_none() || self.nth(1).value != Token::ColonColon {
+                    if list.is_none() || self.lex.nth(1).value != Token::ColonColon {
                         let ident = self.ident()?;
                         let renamed_as = self.maybe_as_ident()?;
                         let span_end = renamed_as.as_ref().map(|v| v.span.end)
@@ -568,7 +519,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::BlockClose(lex::Block::Brace) => {
-                    self.consume();
+                    self.lex.consume();
                     span_end = Some(tok.span.end);
                     break;
                 }
@@ -582,7 +533,7 @@ impl<'a> Parser<'a> {
             }
 
             if self.maybe(Token::Comma).is_none()
-                && self.nth(0).value != Token::BlockClose(lex::Block::Brace)
+                && self.lex.nth(0).value != Token::BlockClose(lex::Block::Brace)
             {
                 return self.fatal(tok.span, &format!("unexpected {:?}", tok.value));
             }
@@ -608,7 +559,7 @@ impl<'a> Parser<'a> {
         loop {
             match state {
                 State::IdentOrTerm => {
-                    if (self.nth(0).value, self.nth(1).value) == (Token::Ident, Token::ColonColon) {
+                    if (self.lex.nth(0).value, self.lex.nth(1).value) == (Token::Ident, Token::ColonColon) {
                         let ident = self.ident()?;
                         prefix.push(ident);
                         state = State::SepOrEnd;
@@ -618,7 +569,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SepOrEnd => {
-                    let tok = self.next();
+                    let tok = self.lex.next();
                     match tok.value {
                         Token::ColonColon => {
                             state = State::IdentOrTerm;
@@ -645,24 +596,22 @@ impl<'a> Parser<'a> {
         })))
     }
 
-    fn maybe_path_ty_args(&mut self) -> PResult<Option<Vec<S<NodeId>>>> {
-        if self.maybe(Token::Lt).is_none() {
-            return Ok(None);
-        }
+    fn path_ty_args(&mut self) -> PResult<Vec<S<NodeId>>> {
+        self.expect(Token::Lt)?;
         let mut ty_args = Vec::new();
         loop {
             ty_args.push(self.ty_expr()?);
-            let mut tok = self.nth(0);
+            let mut tok = self.lex.nth(0);
             // Split GtGt into Gt and Gt.
             if tok.value == Token::GtGt {
-                self.consume();
+                self.lex.consume();
                 let i = tok.span.start;
-                self.prepend_buf(S::new(Span::new(i, i + 1), Token::Gt));
-                self.prepend_buf(S::new(Span::new(i + 1, i + 2), Token::Gt));
+                self.lex.insert(S::new(Span::new(i, i + 1), Token::Gt));
+                self.lex.insert(S::new(Span::new(i + 1, i + 2), Token::Gt));
 
-                tok = self.nth(0);
+                tok = self.lex.nth(0);
             }
-            self.consume();
+            self.lex.consume();
             match tok.value {
                 Token::Comma => {}
                 Token::Gt => {
@@ -674,18 +623,18 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        Ok(Some(ty_args))
+        Ok(ty_args)
     }
 
     fn maybe_formal_ty_args(&mut self) -> PResult<Vec<S<Ident>>> {
-        let tok = self.nth(0);
+        let tok = self.lex.nth(0);
         if tok.value != Token::Lt {
             return Ok(Vec::new());
         }
 
         let mut ty_args = Vec::new();
 
-        self.consume();
+        self.lex.consume();
 
         loop {
             let name = self.ident()?;
@@ -693,10 +642,10 @@ impl<'a> Parser<'a> {
 
             let seen_comma = self.maybe(Token::Comma).is_some();
 
-            let tok = self.nth(0);
+            let tok = self.lex.nth(0);
             match tok.value {
                 Token::Gt => {
-                    self.consume();
+                    self.lex.consume();
                     break;
                 }
                 _ if !seen_comma => {
@@ -715,11 +664,11 @@ impl<'a> Parser<'a> {
             return Ok(decl_item);
         }
 
-        let tok = self.nth(0);
+        let tok = self.lex.nth(0);
         Ok(Some(match tok.value {
             Token::Keyword(Keyword::Let) => {
                 let span_start = tok.span.start;
-                self.consume();
+                self.lex.consume();
                 let muta = self.maybe(Token::Keyword(Keyword::Mut))
                     .map(|v| v.map(|_| {}));
                 let name = self.ident()?;
@@ -749,11 +698,11 @@ impl<'a> Parser<'a> {
     }
 
     fn maybe_block(&mut self) -> PResult<Option<S<NodeId>>> {
-        let tok = self.nth(0);
+        let tok = self.lex.nth(0);
         if tok.value != Token::BlockOpen(lex::Block::Brace) {
             return Ok(None);
         }
-        self.consume();
+        self.lex.consume();
         let span_start = tok.span.start;
 
         let mut exprs = Vec::new();
@@ -785,7 +734,7 @@ impl<'a> Parser<'a> {
             }
 
             if semi.is_none() {
-                let tok = self.nth(0);
+                let tok = self.lex.nth(0);
                 return self.fatal(tok.span,
                     &format!("expected `}}` or `;`, found {:?}", tok.value));
             }
@@ -797,7 +746,7 @@ impl<'a> Parser<'a> {
     }
 
     fn maybe_expr(&mut self) -> PResult<Option<S<NodeId>>> {
-        let tok = self.nth(0);
+        let tok = self.lex.nth(0);
         if is_expr_delim(tok.value) {
             return Ok(None);
         }
@@ -837,21 +786,21 @@ impl<'a> Parser<'a> {
     }
 
     fn expr(&mut self, min_prec: u32) -> PResult<S<NodeId>> {
-        let tok = self.nth(0);
+        let tok = self.lex.nth(0);
         // Handle prefix position.
         let mut left = match tok.value {
             Token::Minus => {
-                self.consume();
+                self.lex.consume();
                 self.unary_op(tok.span, UnaryOpKind::Neg)?
             }
             Token::Star => {
-                self.consume();
+                self.lex.consume();
                 self.unary_op(tok.span, UnaryOpKind::Deref)?
             }
             Token::Amp | Token::AmpAmp => {
-                self.consume();
+                self.lex.consume();
                 if tok.value == Token::AmpAmp {
-                    self.prepend_buf(Span::new(tok.span.start + 1, tok.span.end).spanned(Token::Amp));
+                    self.lex.insert(Span::new(tok.span.start + 1, tok.span.end).spanned(Token::Amp));
                 }
                 let (kind, span) = if let Some(muta) = self.maybe(Token::Keyword(Keyword::Mut)) {
                     (UnaryOpKind::AddrMut, tok.span.extended(muta.span.end))
@@ -861,11 +810,11 @@ impl<'a> Parser<'a> {
                 self.unary_op(span, kind)?
             }
             Token::Excl => {
-                self.consume();
+                self.lex.consume();
                 self.unary_op(tok.span, UnaryOpKind::Not)?
             }
             Token::Keyword(Keyword::Break) => {
-                self.consume();
+                self.lex.consume();
                 let label = self.maybe(Token::Label)
                     .map(|t| t.span.spanned(lex::label(&self.s[t.span.range()])));
                 let value = self.maybe_expr()?;
@@ -879,7 +828,7 @@ impl<'a> Parser<'a> {
                 }))
             }
             Token::Keyword(Keyword::Continue) => {
-                self.consume();
+                self.lex.consume();
                 tok.span.spanned(self.ast.insert_block_flow_ctl(BlockFlowCtl {
                     kind: BlockFlowCtlKind::Continue,
                     label: None,
@@ -887,7 +836,7 @@ impl<'a> Parser<'a> {
                 }))
             }
             Token::Keyword(Keyword::Return) => {
-                self.consume();
+                self.lex.consume();
                 let value = self.maybe_expr()?;
                 let span_end = value.map(|t| t.span.end)
                     .unwrap_or(tok.span.end);
@@ -899,7 +848,7 @@ impl<'a> Parser<'a> {
                 }))
             }
             Token::Keyword(Keyword::False) | Token::Keyword(Keyword::True) => {
-                self.consume();
+                self.lex.consume();
                 let v = tok.value == Token::Keyword(Keyword::True);
                 tok.span.spanned(self.ast.insert_literal(Literal::Bool(v)))
             }
@@ -908,7 +857,7 @@ impl<'a> Parser<'a> {
             }
             // Expr precedence boost, tuple or unit literal.
             Token::BlockOpen(lex::Block::Paren) => {
-                self.consume();
+                self.lex.consume();
 
                 let first = self.maybe_expr()?;
 
@@ -949,7 +898,7 @@ impl<'a> Parser<'a> {
             }
             // Start-unbounded range
             Token::DotDot | Token::DotDotEq => {
-                self.consume();
+                self.lex.consume();
                 let kind = if tok.value == Token::DotDot {
                     RangeKind::Exclusive
                 } else {
@@ -970,7 +919,7 @@ impl<'a> Parser<'a> {
 
         // Handle infix/postfix position.
         loop {
-            let tok = self.nth(0);
+            let tok = self.lex.nth(0);
             let (prec, assoc) = match tok.value {
                 // Field access or method call
                 Token::Dot => FIELD_ACCESS_PREC,
@@ -1046,7 +995,7 @@ impl<'a> Parser<'a> {
             }
             let prec = prec + assoc;
 
-            self.consume();
+            self.lex.consume();
 
             let simple = match tok.value {
                 Token::Star => Some(BinaryOpKind::Mul),
@@ -1142,7 +1091,7 @@ impl<'a> Parser<'a> {
     }
 
     fn field_access_or_method_call(&mut self, receiver: S<NodeId>) -> PResult<S<NodeId>> {
-        let field = self.nth(0);
+        let field = self.lex.nth(0);
         let field = match field.value {
             Token::Ident => {
                 let ident = self.ident()?;
@@ -1191,7 +1140,7 @@ impl<'a> Parser<'a> {
             if let Some(arg) = arg {
                 args.push(arg);
 
-                let tok = self.next();
+                let tok = self.lex.next();
                 match tok.value {
                     Token::Comma => {},
                     Token::BlockClose(lex::Block::Paren) => break tok.span.end,
@@ -1211,7 +1160,7 @@ impl<'a> Parser<'a> {
     }
 
     fn literal(&mut self) -> PResult<S<NodeId>> {
-        let tok = self.nth(0);
+        let tok = self.lex.nth(0);
         let kind = if let Token::Literal(v) = tok.value {
             v
         } else {
@@ -1222,15 +1171,15 @@ impl<'a> Parser<'a> {
                 Literal::Int(self.int_literal()?)
             }
             lex::Literal::String => {
-                self.consume();
+                self.lex.consume();
                 self.string_literal(tok.span)?
             }
             lex::Literal::Float => {
-                self.consume();
+                self.lex.consume();
                 self.float_literal(tok.span)?
             }
             lex::Literal::Char => {
-                self.consume();
+                self.lex.consume();
                 self.char_literal(tok.span)?
             }
         };

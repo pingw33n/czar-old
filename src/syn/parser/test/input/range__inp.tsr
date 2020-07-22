@@ -7,5 +7,5 @@ fn f() {
   ..-42 * 10;
   42..;
   foo..bar.baz();
-  !&mut "true"..F::<T>::bar::<T, U>();
+  !&mut "true"..F<T>::bar<T, U>();
 }

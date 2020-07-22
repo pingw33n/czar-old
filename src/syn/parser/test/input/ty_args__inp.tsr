@@ -1,0 +1,5 @@
+fn f() {
+  foo(Map<K, V>(0));
+  foo(Map<K, V>0);
+  foo(Map<K);
+}

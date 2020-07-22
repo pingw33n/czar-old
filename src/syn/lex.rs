@@ -6,6 +6,7 @@ use std::convert::TryFrom;
 use std::ops::Range;
 use std::str::{Chars, FromStr};
 use std::fmt;
+use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Span {
@@ -294,10 +295,18 @@ pub enum Literal {
 
 const EOF: char = '\0';
 
+struct SavedState<'a> {
+    chars: Chars<'a>,
+    error_count: usize,
+}
+
 pub struct Lexer<'a> {
     s: &'a str,
     chars: Chars<'a>,
+    buf: VecDeque<S<Token>>,
     error_count: usize,
+    saved_state: Option<SavedState<'a>>,
+    saved_buf: VecDeque<S<Token>>,
 }
 
 impl<'a> Lexer<'a> {
@@ -305,11 +314,62 @@ impl<'a> Lexer<'a> {
         Self {
             s,
             chars: s.chars(),
+            buf: VecDeque::new(),
+            saved_buf: VecDeque::new(),
             error_count: 0,
+            saved_state: None,
         }
     }
 
-    pub fn next(&mut self) -> Spanned<Token> {
+    #[must_use]
+    pub fn nth(&mut self, i: usize) -> S<Token> {
+        self.fill_buf(i + 1);
+        self.buf[i]
+    }
+
+    #[must_use]
+    pub fn next(&mut self) -> S<Token> {
+        let r = self.nth(0);
+        self.buf.pop_front().unwrap();
+        r
+    }
+
+    pub fn consume(&mut self) {
+        let _ = self.next();
+    }
+
+    pub fn insert(&mut self, tok: S<Token>) {
+        self.buf.insert(0, tok);
+    }
+
+    pub fn save_state(&mut self) {
+        self.saved_state = Some(SavedState {
+            chars: self.chars.clone(),
+            error_count: self.error_count,
+        });
+        self.saved_buf.clear();
+        self.saved_buf.extend(&self.buf);
+    }
+
+    pub fn restore_state(&mut self) {
+        let state = self.saved_state.take().unwrap();
+        self.chars = state.chars;
+        self.error_count = state.error_count;
+        std::mem::swap(&mut self.buf, &mut self.saved_buf);
+    }
+
+    pub fn is_ok(&self) -> bool {
+        self.error_count == 0
+    }
+
+    fn fill_buf(&mut self, len: usize) {
+        while self.buf.len() < len {
+            let tok = self.next1();
+            self.buf.push_back(tok);
+        }
+    }
+
+    fn next1(&mut self) -> S<Token> {
         loop {
             let r = self.next0();
             match r.value {
@@ -322,15 +382,11 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn is_ok(&self) -> bool {
-        self.error_count == 0
-    }
-
-    fn next0(&mut self) -> Spanned<Token> {
+    fn next0(&mut self) -> S<Token> {
         let start = self.pos();
         let c = self.next_char();
         let tok = match c {
-            '/' => match self.nth(0) {
+            '/' => match self.nth_char(0) {
                 '/' => self.line_comment(),
                 '*' => self.block_comment(start),
                 '=' => {
@@ -348,7 +404,7 @@ impl<'a> Lexer<'a> {
             ']' => Token::BlockClose(Block::Bracket),
             '}' => Token::BlockClose(Block::Brace),
 
-            '&' => match self.nth(0) {
+            '&' => match self.nth_char(0) {
                 '&' => {
                     self.next_char();
                     Token::AmpAmp
@@ -359,7 +415,7 @@ impl<'a> Lexer<'a> {
                 }
                 _ => Token::Amp,
             }
-            '-' => match self.nth(0) {
+            '-' => match self.nth_char(0) {
                 '>' => {
                     self.next_char();
                     Token::RArrow
@@ -370,14 +426,14 @@ impl<'a> Lexer<'a> {
                 }
                 _ => Token::Minus,
             }
-            '>' => match self.nth(0) {
+            '>' => match self.nth_char(0) {
                 '=' => {
                     self.next_char();
                     Token::GtEq
                 }
                 '>' => {
                     self.next_char();
-                    if self.nth(0) == '=' {
+                    if self.nth_char(0) == '=' {
                         self.next_char();
                         Token::GtGtEq
                     } else {
@@ -386,14 +442,14 @@ impl<'a> Lexer<'a> {
                 }
                 _ => Token::Gt,
             }
-            '<' => match self.nth(0) {
+            '<' => match self.nth_char(0) {
                 '=' => {
                     self.next_char();
                     Token::LtEq
                 }
                 '<' => {
                     self.next_char();
-                    if self.nth(0) == '=' {
+                    if self.nth_char(0) == '=' {
                         self.next_char();
                         Token::LtLtEq
                     } else {
@@ -402,7 +458,7 @@ impl<'a> Lexer<'a> {
                 }
                 _ => Token::Lt,
             }
-            '=' => match self.nth(0) {
+            '=' => match self.nth_char(0) {
                 '=' => {
                     self.next_char();
                     Token::EqEq
@@ -413,9 +469,9 @@ impl<'a> Lexer<'a> {
                 }
                 _ => Token::Eq,
             }
-            '.' => if self.nth(0) == '.' {
+            '.' => if self.nth_char(0) == '.' {
                 self.next_char();
-                match self.nth(0) {
+                match self.nth_char(0) {
                     '.' => {
                         self.next_char();
                         Token::DotDotDot
@@ -429,31 +485,31 @@ impl<'a> Lexer<'a> {
             } else {
                 Token::Dot
             }
-            ':' => if self.nth(0) == ':' {
+            ':' => if self.nth_char(0) == ':' {
                 self.next_char();
                 Token::ColonColon
             } else {
                 Token::Colon
             }
-            '!' => if self.nth(0) == '=' {
+            '!' => if self.nth_char(0) == '=' {
                 self.next_char();
                 Token::ExclEq
             } else {
                 Token::Excl
             }
-            '+' => if self.nth(0) == '=' {
+            '+' => if self.nth_char(0) == '=' {
                 self.next_char();
                 Token::PlusEq
             } else {
                 Token::Plus
             }
-            '*' => if self.nth(0) == '=' {
+            '*' => if self.nth_char(0) == '=' {
                 self.next_char();
                 Token::StarEq
             } else {
                 Token::Star
             }
-            '|' => match self.nth(0) {
+            '|' => match self.nth_char(0) {
                 '=' => {
                     self.next_char();
                     Token::PipeEq
@@ -464,13 +520,13 @@ impl<'a> Lexer<'a> {
                 }
                 _ => Token::Pipe,
             }
-            '%' => if self.nth(0) == '=' {
+            '%' => if self.nth_char(0) == '=' {
                 self.next_char();
                 Token::PercentEq
             } else {
                 Token::Percent
             }
-            '^' => if self.nth(0) == '=' {
+            '^' => if self.nth_char(0) == '=' {
                 self.next_char();
                 Token::HatEq
             } else {
@@ -483,7 +539,7 @@ impl<'a> Lexer<'a> {
             '"' => self.string(start),
             '\'' => self.char(start),
 
-            '@' if is_ident_start(self.nth(0)) => self.label(),
+            '@' if is_ident_start(self.nth_char(0)) => self.label(),
 
             c if c.is_ascii_digit() => self.number(c, start),
 
@@ -504,12 +560,12 @@ impl<'a> Lexer<'a> {
         self.chars.next().unwrap_or(EOF)
     }
 
-    fn nth(&self, i: usize) -> char {
+    fn nth_char(&self, i: usize) -> char {
         self.chars.clone().nth(i).unwrap_or(EOF)
     }
 
     fn skip_while(&mut self, f: impl Fn(char) -> bool) {
-        while f(self.nth(0)) {
+        while f(self.nth_char(0)) {
             if self.next_char() == EOF {
                 break;
             }
@@ -532,7 +588,7 @@ impl<'a> Lexer<'a> {
         let mut depth = 1;
         loop {
             let c = self.next_char();
-            match (c, self.nth(0)) {
+            match (c, self.nth_char(0)) {
                 ('/', '*') => {
                     self.next_char();
                     depth += 1;
@@ -561,7 +617,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn ident_or_keyword(&mut self, start_char: char, start: usize) -> Token {
-        let raw = if start_char == 'r' && self.nth(0) == '#' {
+        let raw = if start_char == 'r' && self.nth_char(0) == '#' {
             self.next_char();
             true
         } else {
@@ -592,7 +648,7 @@ impl<'a> Lexer<'a> {
     fn number(&mut self, first_digit: char, start: usize) -> Token {
         let radix = if_chain! {
             if first_digit == '0';
-            if let Ok(radix) = Radix::try_from(self.nth(0));
+            if let Ok(radix) = Radix::try_from(self.nth_char(0));
             then {
                 self.next_char();
                 radix
@@ -610,11 +666,11 @@ impl<'a> Lexer<'a> {
         }
         let mut float_part = FloatPart::None;
         loop {
-            match self.nth(0) {
+            match self.nth_char(0) {
                 'e' | 'E' => if radix == Radix::Dec {
                     if float_part < FloatPart::ExpStart {
                         float_part = FloatPart::ExpStart;
-                        match self.nth(1) {
+                        match self.nth_char(1) {
                             '+' | '-' => {
                                 self.next_char();
                                 float_part = FloatPart::ExpMiddle;
@@ -625,7 +681,7 @@ impl<'a> Lexer<'a> {
                 }
                 '.' => {
                     if float_part == FloatPart::None {
-                        let next = self.nth(1);
+                        let next = self.nth_char(1);
                         if is_ident_start(next) || next == '.' {
                             // 0.abs
                             // 0..10
@@ -648,7 +704,6 @@ impl<'a> Lexer<'a> {
             }
             self.next_char();
         }
-        dbg!(&float_part, &self.s[start..self.pos()]);
         let lit = if float_part == FloatPart::ExpStart
             && self.s[start..self.pos()].parse::<IntTypeSuffix>().is_ok()
         {

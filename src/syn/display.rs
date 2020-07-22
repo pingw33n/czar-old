@@ -284,6 +284,10 @@ impl Display<'_> {
             NodeKind::SymPath => {
                 let SymPath { anchor, items } = self.ast.sym_path(node);
                 self.path_anchor(anchor.map(|v| v.value), p)?;
+                let needs_parens = !in_type_pos && !items.last().unwrap().ty_args.is_empty();
+                if needs_parens {
+                    p.print('(')?;
+                }
                 for (i, PathItem { ident, ty_args }) in items.iter().enumerate() {
                     if i > 0 {
                         p.print("::")?;
@@ -291,9 +295,6 @@ impl Display<'_> {
 
                     self.ident(ident, p)?;
                     if !ty_args.is_empty() {
-                        if !in_type_pos {
-                            p.print("::")?;
-                        }
                         p.print("<")?;
                         for (i, v) in ty_args.iter().enumerate() {
                             if i > 0 {
@@ -303,6 +304,9 @@ impl Display<'_> {
                         }
                         p.print(">")?;
                     }
+                }
+                if needs_parens {
+                    p.print(')')?;
                 }
             }
             NodeKind::Tuple => {
