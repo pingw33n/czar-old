@@ -5,6 +5,8 @@ pub unsafe fn foo();
 pub unsafe fn foo(s: *u8) -> i32;
 pub fn main() -> i32 {
 }
+fn foo(a: ()) -> () {
+}
 fn foo(s: &str) {
 }
 fn foo(self) {
@@ -16,4 +18,16 @@ fn foo(&mut self, arg1: u32, arg2: Self, ...) -> &&mut Self {
   self.x = 0;
   self.foo();
   let self_: &Self = self;
+}
+mod m {
+  fn foo() {
+  }
+}
+fn foo() {
+  fn bar() {
+  }
+  mod m {
+    fn baz() {
+    }
+  }
 }

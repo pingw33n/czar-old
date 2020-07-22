@@ -116,6 +116,7 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::Mod) => self.module_decl(vis)?,
             Token::Keyword(Keyword::Static) => unimplemented!(),
             Token::Keyword(Keyword::Use) => self.use_stmt(vis)?,
+            Token::Keyword(Keyword::Struct) => self.struct_decl(vis)?,
             _ => {
                 if let Some(vis) = vis {
                     return self.fatal(vis.span,
@@ -133,9 +134,11 @@ impl<'a> Parser<'a> {
                 items.push(item);
             } else {
                 let tok = self.lex.nth(0);
-                if tok.value != Token::Eof {
+                if name.is_none() && tok.value != Token::Eof
+                    || name.is_some() && tok.value != Token::BlockClose(lex::Block::Brace)
+                {
                     return self.fatal(tok.span,
-                        &format!("expected `extern`, `fn` or `static`, found `{:?}`", tok.value));
+                        &format!("expected `decl_item`, found `{:?}`", tok.value));
                 }
                 break;
             }
@@ -403,6 +406,28 @@ impl<'a> Parser<'a> {
                     })
                 };
                 let span_end = self.expect(Token::BlockClose(lex::Block::Bracket))?.span.end;
+                (span_end, data)
+            }
+            Token::BlockOpen(lex::Block::Paren) => {
+                self.lex.consume();
+                let mut items = Vec::new();
+                let mut delimited = true;
+                while self.lex.nth(0).value != Token::BlockClose(lex::Block::Paren) {
+                    if !delimited {
+                        let tok = self.lex.nth(0);
+                        return self.fatal(tok.span, &format!("expected `,` or `)` but found `{:?}`", tok.value));
+                    }
+                    items.push(self.ty_expr()?);
+                    delimited = self.maybe(Token::Comma).is_some();
+                }
+                let span_end = self.expect(Token::BlockClose(lex::Block::Paren)).unwrap().span.end;
+                let data = if items.is_empty() {
+                    TyData::Unit
+                } else {
+                    TyData::Tuple(Tuple {
+                        items,
+                    })
+                };
                 (span_end, data)
             }
             _ => {
@@ -775,6 +800,7 @@ impl<'a> Parser<'a> {
             let end = self.maybe(Token::BlockClose(lex::Block::Brace));
 
             let empty_expr = expr.is_none();
+            let expr_kind = expr.map(|v| self.ast.node_kind(v.value));
             if let Some(expr) = expr {
                 exprs.push(expr);
             }
@@ -791,7 +817,7 @@ impl<'a> Parser<'a> {
                 break end.span.end;
             }
 
-            if semi.is_none() {
+            if semi.is_none() && expr_kind.map(|v| v.needs_semi()).unwrap_or(true) {
                 let tok = self.lex.nth(0);
                 return self.fatal(tok.span,
                     &format!("expected `}}` or `;`, found {:?}", tok.value));
@@ -1283,6 +1309,46 @@ impl<'a> Parser<'a> {
                 self.fatal(span, "invalid char literal")
             }
         }
+    }
+
+    fn struct_decl(&mut self, vis: Option<S<Vis>>) -> PResult<S<NodeId>> {
+        self.expect(Token::Keyword(Keyword::Struct))?;
+
+        let name = self.ident()?;
+        let ty_args = self.maybe_formal_ty_args()?;
+
+        self.expect(Token::BlockOpen(lex::Block::Brace))?;
+        let mut delimited = true;
+        let mut fields = Vec::new();
+        while self.lex.nth(0).value != Token::BlockClose(lex::Block::Brace) {
+            if !delimited {
+                let tok = self.lex.nth(0);
+                return self.fatal(tok.span, &format!("expected `,` or `}}` but found `{:?}`", tok.value));
+            }
+
+            let vis = self.maybe_vis();
+            let name = self.ident()?;
+            self.expect(Token::Colon)?;
+            let ty = self.ty_expr()?;
+
+            fields.push(StructFieldDecl {
+                vis,
+                name,
+                ty
+            });
+
+            delimited = self.maybe(Token::Comma).is_some();
+        }
+        let span_end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
+
+        let span_start = vis.as_ref().map(|v| v.span.start)
+            .unwrap_or(name.span.start);
+        Ok(Span::new(span_start, span_end).spanned(self.ast.insert_struct_decl(StructDecl {
+            vis,
+            name,
+            ty_args,
+            fields,
+        })))
     }
 }
 

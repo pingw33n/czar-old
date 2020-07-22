@@ -1,0 +1,19 @@
+struct Foo {}
+
+struct Foo { f: () }
+
+pub struct Foo<T, U, V> {
+    field1: i32,
+    field2: (u32, &str),
+    pub pub_field: path::to::Type<T, U, V>,
+}
+
+fn f() {
+  struct S { f: i32 }
+
+  fn f() {
+    mod m {
+      struct S { f: i32 }
+    }
+  }
+}

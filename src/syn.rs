@@ -46,6 +46,34 @@ pub enum NodeKind {
     VarDecl,
 }
 
+impl NodeKind {
+    pub fn needs_semi(self) -> bool {
+        match self {
+            | Self::Block
+            | Self::FnDecl
+            | Self::ModuleDecl
+            | Self::StructDecl
+            => false,
+
+            | Self::BlockFlowCtl
+            | Self::Cast
+            | Self::Empty
+            | Self::FieldAccess
+            | Self::FnCall
+            | Self::Literal
+            | Self::Op
+            | Self::Range
+            | Self::SymPath
+            | Self::Tuple
+            | Self::TyExpr
+            | Self::UseStmt
+            | Self::UsePath
+            | Self::VarDecl
+            => true,
+        }
+    }
+}
+
 pub type NodeMap<T> = HashMap<NodeId, T>;
 
 #[derive(Debug)]
@@ -347,6 +375,7 @@ pub enum TyData {
     // path::to::Type
     SymPath(NodeId),
     Tuple(Tuple),
+    Unit,
 }
 
 // [<ty>; <len>]
@@ -495,14 +524,15 @@ pub enum VisRestrict {
 
 #[derive(Debug)]
 pub struct StructDecl {
-    pub name: S<Ident>,
     pub vis: Option<S<Vis>>,
+    pub name: S<Ident>,
     pub ty_args: Vec<S<Ident>>,
-    pub fields: Vec<FieldDecl>,
+    pub fields: Vec<StructFieldDecl>,
 }
 
 #[derive(Debug)]
-pub struct FieldDecl {
+pub struct StructFieldDecl {
+    pub vis: Option<S<Vis>>,
     pub name: S<Ident>,
     pub ty: S<NodeId>,
 }

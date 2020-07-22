@@ -30,7 +30,9 @@ impl Display<'_> {
                     .take(if no_result { exprs.len() - 1 } else { exprs.len() });
                 for (i, expr) in it {
                     self.node(expr.value, false, p)?;
-                    if no_result || i < exprs.len() - 1 {
+                    if self.ast.node_kind(expr.value).needs_semi()
+                        && (no_result || i < exprs.len() - 1)
+                    {
                         p.println(";")?;
                     }
                 }
@@ -91,11 +93,7 @@ impl Display<'_> {
                 p.print_sep("fn")?;
                 p.print_sep(&name.value)?;
 
-                if !ty_args.is_empty() {
-                    p.print("<")?;
-                    p.print_sep_seq(ty_args.iter().map(|v| &v.value), ", ")?;
-                    p.print(">")?;
-                }
+                self.formal_ty_args(ty_args, p)?;
 
                 p.print("(")?;
                 for (i, FnDeclArg { name, ty }) in args.iter().enumerate() {
@@ -193,6 +191,7 @@ impl Display<'_> {
                 let ModuleDecl{ name, items } = self.ast.module_decl(node);
                 if let Some(n) = name {
                     self.vis(&n.vis, p)?;
+                    p.print_sep("mod")?;
                     p.print_sep(&n.name.value)?;
                     p.print_sep("{")?;
                     p.indent()?;
@@ -202,6 +201,7 @@ impl Display<'_> {
                 }
                 if name.is_some() {
                     p.unindent()?;
+                    p.println('}')?;
                 }
             }
             NodeKind::Op => {
@@ -289,7 +289,26 @@ impl Display<'_> {
                     self.expr(end.value, p)?;
                 }
             }
-            NodeKind::StructDecl => unimplemented!(),
+            NodeKind::StructDecl => {
+                let StructDecl { vis, name, ty_args, fields } = self.ast.struct_decl(node);
+                self.vis(vis, p)?;
+                p.print_sep("struct ")?;
+                p.print(&name.value)?;
+                self.formal_ty_args(ty_args, p)?;
+                p.print(" {")?;
+                p.indent()?;
+
+                for StructFieldDecl { vis, name, ty } in fields {
+                    self.vis(vis, p)?;
+                    p.print_sep(&name.value)?;
+                    p.print(": ")?;
+                    self.node(ty.value, true, p)?;
+                    p.println(',')?;
+                }
+
+                p.unindent()?;
+                p.println('}')?;
+            }
             NodeKind::SymPath => {
                 let SymPath { anchor, items } = self.ast.sym_path(node);
                 self.path_anchor(anchor.map(|v| v.value), p)?;
@@ -364,12 +383,18 @@ impl Display<'_> {
                         self.node(*v, true, p)?;
                     }
                     TyData::Tuple(Tuple { items }) => {
+                        assert!(items.len() > 0);
+                        p.print('(')?;
                         for (i, v) in items.iter().enumerate() {
                             if i > 0 {
                                 p.print(", ")?;
                             }
                             self.node(v.value, true, p)?;
                         }
+                        p.print(')')?;
+                    }
+                    TyData::Unit => {
+                        p.print("()")?;
                     }
                 }
             }
@@ -552,6 +577,15 @@ impl Display<'_> {
         self.node(node, false, p)?;
         if !no_parens {
             p.print(')')?;
+        }
+        Ok(())
+    }
+
+    fn formal_ty_args(&self, ty_args: &Vec<S<Ident>>, p: &mut Printer) -> Result {
+        if !ty_args.is_empty() {
+            p.print("<")?;
+            p.print_sep_seq(ty_args.iter().map(|v| &v.value), ", ")?;
+            p.print(">")?;
         }
         Ok(())
     }
