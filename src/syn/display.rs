@@ -38,12 +38,38 @@ impl Display<'_> {
                 p.unindent()?;
                 p.print("}")?;
             }
-            NodeKind::Cast => unimplemented!(),
+            NodeKind::BlockFlowCtl => {
+                let BlockFlowCtl { kind, label, value } = self.ast.block_flow_ctl(node);
+                match kind {
+                    BlockFlowCtlKind::Break => p.print("break")?,
+                    BlockFlowCtlKind::Continue => p.print("continue")?,
+                    BlockFlowCtlKind::Return => p.print("return")?,
+                }
+                if let Some(label) = label {
+                    p.print(' ')?;
+                    self.label(label, p)?;
+                }
+                if let Some(value) = value {
+                    p.print(' ')?;
+                    self.node(value.value, false, p)?;
+                }
+            }
+            NodeKind::Cast => {
+                let Cast { expr, ty } = self.ast.cast(node);
+                self.expr(expr.value, p)?;
+                p.print(" as ")?;
+                self.node(ty.value, true, p)?;
+            }
             NodeKind::FieldAccess => {
                 let FieldAccess { receiver, field } = self.ast.field_access(node);
-                p.print("(")?;
-                self.node(receiver.value, false, p)?;
-                p.print(").")?;
+                let excl = self.ast.try_literal(receiver.value)
+                    .map(|l| l.as_int().is_some() || l.as_float().is_some())
+                    == Some(true) ||
+                    self.ast.try_field_access(receiver.value)
+                        .map(|f| f.field.value.as_index().is_some())
+                        == Some(true);
+                self.expr_excl(receiver.value, excl, p)?;
+                p.print('.')?;
 
                 p.print(&field.value)?;
             }
@@ -99,7 +125,25 @@ impl Display<'_> {
                 }
                 p.println("")?;
             }
-            NodeKind::FnCall => unimplemented!(),
+            NodeKind::FnCall => {
+                let FnCall { callee, kind, args } = self.ast.fn_call(node);
+                let mut args = args.iter();
+                if *kind == FnCallKind::Method {
+                    self.expr(args.next().unwrap().value, p)?;
+                    p.print('.')?;
+                }
+                self.expr(callee.value, p)?;
+
+                p.print('(')?;
+                for (i, arg) in args.enumerate() {
+                    if i > 0 {
+                        p.print(", ")?;
+                    }
+                    self.node(arg.value, false, p)?;
+                }
+                p.print(')')?;
+
+            }
             NodeKind::Literal => {
                 let node = self.ast.literal(node);
                 match node {
@@ -128,8 +172,11 @@ impl Display<'_> {
                         if let Some(ty) = ty {
                             p.print(format_args!("_{}", ty))?;
                         } else if !s.contains('.') {
-                            p.print('.')?;
+                            p.print(".0")?;
                         }
+                    }
+                    Literal::Unit => {
+                        p.print("()")?;
                     }
                 }
             }
@@ -151,23 +198,86 @@ impl Display<'_> {
             NodeKind::Op => {
                 let node= self.ast.op(node);
                 match node {
-                    Op::BinaryOp(BinaryOp { kind, left, right }) => {
-                        p.print("(")?;
-                        self.node(left.value, false, p)?;
-                        p.print(")")?;
+                    Op::Binary(BinaryOp { kind, left, right }) => {
+                        self.expr(left.value, p)?;
 
-                        p.print(format_args!(" {} ", kind.value))?;
-
-                        p.print("(")?;
-                        self.node(right.value, false, p)?;
-                        p.print(")")?;
-                    },
-                    Op::Unary(UnaryOp { kind, arg }) => {
-                        p.print(format_args!("{}", kind.value))?;
-                        p.print("(")?;
-                        self.node(arg.value, false, p)?;
-                        p.print(")")?;
+                        if kind.value == BinaryOpKind::Index {
+                            p.print("[")?;
+                            self.node(right.value, false, p)?;
+                            p.print("]")?;
+                        } else {
+                            use BinaryOpKind::*;
+                            let s = match kind.value {
+                                Add => "+",
+                                AddAssign => "+=",
+                                And => "&&",
+                                Assign => "=",
+                                BitAnd => "&",
+                                BitAndAssign => "&=",
+                                BitOr => "|",
+                                BitOrAssign => "|=",
+                                BitXor => "^",
+                                BitXorAssign => "^=",
+                                Div => "/",
+                                DivAssign => "/=",
+                                Eq => "==",
+                                Gt => ">",
+                                GtEq => ">=",
+                                Index => unreachable!(),
+                                Lt => "<",
+                                LtEq => "<=",
+                                Mul => "*",
+                                Rem => "%",
+                                RemAssign => "%=",
+                                MulAssign => "*=",
+                                NotEq => "!=",
+                                Or => "||",
+                                RangeExcl => "..",
+                                RangeIncl => "..=",
+                                Shl => "<<",
+                                ShlAssign => "<<=",
+                                Shr => ">>",
+                                ShrAssign => ">>=",
+                                Sub => "-",
+                                SubAssign => "-=",
+                            };
+                            p.print(format_args!(" {} ", s))?;
+                            self.expr(right.value, p)?;
+                        }
                     }
+                    Op::Unary(UnaryOp { kind, arg }) => {
+                        use UnaryOpKind::*;
+
+                        let (s, prefix) = match kind.value {
+                            Addr => ("&", true),
+                            AddrMut => ("&mut ", true),
+                            Deref => ("*", true),
+                            Neg => ("-", true),
+                            Not => ("!", true),
+                            PanickingUnwrap => ("!", false),
+                            PropagatingUnwrap => ("?", false),
+                        };
+                        if prefix {
+                            p.print(s)?;
+                        }
+                        self.expr(arg.value, p)?;
+                        if !prefix {
+                            p.print(s)?;
+                        }
+                    }
+                }
+            }
+            NodeKind::Range => {
+                let Range { kind, start, end } = self.ast.range(node);
+                if let Some(start) = start {
+                    self.expr(start.value, p)?;
+                }
+                match kind {
+                    RangeKind::Exclusive => p.print("..")?,
+                    RangeKind::Inclusive => p.print("..=")?,
+                }
+                if let Some(end) = end {
+                    self.expr(end.value, p)?;
                 }
             }
             NodeKind::StructDecl => unimplemented!(),
@@ -194,6 +304,20 @@ impl Display<'_> {
                         p.print(">")?;
                     }
                 }
+            }
+            NodeKind::Tuple => {
+                let Tuple { items } = self.ast.tuple(node);
+                p.print('(')?;
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        p.print(", ")?;
+                    }
+                    self.node(item.value, false, p)?;
+                }
+                if items.len() == 1 {
+                    p.print(',')?;
+                }
+                p.print(')')?;
             }
             NodeKind::TyExpr => {
                 let TyExpr { muta, data } = self.ast.ty_expr(node);
@@ -374,6 +498,41 @@ impl Display<'_> {
                 p.print(c)
             }
         }
+    }
+
+    fn label(&self, l: &S<Label>, p: &mut Printer) -> fmt::Result {
+        p.print(format_args!("@{}", &l.value))
+    }
+
+    fn expr(&self, node: NodeId, p: &mut Printer) -> fmt::Result {
+        let no_parens = matches!(self.ast.node_kind(node),
+            NodeKind::SymPath
+            | NodeKind::FnCall
+            | NodeKind::Literal
+            | NodeKind::FieldAccess
+            | NodeKind::Block);
+        self.expr0(node, no_parens, p)
+    }
+
+    fn expr_excl(&self, node: NodeId, excl: bool, p: &mut Printer) -> fmt::Result {
+        let no_parens = !excl && matches!(self.ast.node_kind(node),
+            NodeKind::SymPath
+            | NodeKind::FnCall
+            | NodeKind::Literal
+            | NodeKind::FieldAccess
+            | NodeKind::Block);
+        self.expr0(node, no_parens, p)
+    }
+
+    fn expr0(&self, node: NodeId, no_parens: bool, p: &mut Printer) -> fmt::Result {
+        if !no_parens {
+            p.print('(')?;
+        }
+        self.node(node, false, p)?;
+        if !no_parens {
+            p.print(')')?;
+        }
+        Ok(())
     }
 }
 

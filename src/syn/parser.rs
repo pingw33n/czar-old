@@ -2,6 +2,7 @@
 mod test;
 
 use std::collections::VecDeque;
+use std::convert::TryFrom;
 
 use super::*;
 
@@ -17,6 +18,28 @@ pub type PResult<T> = Result<T, PError>;
 pub trait Fs {
     fn read_file(&mut self, path: &Path) -> io::Result<String>;
 }
+
+/// `(precedence, associativity)`
+/// `associativity == 0` => right-associativity
+///  `associativity == 1` => left-associativity
+type Prec = (u32, u32);
+
+const FIELD_ACCESS_PREC: Prec = (180, 1);
+const FN_CALL_PREC: Prec = (170, 1);
+const UNWRAP_PREC: Prec = (160, 1);
+const UNARY_PREC: Prec = (150, 1);
+const AS_PREC: Prec = (140, 1);
+const MUL_PREC: Prec = (130, 1);
+const PLUS_PREC: Prec = (120, 1);
+const SHIFT_PREC: Prec = (110, 1);
+const BIT_AND_PREC: Prec = (100, 1);
+const BIT_XOR_PREC: Prec = (90, 1);
+const BIT_OR_PREC: Prec = (80, 1);
+const CMP_PREC: Prec = (70, 1);
+const AND_PREC: Prec = (60, 1);
+const OR_PREC: Prec = (50, 1);
+const RANGE_PREC: Prec = (40, 1);
+const ASSIGN_PREC: Prec = (30, 0);
 
 pub struct Parser<'a> {
     s: &'a str,
@@ -483,7 +506,6 @@ impl<'a> Parser<'a> {
                 Token::ColonColon => {
                     self.consume();
                 }
-                Token::Ident | Token::Lt => {}
                 _ => break,
             }
         }
@@ -782,18 +804,99 @@ impl<'a> Parser<'a> {
         self.expr(0).map(Some)
     }
 
-    fn expr(&mut self, outer_prec: u32) -> PResult<S<NodeId>> {
+    fn unary_op(&mut self, span: Span, kind: UnaryOpKind) -> PResult<S<NodeId>> {
+        let arg = self.expr(UNARY_PREC.0)?;
+        Ok(Span::new(span.start, arg.span.end)
+            .spanned(self.ast.insert_op(Op::Unary(UnaryOp {
+                kind: span.spanned(kind),
+                arg,
+            }))))
+    }
+
+    fn binary_op(&mut self, span: Span, left: S<NodeId>, prec: u32, kind: BinaryOpKind) -> PResult<S<NodeId>> {
+        let right = self.expr(prec)?;
+        Ok(left.span.extended(right.span.end).spanned(self.ast.insert_op(Op::Binary(BinaryOp {
+            kind: span.spanned(kind),
+            left,
+            right,
+        }))))
+    }
+
+    fn check_assoc_defined(&self, left: S<NodeId>, op: S<Token>, f: impl Fn(BinaryOpKind) -> bool)
+        -> PResult<()>
+    {
+        if self.ast.try_op(left.value)
+            .and_then(|n| n.as_binary())
+            .filter(|b| f(b.kind.value))
+            .is_some()
+        {
+            self.fatal(op.span, &format!("associativity is not defined for `{:?}`", op.value))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn expr(&mut self, min_prec: u32) -> PResult<S<NodeId>> {
         let tok = self.nth(0);
         // Handle prefix position.
         let mut left = match tok.value {
             Token::Minus => {
                 self.consume();
-                let arg = self.expr(150)?;
-                Span::new(tok.span.start, arg.span.end)
-                    .spanned(self.ast.insert_op(Op::Unary(UnaryOp {
-                        kind: tok.span.spanned(UnaryOpKind::Neg),
-                        arg,
-                    })))
+                self.unary_op(tok.span, UnaryOpKind::Neg)?
+            }
+            Token::Star => {
+                self.consume();
+                self.unary_op(tok.span, UnaryOpKind::Deref)?
+            }
+            Token::Amp | Token::AmpAmp => {
+                self.consume();
+                if tok.value == Token::AmpAmp {
+                    self.prepend_buf(Span::new(tok.span.start + 1, tok.span.end).spanned(Token::Amp));
+                }
+                let (kind, span) = if let Some(muta) = self.maybe(Token::Keyword(Keyword::Mut)) {
+                    (UnaryOpKind::AddrMut, tok.span.extended(muta.span.end))
+                } else {
+                    (UnaryOpKind::Addr, tok.span)
+                };
+                self.unary_op(span, kind)?
+            }
+            Token::Excl => {
+                self.consume();
+                self.unary_op(tok.span, UnaryOpKind::Not)?
+            }
+            Token::Keyword(Keyword::Break) => {
+                self.consume();
+                let label = self.maybe(Token::Label)
+                    .map(|t| t.span.spanned(lex::label(&self.s[t.span.range()])));
+                let value = self.maybe_expr()?;
+                let span_end = label.as_ref().map(|t| t.span.end)
+                    .or(value.map(|t| t.span.end))
+                    .unwrap_or(tok.span.end);
+                tok.span.extended(span_end).spanned(self.ast.insert_block_flow_ctl(BlockFlowCtl {
+                    kind: BlockFlowCtlKind::Break,
+                    label,
+                    value,
+                }))
+            }
+            Token::Keyword(Keyword::Continue) => {
+                self.consume();
+                tok.span.spanned(self.ast.insert_block_flow_ctl(BlockFlowCtl {
+                    kind: BlockFlowCtlKind::Continue,
+                    label: None,
+                    value: None,
+                }))
+            }
+            Token::Keyword(Keyword::Return) => {
+                self.consume();
+                let value = self.maybe_expr()?;
+                let span_end = value.map(|t| t.span.end)
+                    .unwrap_or(tok.span.end);
+
+                tok.span.extended(span_end).spanned(self.ast.insert_block_flow_ctl(BlockFlowCtl {
+                    kind: BlockFlowCtlKind::Return,
+                    label: None,
+                    value,
+                }))
             }
             Token::Keyword(Keyword::False) | Token::Keyword(Keyword::True) => {
                 self.consume();
@@ -803,31 +906,134 @@ impl<'a> Parser<'a> {
             Token::Literal(_) => {
                 self.literal()?
             }
-            // Expr grouping or tuple.
+            // Expr precedence boost, tuple or unit literal.
             Token::BlockOpen(lex::Block::Paren) => {
                 self.consume();
-                let expr = self.expr(0)?;
-                self.expect(Token::BlockClose(lex::Block::Paren))?;
-                expr
+
+                let first = self.maybe_expr()?;
+
+                let tuple_or_prec = if let Some(first) = first {
+                    if self.maybe(Token::Comma).is_some() {
+                        // Tuple
+                        let mut items = Vec::new();
+                        items.push(first);
+                        while let Some(item) = self.maybe_expr()? {
+                            items.push(item);
+                            if self.maybe(Token::Comma).is_none() {
+                                break;
+                            }
+                        }
+                        let span_end = items.last().unwrap().span.end;
+                        Some(tok.span.extended(span_end).spanned(self.ast.insert_tuple(Tuple {
+                            items
+                        })))
+                    } else {
+                        // Precedence boost
+                        Some(first)
+                    }
+                } else {
+                    None
+                };
+
+                let end = self.expect(Token::BlockClose(lex::Block::Paren))?;
+
+                tuple_or_prec.unwrap_or_else(|| {
+                    // Unit literal.
+                    tok.span.extended(end.span.end)
+                        .spanned(self.ast.insert_literal(Literal::Unit))
+                })
             }
             // Block
             Token::BlockOpen(lex::Block::Brace) => {
                 self.maybe_block()?.unwrap()
             }
+            // Start-unbounded range
+            Token::DotDot | Token::DotDotEq => {
+                self.consume();
+                let kind = if tok.value == Token::DotDot {
+                    RangeKind::Exclusive
+                } else {
+                    RangeKind::Inclusive
+                };
+                let end = self.maybe_expr()?;
+                let span_end = end.map(|v| v.span.end)
+                    .unwrap_or(tok.span.end);
+                tok.span.extended(span_end).spanned(self.ast.insert_range(Range {
+                    kind,
+                    start: None,
+                    end,
+                }))
+            }
             _ => self.sym_path(false)?,
         };
+        let left_is_block = matches!(tok.value, Token::BlockOpen(_));
 
-        // Handle infix position.
+        // Handle infix/postfix position.
         loop {
             let tok = self.nth(0);
-            let prec = match tok.value {
+            let (prec, assoc) = match tok.value {
                 // Field access or method call
-                Token::Dot => 180,
+                Token::Dot => FIELD_ACCESS_PREC,
+
                 // Free fn call
-                Token::BlockOpen(lex::Block::Paren) => 170,
-                Token::Keyword(Keyword::As) => 140,
-                Token::Star | Token::Slash => 130,
-                Token::Plus | Token::Minus => 120,
+                | Token::BlockOpen(lex::Block::Paren)
+                // Indexing
+                | Token::BlockOpen(lex::Block::Bracket)
+                => FN_CALL_PREC,
+
+                Token::Quest | Token::Excl => UNWRAP_PREC,
+
+                Token::Keyword(Keyword::As) => AS_PREC,
+                Token::Star | Token::Slash | Token::Percent => MUL_PREC,
+                Token::Plus | Token::Minus => PLUS_PREC,
+                Token::GtGt | Token::LtLt => SHIFT_PREC,
+                Token::Amp => BIT_AND_PREC,
+                Token::Hat => BIT_XOR_PREC,
+                Token::Pipe => BIT_OR_PREC,
+
+                | Token::EqEq
+                | Token::ExclEq
+                | Token::Lt
+                | Token::LtEq
+                | Token::Gt
+                | Token::GtEq
+                => {
+                    if !left_is_block {
+                        self.check_assoc_defined(left, tok,
+                            |k| matches!(k,
+                                BinaryOpKind::Eq
+                                | BinaryOpKind::NotEq
+                                | BinaryOpKind::Lt
+                                | BinaryOpKind::LtEq
+                                | BinaryOpKind::Gt
+                                | BinaryOpKind::GtEq))?;
+                    }
+                    CMP_PREC
+                }
+
+                Token::AmpAmp => AND_PREC,
+                Token::PipePipe => OR_PREC,
+                Token::DotDot | Token::DotDotEq => {
+                    if !left_is_block {
+                        self.check_assoc_defined(left, tok,
+                            |k| matches!(k, BinaryOpKind::RangeExcl | BinaryOpKind::RangeIncl))?;
+                    }
+                    RANGE_PREC
+                }
+
+                | Token::Eq
+                | Token::PlusEq
+                | Token::MinusEq
+                | Token::StarEq
+                | Token::SlashEq
+                | Token::PercentEq
+                | Token::GtGtEq
+                | Token::LtLtEq
+                | Token::HatEq
+                | Token::PipeEq
+                | Token::AmpEq
+                => ASSIGN_PREC,
+
                 _ => if is_expr_delim(tok.value) {
                     break;
                 } else {
@@ -835,82 +1041,144 @@ impl<'a> Parser<'a> {
                 }
             };
 
-            if outer_prec >= prec {
+            if prec < min_prec {
                 break;
             }
+            let prec = prec + assoc;
 
             self.consume();
-            left = match tok.value {
-                Token::Star => {
-                    let right = self.expr(prec)?;
-                    left.span.extended(right.span.end).spanned(self.ast.insert_op(Op::BinaryOp(BinaryOp {
-                        kind: tok.span.spanned(BinaryOpKind::Mul),
-                        left,
-                        right,
-                    })))
-                }
-                Token::Slash => {
-                    let right = self.expr(prec)?;
-                    left.span.extended(right.span.end).spanned(self.ast.insert_op(Op::BinaryOp(BinaryOp {
-                        kind: tok.span.spanned(BinaryOpKind::Div),
-                        left,
-                        right,
-                    })))
-                }
-                Token::Plus => {
-                    let right = self.expr(prec)?;
-                    left.span.extended(right.span.end).spanned(self.ast.insert_op(Op::BinaryOp(BinaryOp {
-                        kind: tok.span.spanned(BinaryOpKind::Add),
-                        left,
-                        right,
-                    })))
-                }
-                Token::Minus => {
-                    let right = self.expr(prec)?;
-                    left.span.extended(right.span.end).spanned(self.ast.insert_op(Op::BinaryOp(BinaryOp {
-                        kind: tok.span.spanned(BinaryOpKind::Sub),
-                        left,
-                        right,
-                    })))
-                }
-                // Free fn call
-                Token::BlockOpen(lex::Block::Paren) => {
-                    self.fn_call(left.map(FnCallee::Expr), None)?
-                        .map(|v| self.ast.insert_fn_call(v))
-                }
-                // Field access or method call
-                Token::Dot => {
-                    let ident = self.ident()?;
-                    if self.maybe(Token::BlockOpen(lex::Block::Paren)).is_some() {
-                        let callee = ident.span.spanned(FnCallee::Expr(
-                            self.ast.insert_sym_path(SymPath::from_ident(ident))));
-                        self.fn_call(callee, Some(left))?
-                            .map(|v| self.ast.insert_fn_call(v))
-                    } else {
-                        left.span.extended(ident.span.end)
-                            .spanned(self.ast.insert_field_access(FieldAccess {
-                                receiver: left,
-                                field: ident,
-                            }))
+
+            let simple = match tok.value {
+                Token::Star => Some(BinaryOpKind::Mul),
+                Token::Slash => Some(BinaryOpKind::Div),
+                Token::Percent => Some(BinaryOpKind::Rem),
+                Token::Plus => Some(BinaryOpKind::Add),
+                Token::Minus => Some(BinaryOpKind::Sub),
+                Token::GtGt => Some(BinaryOpKind::Shr),
+                Token::LtLt => Some(BinaryOpKind::Shl),
+                Token::Amp => Some(BinaryOpKind::BitAnd),
+                Token::Hat => Some(BinaryOpKind::BitXor),
+                Token::Pipe => Some(BinaryOpKind::BitOr),
+                Token::EqEq => Some(BinaryOpKind::Eq),
+                Token::ExclEq => Some(BinaryOpKind::NotEq),
+                Token::Lt => Some(BinaryOpKind::Lt),
+                Token::LtEq => Some(BinaryOpKind::LtEq),
+                Token::Gt => Some(BinaryOpKind::Gt),
+                Token::GtEq => Some(BinaryOpKind::GtEq),
+                Token::AmpAmp => Some(BinaryOpKind::And),
+                Token::PipePipe => Some(BinaryOpKind::Or),
+                Token::Eq => Some(BinaryOpKind::Assign),
+                Token::PlusEq => Some(BinaryOpKind::AddAssign),
+                Token::MinusEq => Some(BinaryOpKind::SubAssign),
+                Token::StarEq => Some(BinaryOpKind::MulAssign),
+                Token::SlashEq => Some(BinaryOpKind::DivAssign),
+                Token::PercentEq => Some(BinaryOpKind::RemAssign),
+                Token::GtGtEq => Some(BinaryOpKind::ShrAssign),
+                Token::LtLtEq => Some(BinaryOpKind::ShlAssign),
+                Token::HatEq => Some(BinaryOpKind::BitXorAssign),
+                Token::PipeEq => Some(BinaryOpKind::BitOrAssign),
+                Token::AmpEq => Some(BinaryOpKind::BitAndAssign),
+                _ => None,
+            };
+            left = if let Some(simple) = simple {
+                self.binary_op(tok.span, left, prec, simple)?
+            } else {
+                match tok.value {
+                    Token::Dot => {
+                        self.field_access_or_method_call(left)?
                     }
+                    // Free fn call
+                    Token::BlockOpen(lex::Block::Paren) => {
+                        self.fn_call(left, None)?
+                    }
+                    // Indexing
+                    Token::BlockOpen(lex::Block::Bracket) => {
+                        let r = self.binary_op(tok.span, left, 0, BinaryOpKind::Index)?;
+                        self.expect(Token::BlockClose(lex::Block::Bracket))?;
+                        r
+                    }
+                    Token::Quest => {
+                        left.span.extended(tok.span.end)
+                            .spanned(self.ast.insert_op(Op::Unary(UnaryOp {
+                                kind: tok.span.spanned(UnaryOpKind::PropagatingUnwrap),
+                                arg: left,
+                            })))
+                    }
+                    Token::Excl => {
+                        left.span.extended(tok.span.end)
+                            .spanned(self.ast.insert_op(Op::Unary(UnaryOp {
+                                kind: tok.span.spanned(UnaryOpKind::PanickingUnwrap),
+                                arg: left,
+                            })))
+                    }
+                    Token::Keyword(Keyword::As) => {
+                        let ty = self.ty_expr()?;
+                        left.span.extended(ty.span.end).spanned(self.ast.insert_cast(Cast {
+                            expr: left,
+                            ty,
+                        }))
+                    }
+                    // Start-bounded range
+                    Token::DotDot | Token::DotDotEq => {
+                        let kind = if tok.value == Token::DotDot {
+                            RangeKind::Exclusive
+                        } else {
+                            RangeKind::Inclusive
+                        };
+                        let end = self.maybe_expr()?;
+                        let span_end = end.map(|v| v.span.end)
+                            .unwrap_or(tok.span.end);
+                        tok.span.extended(span_end).spanned(self.ast.insert_range(Range {
+                            kind,
+                            start: Some(left),
+                            end,
+                        }))
+                    }
+                    _ => unreachable!(),
                 }
-                Token::Keyword(Keyword::As) => {
-                    let ty = self.ty_expr()?;
-                    left.span.extended(ty.span.end).spanned(self.ast.insert_cast(Cast {
-                        expr: left,
-                        ty,
-                    }))
-                }
-                _ => unreachable!(),
             }
         }
         Ok(left)
     }
 
+    fn field_access_or_method_call(&mut self, receiver: S<NodeId>) -> PResult<S<NodeId>> {
+        let field = self.nth(0);
+        let field = match field.value {
+            Token::Ident => {
+                let ident = self.ident()?;
+                if self.maybe(Token::BlockOpen(lex::Block::Paren)).is_some() {
+                    let callee = ident.span.spanned(
+                        self.ast.insert_sym_path(SymPath::from_ident(ident)));
+                    return self.fn_call(callee, Some(receiver));
+                }
+                ident.map(Field::Ident)
+            }
+            Token::Literal(lex::Literal::Int) => {
+                let IntLiteral { value, ty } = self.int_literal()?;
+                if ty.is_some() {
+                    return self.fatal(field.span, "type suffix is not allowed in tuple field index");
+                }
+                let idx = if let Ok(v) = i32::try_from(value) {
+                    v as u32
+                } else {
+                    return self.fatal(field.span, "tuple field index is too big");
+                };
+                field.span.spanned(Field::Index(idx))
+            }
+            _ => {
+                return self.fatal(field.span,
+                    &format!("expected field identifier or tuple field index, found `{:?}`", field.value));
+            }
+        };
+        Ok(receiver.span.extended(field.span.end)
+            .spanned(self.ast.insert_field_access(FieldAccess {
+                receiver,
+                field,
+            })))
+    }
+
     // Expects the opening paren to be already consumed.
-    fn fn_call(&mut self, callee: S<FnCallee>, receiver: Option<S<NodeId>>)
-        -> PResult<S<FnCall>>
-    {
+    fn fn_call(&mut self, callee: S<NodeId>, receiver: Option<S<NodeId>>) -> PResult<S<NodeId>> {
         let mut args = Vec::new();
         let kind = if let Some(receiver) = receiver {
             args.push(receiver);
@@ -935,14 +1203,11 @@ impl<'a> Parser<'a> {
                 break tok.span.end;
             }
         };
-        Ok(S {
-            span: callee.span.extended(span_end),
-            value: FnCall {
-                callee,
-                kind,
-                args,
-            }
-        })
+        Ok(callee.span.extended(span_end).spanned(self.ast.insert_fn_call(FnCall {
+            callee,
+            kind,
+            args,
+        })))
     }
 
     fn literal(&mut self) -> PResult<S<NodeId>> {
@@ -952,28 +1217,31 @@ impl<'a> Parser<'a> {
         } else {
             return self.fatal(tok.span, &format!("expected literal, found {:?}", tok.value))?;
         };
-        self.consume();
         let lit = match kind {
             lex::Literal::Int => {
-                self.int_literal(tok.span)?
+                Literal::Int(self.int_literal()?)
             }
             lex::Literal::String => {
+                self.consume();
                 self.string_literal(tok.span)?
             }
             lex::Literal::Float => {
+                self.consume();
                 self.float_literal(tok.span)?
             }
             lex::Literal::Char => {
+                self.consume();
                 self.char_literal(tok.span)?
             }
         };
         Ok(tok.with_value(self.ast.insert_literal(lit)))
     }
 
-    fn int_literal(&self, span: Span) -> PResult<Literal> {
+    fn int_literal(&mut self) -> PResult<IntLiteral> {
+        let span = self.expect(Token::Literal(lex::Literal::Int))?.span;
         let s = &self.s[span.range()];
         match s.parse::<IntLiteral>() {
-            Ok(v) => Ok(Literal::Int(v)),
+            Ok(v) => Ok(v),
             Err(_) => {
                 self.fatal(span, "invalid integer literal")
             }

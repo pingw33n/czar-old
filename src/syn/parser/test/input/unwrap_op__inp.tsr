@@ -1,0 +1,5 @@
+fn f() {
+  file.read(&mut buf)?;
+  file.write(&buf)!;
+  foo???.bar!!!.baz?!?!;
+}

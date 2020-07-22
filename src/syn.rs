@@ -13,7 +13,6 @@ use lex::{Keyword, Lexer, Token};
 
 pub use lex::{FloatLiteral, FloatTypeSuffix, IntLiteral, IntTypeSuffix, S, Span, Spanned};
 pub use parser::{parse_file, parse_str};
-use std::fmt::Write;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(transparent)]
@@ -28,6 +27,7 @@ impl NodeId {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NodeKind {
     Block,
+    BlockFlowCtl,
     Cast,
     Empty,
     FieldAccess,
@@ -36,8 +36,10 @@ pub enum NodeKind {
     Literal,
     ModuleDecl,
     Op,
+    Range,
     StructDecl,
     SymPath,
+    Tuple,
     TyExpr,
     UseStmt,
     UsePath,
@@ -50,6 +52,7 @@ pub type NodeMap<T> = HashMap<NodeId, T>;
 pub struct Ast {
     nodes: Slab<NodeKind>,
     blocks: NodeMap<Block>,
+    block_flow_ctls: NodeMap<BlockFlowCtl>,
     casts: NodeMap<Cast>,
     field_accesses: NodeMap<FieldAccess>,
     fn_decls: NodeMap<FnDecl>,
@@ -57,9 +60,11 @@ pub struct Ast {
     literals: NodeMap<Literal>,
     module_decls: NodeMap<ModuleDecl>,
     ops: NodeMap<Op>,
+    ranges: NodeMap<Range>,
     sym_paths: NodeMap<SymPath>,
     var_decls: NodeMap<VarDecl>,
     struct_decls: NodeMap<StructDecl>,
+    tuples: NodeMap<Tuple>,
     ty_exprs: NodeMap<TyExpr>,
     use_stmts: NodeMap<UseStmt>,
     use_paths: NodeMap<UsePath>,
@@ -68,10 +73,15 @@ pub struct Ast {
 }
 
 macro_rules! ast_node_ops {
-    ($($insert:ident, $get:ident, $f:ident, $ty:ident;)*) => {
+    ($($insert:ident, $get:ident, $try_get:ident, $f:ident, $ty:ident;)*) => {
         $(
         pub fn $get(&self, id: NodeId) -> &$ty {
             &self.$f[&id]
+        }
+
+
+        pub fn $try_get(&self, id: NodeId) -> Option<&$ty> {
+            self.$f.get(&id)
         }
 
         pub fn $insert(&mut self, v: $ty) -> NodeId {
@@ -88,6 +98,7 @@ impl Ast {
         Self {
             nodes: Default::default(),
             blocks: Default::default(),
+            block_flow_ctls: Default::default(),
             casts: Default::default(),
             field_accesses: Default::default(),
             fn_decls: Default::default(),
@@ -95,9 +106,11 @@ impl Ast {
             literals: Default::default(),
             module_decls: Default::default(),
             ops: Default::default(),
+            ranges: Default::default(),
             var_decls: Default::default(),
             struct_decls: Default::default(),
             sym_paths: Default::default(),
+            tuples: Default::default(),
             ty_exprs: Default::default(),
             use_stmts: Default::default(),
             use_paths: Default::default(),
@@ -118,47 +131,66 @@ impl Ast {
     }
 
     ast_node_ops! {
-        insert_block, block, blocks, Block;
-        insert_cast, cast, casts, Cast;
-        insert_field_access, field_access, field_accesses, FieldAccess;
-        insert_fn_decl, fn_decl, fn_decls, FnDecl;
-        insert_fn_call, fn_call, fn_calls, FnCall;
-        insert_literal, literal, literals, Literal;
-        insert_module_decl, module_decl, module_decls, ModuleDecl;
-        insert_op, op, ops, Op;
-        insert_struct_decl, struct_decl, struct_decls, StructDecl;
-        insert_sym_path, sym_path, sym_paths, SymPath;
-        insert_ty_expr, ty_expr, ty_exprs, TyExpr;
-        insert_use_stmt, use_stmt, use_stmts, UseStmt;
-        insert_use_path, use_path, use_paths, UsePath;
-        insert_var_decl, var_decl, var_decls, VarDecl;
+        insert_block, block, try_block, blocks, Block;
+        insert_block_flow_ctl, block_flow_ctl, try_block_flow_ctl, block_flow_ctls, BlockFlowCtl;
+        insert_cast, cast, try_cast, casts, Cast;
+        insert_field_access, field_access, try_field_access, field_accesses, FieldAccess;
+        insert_fn_decl, fn_decl, try_fn_decl, fn_decls, FnDecl;
+        insert_fn_call, fn_call, try_fn_call, fn_calls, FnCall;
+        insert_literal, literal, try_literal, literals, Literal;
+        insert_module_decl, module_decl, try_module_decl, module_decls, ModuleDecl;
+        insert_op, op, try_op, ops, Op;
+        insert_range, range, try_range, ranges, Range;
+        insert_struct_decl, struct_decl, try_struct_decl, struct_decls, StructDecl;
+        insert_sym_path, sym_path, try_sym_path, sym_paths, SymPath;
+        insert_tuple, tuple, try_tuple, tuples, Tuple;
+        insert_ty_expr, ty_expr, try_ty_expr, ty_exprs, TyExpr;
+        insert_use_stmt, use_stmt, try_use_stmt, use_stmts, UseStmt;
+        insert_use_path, use_path, try_use_path, use_paths, UsePath;
+        insert_var_decl, var_decl, try_var_decl, var_decls, VarDecl;
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumAsInner)]
 pub enum Op {
-    BinaryOp(BinaryOp),
+    Binary(BinaryOp),
     Unary(UnaryOp),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BinaryOpKind {
     Add,
+    AddAssign,
+    And,
+    Assign,
+    BitAnd,
+    BitAndAssign,
+    BitOr,
+    BitOrAssign,
+    BitXor,
+    BitXorAssign,
     Div,
+    DivAssign,
+    Eq,
+    Gt,
+    GtEq,
+    Index,
+    Lt,
+    LtEq,
+    Rem,
+    RemAssign,
     Mul,
+    MulAssign,
+    NotEq,
+    Or,
+    RangeExcl,
+    RangeIncl,
+    Shl,
+    ShlAssign,
+    Shr,
+    ShrAssign,
     Sub,
-}
-
-impl fmt::Display for BinaryOpKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use BinaryOpKind::*;
-        f.write_char(match self {
-            Add => '+',
-            Div => '/',
-            Mul => '*',
-            Sub => '-',
-        })
-    }
+    SubAssign,
 }
 
 #[derive(Debug)]
@@ -170,16 +202,13 @@ pub struct BinaryOp {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UnaryOpKind {
+    Addr,
+    AddrMut,
+    Deref,
     Neg,
-}
-
-impl fmt::Display for UnaryOpKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use UnaryOpKind::*;
-        f.write_char(match self {
-            Neg => '-',
-        })
-    }
+    Not,
+    PanickingUnwrap,
+    PropagatingUnwrap,
 }
 
 #[derive(Debug)]
@@ -209,7 +238,22 @@ impl Block {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BlockFlowCtlKind {
+    Break,
+    Continue,
+    Return,
+}
+
+#[derive(Debug)]
+pub struct BlockFlowCtl {
+    pub kind: BlockFlowCtlKind,
+    pub label: Option<S<Label>>,
+    pub value: Option<S<NodeId>>,
+}
+
 pub type Ident = String;
+pub type Label = String;
 
 /// ```
 /// [pub] mod mymod;
@@ -253,20 +297,9 @@ pub enum FnCallKind {
 
 #[derive(Debug)]
 pub struct FnCall {
-    pub callee: S<FnCallee>,
+    pub callee: S<NodeId>,
     pub kind: FnCallKind,
     pub args: Vec<S<NodeId>>,
-}
-
-#[derive(Debug)]
-pub enum FnCallee {
-    Intrinsic(Intrinsic),
-    Expr(NodeId),
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum Intrinsic {
-    OverflowingAdd,
 }
 
 // struct Struct<X: Display>
@@ -280,6 +313,7 @@ pub enum Literal {
     String(String),
     Int(IntLiteral),
     Float(FloatLiteral),
+    Unit,
 }
 
 #[derive(Debug)]
@@ -409,10 +443,25 @@ pub struct PathItem {
     pub ty_args: Vec<S<NodeId>>, // TyExpr
 }
 
+#[derive(Debug, EnumAsInner)]
+pub enum Field {
+    Ident(Ident),
+    Index(u32),
+}
+
+impl fmt::Display for Field {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Ident(v) => f.write_str(v),
+            Self::Index(v) => write!(f, "{}", v),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct FieldAccess {
     pub receiver: S<NodeId>,
-    pub field: S<Ident>,
+    pub field: S<Field>,
 }
 
 #[derive(Debug)]
@@ -455,4 +504,17 @@ pub struct UseStmt {
 pub struct AnchoredPath {
     pub anchor: Option<PathAnchor>,
     pub path: NodeId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum RangeKind {
+    Exclusive,
+    Inclusive,
+}
+
+#[derive(Debug)]
+pub struct Range {
+    pub kind: RangeKind,
+    pub start: Option<S<NodeId>>,
+    pub end: Option<S<NodeId>>,
 }

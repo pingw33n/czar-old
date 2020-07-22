@@ -124,6 +124,9 @@ impl<'a> Codegen<'a> {
                 }
                 NodeKind::StructDecl => unimplemented!(),
                 NodeKind::UseStmt => unimplemented!(),
+                NodeKind::BlockFlowCtl => unimplemented!(),
+                NodeKind::Range => unimplemented!(),
+                NodeKind::Tuple => unimplemented!(),
                 | NodeKind::Block
                 | NodeKind::Cast
                 | NodeKind::Empty
@@ -285,11 +288,12 @@ impl<'a> Codegen<'a> {
                     &Literal::Bool(v) => unsafe {
                         LLVMConstInt(LLVMInt8TypeInContext(self.context), v as u64, 0).into()
                     }
+                    &Literal::Unit => Value::Void,
                 }
             }
             NodeKind::Op => {
                 match self.ast.op(node) {
-                    Op::BinaryOp(op) => {
+                    Op::Binary(op) => {
                         let l = self.expr(op.left.value, ctx).into_value().unwrap();
                         let r = self.expr(op.right.value, ctx).into_value().unwrap();
                         match op.kind.value {
@@ -314,6 +318,34 @@ impl<'a> Codegen<'a> {
                                     LLVMBuildSub(self.builder, l.as_ptr(), r.as_ptr(), empty_cstr())
                                 }
                             }
+                            BinaryOpKind::AddAssign => unimplemented!(),
+                            BinaryOpKind::And => unimplemented!(),
+                            BinaryOpKind::Assign => unimplemented!(),
+                            BinaryOpKind::BitAnd => unimplemented!(),
+                            BinaryOpKind::BitOr => unimplemented!(),
+                            BinaryOpKind::BitXor => unimplemented!(),
+                            BinaryOpKind::DivAssign => unimplemented!(),
+                            BinaryOpKind::Eq => unimplemented!(),
+                            BinaryOpKind::Gt => unimplemented!(),
+                            BinaryOpKind::GtEq => unimplemented!(),
+                            BinaryOpKind::Index => unimplemented!(),
+                            BinaryOpKind::Lt => unimplemented!(),
+                            BinaryOpKind::LtEq => unimplemented!(),
+                            BinaryOpKind::Rem => unimplemented!(),
+                            BinaryOpKind::RemAssign => unimplemented!(),
+                            BinaryOpKind::MulAssign => unimplemented!(),
+                            BinaryOpKind::NotEq => unimplemented!(),
+                            BinaryOpKind::Or => unimplemented!(),
+                            BinaryOpKind::RangeExcl => unimplemented!(),
+                            BinaryOpKind::RangeIncl => unimplemented!(),
+                            BinaryOpKind::Shl => unimplemented!(),
+                            BinaryOpKind::ShlAssign => unimplemented!(),
+                            BinaryOpKind::Shr => unimplemented!(),
+                            BinaryOpKind::ShrAssign => unimplemented!(),
+                            BinaryOpKind::SubAssign => unimplemented!(),
+                            BinaryOpKind::BitAndAssign => unimplemented!(),
+                            BinaryOpKind::BitOrAssign => unimplemented!(),
+                            BinaryOpKind::BitXorAssign => unimplemented!(),
                         }
                     }
                     Op::Unary(op) => {
@@ -324,42 +356,40 @@ impl<'a> Codegen<'a> {
                                     LLVMBuildNeg(self.builder, arg.as_ptr(), empty_cstr())
                                 }
                             }
+                            UnaryOpKind::Addr => unimplemented!(),
+                            UnaryOpKind::AddrMut => unimplemented!(),
+                            UnaryOpKind::Deref => unimplemented!(),
+                            UnaryOpKind::Not => unimplemented!(),
+                            UnaryOpKind::PanickingUnwrap => unimplemented!(),
+                            UnaryOpKind::PropagatingUnwrap => unimplemented!(),
                         }
                     }
                 }.into()
             }
             NodeKind::FnCall => {
                 let fn_call = self.ast.fn_call(node);
-                match &fn_call.callee.value {
-                    FnCallee::Intrinsic(intr) => {
-                        assert_eq!(fn_call.kind, FnCallKind::Free);
-                        match intr {
-                            Intrinsic::OverflowingAdd => unimplemented!()
-                        }
+                let callee = self.expr(fn_call.callee.value, ctx).into_value().unwrap().as_ptr();
+                let mut args = Vec::with_capacity(fn_call.args.len());
+                for a in &fn_call.args {
+                    let v = self.expr(a.value, ctx);
+                    v.dump();
+                    if let Value::Value(v) = v {
+                        args.push(v.as_ptr());
                     }
-                    &FnCallee::Expr(expr) => {
-                        let callee = self.expr(expr, ctx).into_value().unwrap().as_ptr();
-                        let mut args = Vec::with_capacity(fn_call.args.len());
-                        for a in &fn_call.args {
-                            let v = self.expr(a.value, ctx);
-                            v.dump();
-                            if let Value::Value(v) = v {
-                                args.push(v.as_ptr());
-                            }
-                        }
-                        unsafe {
-                            let ty = LLVMGlobalGetValueType(callee);
-                            // dbg!(LLVMGetTypeKind(LLVMGetParam(f, 0)));
-                        }
-                        unsafe {
-                            let r = LLVMBuildCall(self.builder, callee, args.as_mut_ptr(), args.len() as u32, empty_cstr());
-                            r.into()
-                        }
-                    }
+                }
+                unsafe {
+                    let ty = LLVMGlobalGetValueType(callee);
+                    // dbg!(LLVMGetTypeKind(LLVMGetParam(f, 0)));
+                }
+                unsafe {
+                    let r = LLVMBuildCall(self.builder, callee, args.as_mut_ptr(), args.len() as u32, empty_cstr());
+                    r.into()
                 }
             }
             NodeKind::SymPath => unimplemented!(),
             NodeKind::UseStmt => unimplemented!(),
+            NodeKind::Tuple => unimplemented!(),
+            NodeKind::Range => unimplemented!(),
             NodeKind::UsePath => unreachable!(),
             NodeKind::Empty => Value::Void,
             //     {
@@ -406,6 +436,7 @@ impl<'a> Codegen<'a> {
             NodeKind::ModuleDecl => unimplemented!(),
             NodeKind::FieldAccess => unimplemented!(),
             NodeKind::StructDecl => unimplemented!(),
+            NodeKind::BlockFlowCtl => unimplemented!(),
             NodeKind::TyExpr => unreachable!(),
         }
     }

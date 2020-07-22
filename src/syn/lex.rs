@@ -96,6 +96,7 @@ pub enum Token {
     BlockOpen(Block),
     Comment,
     Ident,
+    Label,
     Keyword(Keyword),
     Literal(Literal),
 
@@ -113,6 +114,8 @@ pub enum Token {
     DotDotEq,
     /// ==
     EqEq,
+    /// !=
+    ExclEq,
     /// =>
     FatArrow,
     /// >=
@@ -125,6 +128,28 @@ pub enum Token {
     LtLt,
     /// ->
     RArrow,
+    /// +=
+    PlusEq,
+    /// -=
+    MinusEq,
+    /// /=
+    SlashEq,
+    /// *=
+    StarEq,
+    /// %=
+    PercentEq,
+    /// &=
+    AmpEq,
+    /// |=
+    PipeEq,
+    /// ||
+    PipePipe,
+    /// ^=
+    HatEq,
+    /// >>=
+    GtGtEq,
+    /// <<=
+    LtLtEq,
 
     /// &
     Amp,
@@ -154,6 +179,12 @@ pub enum Token {
     Slash,
     /// *
     Star,
+    /// !
+    Excl,
+    /// ?
+    Quest,
+    /// ^
+    Hat,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -178,6 +209,7 @@ pub enum Keyword {
     Mut,
     Package,
     Pub,
+    Ref,
     Return,
     SelfLower,
     SelfUpper,
@@ -221,6 +253,7 @@ impl FromStr for Keyword {
             "mut" => Mut,
             "package" => Package,
             "pub" => Pub,
+            "ref" => Ref,
             "return" => Return,
             "self" => SelfLower,
             "Self" => SelfUpper,
@@ -300,6 +333,10 @@ impl<'a> Lexer<'a> {
             '/' => match self.nth(0) {
                 '/' => self.line_comment(),
                 '*' => self.block_comment(start),
+                '=' => {
+                    self.next_char();
+                    Token::SlashEq
+                }
                 _ => Token::Slash,
             }
             c if is_whitespace(c) => self.whitespace(),
@@ -311,17 +348,27 @@ impl<'a> Lexer<'a> {
             ']' => Token::BlockClose(Block::Bracket),
             '}' => Token::BlockClose(Block::Brace),
 
-            '&' => if self.nth(0) == '&' {
-                self.next_char();
-                Token::AmpAmp
-            } else {
-                Token::Amp
+            '&' => match self.nth(0) {
+                '&' => {
+                    self.next_char();
+                    Token::AmpAmp
+                }
+                '=' => {
+                    self.next_char();
+                    Token::AmpEq
+                }
+                _ => Token::Amp,
             }
-            '-' => if self.nth(0) == '>' {
-                self.next_char();
-                Token::RArrow
-            } else {
-                Token::Minus
+            '-' => match self.nth(0) {
+                '>' => {
+                    self.next_char();
+                    Token::RArrow
+                }
+                '=' => {
+                    self.next_char();
+                    Token::MinusEq
+                }
+                _ => Token::Minus,
             }
             '>' => match self.nth(0) {
                 '=' => {
@@ -330,7 +377,12 @@ impl<'a> Lexer<'a> {
                 }
                 '>' => {
                     self.next_char();
-                    Token::GtGt
+                    if self.nth(0) == '=' {
+                        self.next_char();
+                        Token::GtGtEq
+                    } else {
+                        Token::GtGt
+                    }
                 }
                 _ => Token::Gt,
             }
@@ -341,7 +393,12 @@ impl<'a> Lexer<'a> {
                 }
                 '<' => {
                     self.next_char();
-                    Token::LtLt
+                    if self.nth(0) == '=' {
+                        self.next_char();
+                        Token::LtLtEq
+                    } else {
+                        Token::LtLt
+                    }
                 }
                 _ => Token::Lt,
             }
@@ -378,16 +435,55 @@ impl<'a> Lexer<'a> {
             } else {
                 Token::Colon
             }
+            '!' => if self.nth(0) == '=' {
+                self.next_char();
+                Token::ExclEq
+            } else {
+                Token::Excl
+            }
+            '+' => if self.nth(0) == '=' {
+                self.next_char();
+                Token::PlusEq
+            } else {
+                Token::Plus
+            }
+            '*' => if self.nth(0) == '=' {
+                self.next_char();
+                Token::StarEq
+            } else {
+                Token::Star
+            }
+            '|' => match self.nth(0) {
+                '=' => {
+                    self.next_char();
+                    Token::PipeEq
+                }
+                '|' => {
+                    self.next_char();
+                    Token::PipePipe
+                }
+                _ => Token::Pipe,
+            }
+            '%' => if self.nth(0) == '=' {
+                self.next_char();
+                Token::PercentEq
+            } else {
+                Token::Percent
+            }
+            '^' => if self.nth(0) == '=' {
+                self.next_char();
+                Token::HatEq
+            } else {
+                Token::Hat
+            }
 
-            '+' => Token::Plus,
             ';' => Token::Semi,
-            '*' => Token::Star,
             ',' => Token::Comma,
-            '|' => Token::Pipe,
-            '%' => Token::Percent,
-
+            '?' => Token::Quest,
             '"' => self.string(start),
             '\'' => self.char(start),
+
+            '@' if is_ident_start(self.nth(0)) => self.label(),
 
             c if c.is_ascii_digit() => self.number(c, start),
 
@@ -471,14 +567,7 @@ impl<'a> Lexer<'a> {
         } else {
             false
         };
-        self.skip_while(|c| match c {
-            | 'a'..='z'
-            | 'A'..='Z'
-            | '0'..='9'
-            | '_'
-            => true,
-            _ => false,
-        });
+        self.skip_while(is_ident_middle);
         if raw {
             Token::Ident
         } else {
@@ -487,6 +576,12 @@ impl<'a> Lexer<'a> {
                 .map(Token::Keyword)
                 .unwrap_or(Token::Ident)
         }
+    }
+
+    fn label(&mut self) -> Token {
+        self.next_char();
+        self.skip_while(is_ident_middle);
+        Token::Label
     }
 
     fn unknown(&mut self, start: usize) -> Token {
@@ -506,22 +601,23 @@ impl<'a> Lexer<'a> {
             }
         };
 
-        #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+        #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
         enum FloatPart {
             None,
             Frac,
-            Exp,
+            ExpStart,
+            ExpMiddle,
         }
         let mut float_part = FloatPart::None;
         loop {
             match self.nth(0) {
                 'e' | 'E' => if radix == Radix::Dec {
-                    self.next_char();
-                    if float_part < FloatPart::Exp {
-                        float_part = FloatPart::Exp;
-                        match self.nth(0) {
+                    if float_part < FloatPart::ExpStart {
+                        float_part = FloatPart::ExpStart;
+                        match self.nth(1) {
                             '+' | '-' => {
                                 self.next_char();
+                                float_part = FloatPart::ExpMiddle;
                             }
                             _ => {}
                         }
@@ -529,8 +625,10 @@ impl<'a> Lexer<'a> {
                 }
                 '.' => {
                     if float_part == FloatPart::None {
-                        if is_ident_start(self.nth(1)) {
+                        let next = self.nth(1);
+                        if is_ident_start(next) || next == '.' {
                             // 0.abs
+                            // 0..10
                             break;
                         }
                         float_part = FloatPart::Frac;
@@ -540,12 +638,22 @@ impl<'a> Lexer<'a> {
                         break;
                     }
                 }
-                '0'..='9' | 'A'..='Z' | 'a'..='z' | '_' => {}
+                '0'..='9' => {
+                    if float_part == FloatPart::ExpStart {
+                        float_part = FloatPart::ExpMiddle;
+                    }
+                }
+                'A'..='Z' | 'a'..='z' | '_' => {}
                 _ => break,
             }
             self.next_char();
         }
-        let lit = if float_part == FloatPart::None {
+        dbg!(&float_part, &self.s[start..self.pos()]);
+        let lit = if float_part == FloatPart::ExpStart
+            && self.s[start..self.pos()].parse::<IntTypeSuffix>().is_ok()
+        {
+            Literal::Int
+        } else if float_part == FloatPart::None {
             if let Ok(_) = self.s[start..self.pos()].parse::<FloatTypeSuffix>() {
                 Literal::Float
             } else {
@@ -662,14 +770,18 @@ impl IntTypeSuffix {
             _ => unreachable!(),
         }
     }
+}
 
-    fn detect(s: &str) -> Option<Self> {
+impl FromStr for IntTypeSuffix {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         for (i, &suff) in INT_TYPE_SUFFIXES.iter().enumerate() {
             if s.ends_with(suff) {
-                return Some(Self::try_from(i as u32).unwrap());
+                return Ok(Self::try_from(i as u32).unwrap());
             }
         }
-        None
+        Err(())
     }
 }
 
@@ -697,7 +809,7 @@ impl FromStr for IntLiteral {
     type Err = IntLiteralError;
 
     fn from_str(mut s: &str) -> Result<Self, Self::Err> {
-        let ty = IntTypeSuffix::detect(s);
+        let ty = s.parse::<IntTypeSuffix>().ok();
         if let Some(ty) = ty {
             s = &s[..s.len() - ty.as_str().len()];
         }
@@ -970,6 +1082,12 @@ pub fn ident(s: &str) -> String {
     }.into()
 }
 
+pub fn label(s: &str) -> String {
+    assert!(s.len() > 1);
+    assert_eq!(s.as_bytes()[0], b'@');
+    s[1..].into()
+}
+
 fn is_whitespace(c: char) -> bool {
     match c {
         | '\u{0009}' // \t
@@ -987,6 +1105,17 @@ fn is_ident_start(c: char) -> bool {
     match c {
         | 'a'..='z'
         | 'A'..='Z'
+        | '_'
+        => true,
+        _ => false,
+    }
+}
+
+fn is_ident_middle(c: char) -> bool {
+    match c {
+        | 'a'..='z'
+        | 'A'..='Z'
+        | '0'..='9'
         | '_'
         => true,
         _ => false,
