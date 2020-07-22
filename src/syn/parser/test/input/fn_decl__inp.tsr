@@ -8,3 +8,13 @@ pub fn main() -> i32 {
 }
 
 fn foo(s: &str) {}
+
+fn foo(self) {}
+fn foo(&self) {}
+
+fn foo(&mut self, arg1: u32, arg2: Self, ...) -> &&mut Self {
+  Self::bar(*self, arg1, arg2);
+  self.x = 0;
+  self.foo();
+  let self_: &Self = self;
+}

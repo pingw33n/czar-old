@@ -1,7 +1,6 @@
-use std::fmt;
+use std::fmt::{self, Result, Write};
 
 use super::*;
-use std::fmt::{Formatter, Write};
 
 impl Ast {
     pub fn display(&self) -> Display {
@@ -18,7 +17,7 @@ pub struct Display<'a> {
 }
 
 impl Display<'_> {
-    fn node(&self, node: NodeId, in_type_pos: bool, p: &mut Printer) -> fmt::Result {
+    fn node(&self, node: NodeId, in_type_pos: bool, p: &mut Printer) -> Result {
         match self.ast.node_kind(node) {
             NodeKind::Block => {
                 let Block { exprs } = self.ast.block(node);
@@ -103,9 +102,19 @@ impl Display<'_> {
                     if i > 0 {
                         p.print(", ")?;
                     }
-                    p.print(&name.value)?;
-                    p.print(": ")?;
-                    self.node(ty.value, in_type_pos, p)?;
+                    match &name.value {
+                        FnArgName::Ident(v) => {
+                            p.print(v)?;
+                            p.print(": ")?;
+                            self.node(ty.value, true, p)?;
+                        }
+                        FnArgName::Self_ => {
+                            let s = &mut String::new();
+                            self.node(ty.value, true, &mut Printer::new(s))?;
+                            p.print(s.to_ascii_lowercase())?;
+                        }
+                    }
+
                     if variadic.is_some() && i == args.len() - 1 {
                         p.print(", ...")?;
                     }
@@ -293,7 +302,7 @@ impl Display<'_> {
                         p.print("::")?;
                     }
 
-                    self.ident(ident, p)?;
+                    self.path_ident(ident, p)?;
                     if !ty_args.is_empty() {
                         p.print("<")?;
                         for (i, v) in ty_args.iter().enumerate() {
@@ -381,7 +390,7 @@ impl Display<'_> {
                 if muta.is_some() {
                     p.print("mut ")?;
                 }
-                self.ident(name, p)?;
+                self.ident(&name.value, p)?;
                 if let Some(ty) = ty {
                     p.print(": ")?;
                     self.node(ty.value, true, p)?;
@@ -398,7 +407,7 @@ impl Display<'_> {
         Ok(())
     }
 
-    fn vis(&self, vis: &Option<S<Vis>>, p: &mut Printer) -> fmt::Result {
+    fn vis(&self, vis: &Option<S<Vis>>, p: &mut Printer) -> Result {
         if let Some(vis) = vis {
             p.print("pub")?;
             if let Some(r) = &vis.value.restrict {
@@ -412,7 +421,7 @@ impl Display<'_> {
         Ok(())
     }
 
-    fn path_anchor(&self, v: Option<PathAnchor>, p: &mut Printer) -> fmt::Result {
+    fn path_anchor(&self, v: Option<PathAnchor>, p: &mut Printer) -> Result {
         if let Some(v) = v {
             match v {
                 PathAnchor::Package => p.print("package::"),
@@ -423,7 +432,7 @@ impl Display<'_> {
         Ok(())
     }
 
-    fn use_path(&self, node: NodeId, p: &mut Printer) -> fmt::Result {
+    fn use_path(&self, node: NodeId, p: &mut Printer) -> Result {
         let UsePath { prefix, terms } = self.ast.use_path(node);
         for ident in prefix.iter() {
             p.print(&ident.value)?;
@@ -465,7 +474,7 @@ impl Display<'_> {
         Ok(())
     }
 
-    fn path_term_as(&self, v: &Option<S<Ident>>, p: &mut Printer) -> fmt::Result {
+    fn path_term_as(&self, v: &Option<S<Ident>>, p: &mut Printer) -> Result {
         if let Some(v) = v {
             p.print_sep("as")?;
             p.print_sep(&v.value)?;
@@ -473,21 +482,29 @@ impl Display<'_> {
         Ok(())
     }
 
-    fn ident(&self, ident: &S<Ident>, p: &mut Printer) -> fmt::Result {
-        let raw = match ident.value.to_ascii_lowercase().as_str() {
+    fn ident(&self, ident: &Ident, p: &mut Printer) -> Result {
+        let raw = match ident.to_ascii_lowercase().as_str() {
             // Disambiguate for float literal tests.
             "inf" | "infinity" | "nan" => true,
-            _ => ident.value.parse::<Keyword>().is_ok(),
+            _ => ident.parse::<Keyword>().is_ok(),
         };
 
         if raw {
             p.print("r#")?;
         }
 
-        p.print(&ident.value)
+        p.print(ident)
     }
 
-    fn char(&self, c: char, escape_single_quote: bool, p: &mut Printer) -> fmt::Result {
+    fn path_ident(&self, ident: &S<PathIdent>, p: &mut Printer) -> Result {
+        match &ident.value {
+            PathIdent::Ident(v) => self.ident(v, p),
+            PathIdent::SelfType => p.print("Self"),
+            PathIdent::SelfValue => p.print("self"),
+        }
+    }
+
+    fn char(&self, c: char, escape_single_quote: bool, p: &mut Printer) -> Result {
         match c {
             '\n' => p.print(r"\n"),
             '\r' => p.print(r"\r"),
@@ -504,11 +521,11 @@ impl Display<'_> {
         }
     }
 
-    fn label(&self, l: &S<Label>, p: &mut Printer) -> fmt::Result {
+    fn label(&self, l: &S<Label>, p: &mut Printer) -> Result {
         p.print(format_args!("@{}", &l.value))
     }
 
-    fn expr(&self, node: NodeId, p: &mut Printer) -> fmt::Result {
+    fn expr(&self, node: NodeId, p: &mut Printer) -> Result {
         let no_parens = matches!(self.ast.node_kind(node),
             NodeKind::SymPath
             | NodeKind::FnCall
@@ -518,7 +535,7 @@ impl Display<'_> {
         self.expr0(node, no_parens, p)
     }
 
-    fn expr_excl(&self, node: NodeId, excl: bool, p: &mut Printer) -> fmt::Result {
+    fn expr_excl(&self, node: NodeId, excl: bool, p: &mut Printer) -> Result {
         let no_parens = !excl && matches!(self.ast.node_kind(node),
             NodeKind::SymPath
             | NodeKind::FnCall
@@ -528,7 +545,7 @@ impl Display<'_> {
         self.expr0(node, no_parens, p)
     }
 
-    fn expr0(&self, node: NodeId, no_parens: bool, p: &mut Printer) -> fmt::Result {
+    fn expr0(&self, node: NodeId, no_parens: bool, p: &mut Printer) -> Result {
         if !no_parens {
             p.print('(')?;
         }
@@ -540,27 +557,35 @@ impl Display<'_> {
     }
 }
 
-struct Printer<'a, 'b: 'a> {
-    f: &'a mut Formatter<'b>,
+struct Printer<'a> {
+    w: &'a mut dyn Write,
     indent: u32,
     bol: bool,
 }
 
-impl Printer<'_, '_> {
-    fn println(&mut self, f: impl fmt::Display) -> fmt::Result {
+impl<'a> Printer<'a> {
+    fn new(w: &'a mut dyn Write) -> Self {
+        Self {
+            w,
+            indent: 0,
+            bol: true,
+        }
+    }
+
+    fn println(&mut self, f: impl fmt::Display) -> Result {
         self.print(f)?;
         self.nl()
     }
 
-    fn print(&mut self, f: impl fmt::Display) -> fmt::Result {
+    fn print(&mut self, f: impl fmt::Display) -> Result {
         self.print0(false, f)
     }
 
-    fn print_sep(&mut self, f: impl fmt::Display) -> fmt::Result {
+    fn print_sep(&mut self, f: impl fmt::Display) -> Result {
         self.print0(true, f)
     }
 
-    fn print_sep_seq<D: fmt::Display, I: Iterator<Item=D>>(&mut self, it: I, sep: &str) -> fmt::Result {
+    fn print_sep_seq<D: fmt::Display, I: Iterator<Item=D>>(&mut self, it: I, sep: &str) -> Result {
         for (i, v) in it.enumerate() {
             if i > 0 {
                 self.print(sep)?;
@@ -570,22 +595,22 @@ impl Printer<'_, '_> {
         Ok(())
     }
 
-    fn print0(&mut self, sep: bool, f: impl fmt::Display) -> fmt::Result {
+    fn print0(&mut self, sep: bool, f: impl fmt::Display) -> Result {
         if self.bol {
             self.repeat(' ', self.indent)?;
             self.bol = false;
         } else if sep {
-            self.f.write_char(' ')?;
+            self.w.write_char(' ')?;
         }
-        f.fmt(self.f)
+        write!(self.w, "{}", f)
     }
 
-    fn nl(&mut self) -> fmt::Result {
+    fn nl(&mut self) -> Result {
         self.bol = true;
-        self.f.write_char('\n')
+        self.w.write_char('\n')
     }
 
-    fn indent(&mut self) -> fmt::Result {
+    fn indent(&mut self) -> Result {
         self.indent += 2;
         if !self.bol {
             self.nl()?;
@@ -593,7 +618,7 @@ impl Printer<'_, '_> {
         Ok(())
     }
 
-    fn unindent(&mut self) -> fmt::Result {
+    fn unindent(&mut self) -> Result {
         self.indent -= 2;
         if !self.bol {
             self.nl()?;
@@ -601,16 +626,16 @@ impl Printer<'_, '_> {
         Ok(())
     }
 
-    fn repeat(&mut self, d: impl fmt::Display, count: u32) -> fmt::Result {
+    fn repeat(&mut self, d: impl fmt::Display, count: u32) -> Result {
         for _ in 0..count {
-            d.fmt(self.f)?;
+            write!(self.w, "{}", d)?;
         }
         Ok(())
     }
 }
 
 impl<'a> fmt::Display for Display<'a> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.node(self.node, false, &mut Printer { f, indent: 0, bol: true, })
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result {
+        self.node(self.node, false, &mut Printer::new(f))
     }
 }

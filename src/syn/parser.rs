@@ -232,10 +232,54 @@ impl<'a> Parser<'a> {
                 let tok = self.lex.next();
                 variadic = Some(tok.map(|_| {}));
             } else {
-                let arg_name = self.ident()?;
-                self.expect(Token::Colon)?;
-                let arg_ty = self.ty_expr()?;
-                args.push(FnDeclArg { name: arg_name, ty: arg_ty });
+                let arg = if args.is_empty() {
+                    let ref_ = self.maybe(Token::Amp);
+                    let mut_ = self.maybe(Token::Keyword(Keyword::Mut));
+                    let self_ = self.maybe(Token::Keyword(Keyword::SelfLower));
+                    if (ref_.is_some() || mut_.is_some()) && self_.is_none() {
+                        let tok = self.lex.nth(0);
+                        return self.fatal(tok.span, &format!("expected `self`, found `{:?}`", tok.value));
+                    }
+                    if let Some(self_) = self_ {
+                        let ty = self.ast.insert_sym_path(SymPath {
+                            anchor: None,
+                            items: vec![PathItem {
+                                ident: self_.with_value(PathIdent::SelfType),
+                                ty_args: Vec::new(),
+                            }],
+                        });
+                        let mut ty = self.ast.insert_ty_expr(TyExpr {
+                            muta: mut_.map(|v| v.with_value(())),
+                            data: self_.with_value(TyData::SymPath(ty)),
+                        });
+                        if let Some(ref_) = ref_ {
+                            ty = self.ast.insert_ty_expr(TyExpr {
+                                muta: None,
+                                data: ref_.with_value(TyData::Ref(ty))
+                            })
+                        }
+                        let span_start = ref_.map(|v| v.span.start)
+                            .or(mut_.map(|v| v.span.start))
+                            .unwrap_or(self_.span.start);
+                        Some(FnDeclArg {
+                            name: self_.with_value(FnArgName::Self_),
+                            ty: Span::new(span_start, self_.span.end).spanned(ty)
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let arg = if let Some(arg) = arg {
+                    arg
+                } else {
+                    let arg_name = self.ident()?;
+                    self.expect(Token::Colon)?;
+                    let arg_ty = self.ty_expr()?;
+                    FnDeclArg { name: arg_name.map(FnArgName::Ident), ty: arg_ty }
+                };
+                args.push(arg);
             }
 
             delimited = self.maybe(Token::Comma).is_some();
@@ -415,7 +459,18 @@ impl<'a> Parser<'a> {
         let mut items = Vec::new();
 
         loop {
-            let ident = self.ident()?;
+            let tok = self.lex.nth(0);
+            let ident = match tok.value {
+                Token::Keyword(Keyword::SelfLower) => {
+                    self.lex.consume();
+                    tok.span.spanned(PathIdent::SelfValue)
+                }
+                Token::Keyword(Keyword::SelfUpper) => {
+                    self.lex.consume();
+                    tok.span.spanned(PathIdent::SelfType)
+                }
+                _ => self.ident()?.map(PathIdent::Ident)
+            };
 
             let ty_args = if self.lex.nth(0).value == Token::Lt {
                 self.lex.save_state();

@@ -197,7 +197,8 @@ impl<'a> Codegen<'a> {
 
             for i in 0..fn_decl.args.len() {
                 let param = unsafe { LLVMGetParam(ctx.func, i as u32) };
-                ctx.vars.last_mut().unwrap().insert(fn_decl.args[i].name.value.clone(), param);
+                // ctx.vars.last_mut().unwrap().insert(fn_decl.args[i].name.value.clone(), param);
+                unimplemented!();
             }
 
             let ret = self.block(body.value, ctx);
@@ -453,12 +454,13 @@ impl<'a> Codegen<'a> {
                 if path.items.len() != 1 {
                     unimplemented!();
                 }
-                let r = match path.items[0].ident.value.as_str() {
-                    "i32" => unsafe { LLVMInt32TypeInContext(self.context) },
-                    "u8" => unsafe { LLVMInt8TypeInContext(self.context) },
-                    _ => unimplemented!(),
-                };
-                assert!(!r.is_null());
+                let r = unimplemented!();
+                // let r = match path.items[0].ident.value.as_str() {
+                //     "i32" => unsafe { LLVMInt32TypeInContext(self.context) },
+                //     "u8" => unsafe { LLVMInt8TypeInContext(self.context) },
+                //     _ => unimplemented!(),
+                // };
+                // assert!(!r.is_null());
                 r
             }
             _ => unimplemented!(),

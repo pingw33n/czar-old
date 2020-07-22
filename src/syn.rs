@@ -284,8 +284,14 @@ pub struct FnDecl {
 }
 
 #[derive(Debug)]
+pub enum FnArgName {
+    Ident(Ident),
+    Self_,
+}
+
+#[derive(Debug)]
 pub struct FnDeclArg {
-    pub name: S<Ident>,
+    pub name: S<FnArgName>,
     pub ty: S<NodeId>,
 }
 
@@ -420,7 +426,7 @@ impl SymPath {
         Self {
             anchor: None,
             items: vec![PathItem {
-                ident,
+                ident: ident.map(PathIdent::Ident),
                 ty_args: Vec::new(),
             }],
         }
@@ -438,8 +444,15 @@ impl SymPath {
 }
 
 #[derive(Debug)]
+pub enum PathIdent {
+    Ident(Ident),
+    SelfType,
+    SelfValue,
+}
+
+#[derive(Debug)]
 pub struct PathItem {
-    pub ident: S<Ident>,
+    pub ident: S<PathIdent>,
     pub ty_args: Vec<S<NodeId>>, // TyExpr
 }
 
