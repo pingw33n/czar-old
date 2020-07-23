@@ -86,8 +86,8 @@ impl<'a> Parser<'a> {
     }
 
     fn maybe_vis(&mut self) -> Option<S<Vis>> {
-        let publ = self.maybe(Token::Keyword(Keyword::Pub))?.map(|_| {});
-        let restrict = if self.maybe(Token::BlockOpen(lex::Block::Paren)).is_some() {
+        let publ = self.lex.maybe(Token::Keyword(Keyword::Pub))?.map(|_| {});
+        let restrict = if self.lex.maybe(Token::BlockOpen(lex::Block::Paren)).is_some() {
             unimplemented!();
         } else {
             None
@@ -209,7 +209,7 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_decl(&mut self, vis: Option<S<Vis>>) -> PResult<S<NodeId>> {
-        let unsaf = self.maybe(Token::Keyword(Keyword::Unsafe))
+        let unsaf = self.lex.maybe(Token::Keyword(Keyword::Unsafe))
             .map(|v| v.map(|_| {}));
 
         let tok = self.expect(Token::Keyword(Keyword::Fn))?;
@@ -239,9 +239,9 @@ impl<'a> Parser<'a> {
                 variadic = Some(tok.map(|_| {}));
             } else {
                 let arg = if args.is_empty() {
-                    let ref_ = self.maybe(Token::Amp);
-                    let mut_ = self.maybe(Token::Keyword(Keyword::Mut));
-                    let self_ = self.maybe(Token::Keyword(Keyword::SelfLower));
+                    let ref_ = self.lex.maybe(Token::Amp);
+                    let mut_ = self.lex.maybe(Token::Keyword(Keyword::Mut));
+                    let self_ = self.lex.maybe(Token::Keyword(Keyword::SelfLower));
                     if (ref_.is_some() || mut_.is_some()) && self_.is_none() {
                         let tok = self.lex.nth(0);
                         return self.fatal(tok.span, &format!("expected `self`, found `{:?}`", tok.value));
@@ -281,7 +281,7 @@ impl<'a> Parser<'a> {
                 let arg = if let Some(arg) = arg {
                     arg
                 } else {
-                    let (pub_name, priv_name) = if let Some(underscore) = self.maybe(Token::Keyword(Keyword::Underscore)) {
+                    let (pub_name, priv_name) = if let Some(underscore) = self.lex.maybe(Token::Keyword(Keyword::Underscore)) {
                         let priv_name = self.ident()?;
                         (underscore.with_value(None), priv_name)
                     } else {
@@ -297,11 +297,11 @@ impl<'a> Parser<'a> {
                 args.push(arg);
             }
 
-            delimited = self.maybe(Token::Comma).is_some();
+            delimited = self.lex.maybe(Token::Comma).is_some();
         }
         assert_eq!(self.lex.next().value, Token::BlockClose(lex::Block::Paren));
 
-        let ret_ty = if self.maybe(Token::RArrow).is_some() {
+        let ret_ty = if self.lex.maybe(Token::RArrow).is_some() {
             Some(self.ty_expr()?)
         } else {
             None
@@ -335,21 +335,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn maybe(&mut self, tok: Token) -> Option<S<Token>> {
-        if self.lex.nth(0).value == tok {
-            Some(self.lex.next())
-        } else {
-            None
-        }
-    }
-
     fn ident(&mut self) -> PResult<S<Ident>> {
         let tok = self.expect(Token::Ident)?;
         self.make_ident(tok.span)
     }
 
     fn maybe_ident(&mut self) -> PResult<Option<S<Ident>>> {
-        Ok(if let Some(tok) = self.maybe(Token::Ident) {
+        Ok(if let Some(tok) = self.lex.maybe(Token::Ident) {
             Some(self.make_ident(tok.span)?)
         } else {
             None
@@ -370,7 +362,7 @@ impl<'a> Parser<'a> {
     // foo<T>::bar<U>
     // foo<T>::bar<U>::baz<V>
     fn ty_expr(&mut self) -> PResult<S<NodeId>> {
-        let muta = self.maybe(Token::Keyword(Keyword::Mut))
+        let muta = self.lex.maybe(Token::Keyword(Keyword::Mut))
             .map(|tok| tok.map(|_| {}));
         let tok = self.lex.nth(0);
         let span_start = muta.map(|s| s.span.start)
@@ -400,7 +392,7 @@ impl<'a> Parser<'a> {
             Token::BlockOpen(lex::Block::Bracket) => {
                 self.lex.consume();
                 let ty = self.ty_expr()?;
-                let data = if self.maybe(Token::Semi).is_some() {
+                let data = if self.lex.maybe(Token::Semi).is_some() {
                     let len = self.expr(0)?;
                     TyData::Array(Array {
                         ty,
@@ -408,7 +400,7 @@ impl<'a> Parser<'a> {
                     })
                 } else {
                     // [<ty>*]
-                    let resizable = self.maybe(Token::Star).is_some();
+                    let resizable = self.lex.maybe(Token::Star).is_some();
                     TyData::Slice(Slice {
                         ty: ty.value,
                         resizable,
@@ -427,7 +419,7 @@ impl<'a> Parser<'a> {
                         return self.fatal(tok.span, &format!("expected `,` or `)` but found `{:?}`", tok.value));
                     }
                     items.push(self.ty_expr()?);
-                    delimited = self.maybe(Token::Comma).is_some();
+                    delimited = self.lex.maybe(Token::Comma).is_some();
                 }
                 let end = self.expect(Token::BlockClose(lex::Block::Paren)).unwrap().span;
                 let data = if items.is_empty() {
@@ -553,7 +545,7 @@ impl<'a> Parser<'a> {
                 ty_args: ty_args.unwrap_or_default(),
             });
 
-            if done || self.maybe(Token::ColonColon).is_none() {
+            if done || self.lex.maybe(Token::ColonColon).is_none() {
                 break;
             }
         }
@@ -571,7 +563,7 @@ impl<'a> Parser<'a> {
     }
 
     fn maybe_as_ident(&mut self) -> PResult<Option<S<Ident>>> {
-        Ok(if self.maybe(Token::Keyword(Keyword::As)).is_some() {
+        Ok(if self.lex.maybe(Token::Keyword(Keyword::As)).is_some() {
             Some(self.ident()?)
         } else {
             None
@@ -580,7 +572,7 @@ impl<'a> Parser<'a> {
 
     fn path_terms(&mut self) -> PResult<S<Vec<S<PathTerm>>>> {
         let mut terms = Vec::new();
-        let list = self.maybe(Token::BlockOpen(lex::Block::Brace));
+        let list = self.lex.maybe(Token::BlockOpen(lex::Block::Brace));
         let mut span_end = None;
         loop {
             let tok = self.lex.nth(0);
@@ -627,7 +619,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            if self.maybe(Token::Comma).is_none()
+            if self.lex.maybe(Token::Comma).is_none()
                 && self.lex.nth(0).value != Token::BlockClose(lex::Block::Brace)
             {
                 return self.fatal(tok.span, &format!("unexpected {:?}", tok.value));
@@ -735,7 +727,7 @@ impl<'a> Parser<'a> {
             let name = self.ident()?;
             ty_args.push(name);
 
-            let seen_comma = self.maybe(Token::Comma).is_some();
+            let seen_comma = self.lex.maybe(Token::Comma).is_some();
 
             let tok = self.lex.nth(0);
             match tok.value {
@@ -764,15 +756,15 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::Let) => {
                 let span_start = tok.span.start;
                 self.lex.consume();
-                let muta = self.maybe(Token::Keyword(Keyword::Mut))
+                let muta = self.lex.maybe(Token::Keyword(Keyword::Mut))
                     .map(|v| v.map(|_| {}));
                 let name = self.ident()?;
-                let ty = if self.maybe(Token::Colon).is_some() {
+                let ty = if self.lex.maybe(Token::Colon).is_some() {
                     Some(self.ty_expr()?)
                 } else {
                     None
                 };
-                let init = if self.maybe(Token::Eq).is_some() {
+                let init = if self.lex.maybe(Token::Eq).is_some() {
                     Some(self.expr(0)?)
                 } else {
                     None
@@ -808,8 +800,8 @@ impl<'a> Parser<'a> {
                 self.maybe_expr()?
             };
 
-            let semi = self.maybe(Token::Semi);
-            let end = self.maybe(Token::BlockClose(lex::Block::Brace));
+            let semi = self.lex.maybe(Token::Semi);
+            let end = self.lex.maybe(Token::BlockClose(lex::Block::Brace));
 
             let empty_expr = expr.is_none();
             let expr_kind = expr.map(|v| self.ast.node_kind(v.value));
@@ -898,7 +890,7 @@ impl<'a> Parser<'a> {
                 if tok.value == Token::AmpAmp {
                     self.lex.insert(Span::new(tok.span.start + 1, tok.span.end).spanned(Token::Amp));
                 }
-                let (kind, span) = if let Some(muta) = self.maybe(Token::Keyword(Keyword::Mut)) {
+                let (kind, span) = if let Some(muta) = self.lex.maybe(Token::Keyword(Keyword::Mut)) {
                     (UnaryOpKind::AddrMut, tok.span.extended(muta.span.end))
                 } else {
                     (UnaryOpKind::Addr, tok.span)
@@ -911,7 +903,7 @@ impl<'a> Parser<'a> {
             }
             Token::Keyword(Keyword::Break) => {
                 self.lex.consume();
-                let label = self.maybe(Token::Label)
+                let label = self.lex.maybe(Token::Label)
                     .map(|t| t.span.spanned(lex::label(&self.s[t.span.range()])));
                 let value = self.maybe_expr()?;
                 let span_end = label.as_ref().map(|t| t.span.end)
@@ -958,13 +950,13 @@ impl<'a> Parser<'a> {
                 let first = self.maybe_expr()?;
 
                 let tuple_or_prec = if let Some(first) = first {
-                    if self.maybe(Token::Comma).is_some() {
+                    if self.lex.maybe(Token::Comma).is_some() {
                         // Tuple
                         let mut items = Vec::new();
                         items.push(first);
                         while let Some(item) = self.maybe_expr()? {
                             items.push(item);
-                            if self.maybe(Token::Comma).is_none() {
+                            if self.lex.maybe(Token::Comma).is_none() {
                                 break;
                             }
                         }
@@ -1191,7 +1183,7 @@ impl<'a> Parser<'a> {
         let field = match field.value {
             Token::Ident => {
                 let ident = self.ident()?;
-                if self.maybe(Token::BlockOpen(lex::Block::Paren)).is_some() {
+                if self.lex.maybe(Token::BlockOpen(lex::Block::Paren)).is_some() {
                     let callee = ident.span.spanned(
                         self.ast.insert_sym_path(SymPath::from_ident(ident)));
                     return self.fn_call(callee, Some(receiver));
@@ -1369,7 +1361,7 @@ impl<'a> Parser<'a> {
                 ty
             });
 
-            delimited = self.maybe(Token::Comma).is_some();
+            delimited = self.lex.maybe(Token::Comma).is_some();
         }
         let span_end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
 

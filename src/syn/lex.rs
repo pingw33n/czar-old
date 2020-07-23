@@ -340,6 +340,14 @@ impl<'a> Lexer<'a> {
         let _ = self.next();
     }
 
+    pub fn maybe(&mut self, tok: Token) -> Option<S<Token>> {
+        if self.nth(0).value == tok {
+            Some(self.next())
+        } else {
+            None
+        }
+    }
+
     pub fn insert(&mut self, tok: S<Token>) {
         self.buf.insert(0, tok);
     }
