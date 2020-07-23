@@ -371,12 +371,14 @@ impl<'a> Codegen<'a> {
                 let fn_call = self.ast.fn_call(node);
                 let callee = self.expr(fn_call.callee.value, ctx).into_value().unwrap().as_ptr();
                 let mut args = Vec::with_capacity(fn_call.args.len());
-                for a in &fn_call.args {
-                    let v = self.expr(a.value, ctx);
-                    v.dump();
-                    if let Value::Value(v) = v {
-                        args.push(v.as_ptr());
-                    }
+                for FnCallArg{ name, value } in &fn_call.args {
+                    unimplemented!();
+                    //
+                    // let v = self.expr(a.value, ctx);
+                    // v.dump();
+                    // if let Value::Value(v) = v {
+                    //     args.push(v.as_ptr());
+                    // }
                 }
                 unsafe {
                     let ty = LLVMGlobalGetValueType(callee);

@@ -230,8 +230,8 @@ impl<'a> Parser<'a> {
                 return self.fatal(tok.span, &format!("expected `,` but found `{:?}`", tok.value));
             }
             if variadic.is_some() {
-                self.expect(Token::BlockClose(lex::Block::Paren))?;
-                break;
+                let tok = self.lex.nth(0);
+                return self.fatal(tok.span, &format!("expected `)`, found `{:?}`", tok.value));
             }
 
             if self.lex.nth(0).value == Token::DotDotDot {
@@ -268,7 +268,8 @@ impl<'a> Parser<'a> {
                             .or(mut_.map(|v| v.span.start))
                             .unwrap_or(self_.span.start);
                         Some(FnDeclArg {
-                            name: self_.with_value(FnArgName::Self_),
+                            pub_name: self_.with_value(None),
+                            priv_name: self_.with_value(FnArgName::Self_),
                             ty: Span::new(span_start, self_.span.end).spanned(ty)
                         })
                     } else {
@@ -280,10 +281,18 @@ impl<'a> Parser<'a> {
                 let arg = if let Some(arg) = arg {
                     arg
                 } else {
-                    let arg_name = self.ident()?;
+                    let (pub_name, priv_name) = if let Some(underscore) = self.maybe(Token::Keyword(Keyword::Underscore)) {
+                        let priv_name = self.ident()?;
+                        (underscore.with_value(None), priv_name)
+                    } else {
+                        let pub_name = self.ident()?;
+                        let priv_name = self.maybe_ident()?.unwrap_or_else(|| pub_name.clone());
+                        (pub_name.map(Some), priv_name)
+                    };
+                    let priv_name = priv_name.map(FnArgName::Ident);
                     self.expect(Token::Colon)?;
-                    let arg_ty = self.ty_expr()?;
-                    FnDeclArg { name: arg_name.map(FnArgName::Ident), ty: arg_ty }
+                    let ty = self.ty_expr()?;
+                    FnDeclArg { pub_name, priv_name, ty }
                 };
                 args.push(arg);
             }
@@ -1214,15 +1223,30 @@ impl<'a> Parser<'a> {
     fn fn_call(&mut self, callee: S<NodeId>, receiver: Option<S<NodeId>>) -> PResult<S<NodeId>> {
         let mut args = Vec::new();
         let kind = if let Some(receiver) = receiver {
-            args.push(receiver);
+            args.push(FnCallArg {
+                name: None,
+                value: receiver,
+            });
             FnCallKind::Method
         } else {
             FnCallKind::Free
         };
         let span_end = loop {
-            let arg = self.maybe_expr()?;
-            if let Some(arg) = arg {
-                args.push(arg);
+            let name = if self.lex.nth(0).value == Token::Ident
+                && self.lex.nth(1).value == Token::Colon
+            {
+                let name = self.ident().unwrap();
+                self.expect(Token::Colon).unwrap();
+                Some(name)
+            } else {
+                None
+            };
+            let value = self.maybe_expr()?;
+            if let Some(value) = value {
+                args.push(FnCallArg {
+                    name,
+                    value,
+                });
 
                 let tok = self.lex.next();
                 match tok.value {
@@ -1232,6 +1256,11 @@ impl<'a> Parser<'a> {
                         &format!("expected `,` or `)`, found {:?}", tok.value)),
                 }
             } else {
+                if name.is_some() {
+                    let tok = self.lex.nth(0);
+                    return self.fatal(tok.span,
+                        &format!("expected expression, found `{:?}`", tok.value));
+                }
                 let tok = self.expect(Token::BlockClose(lex::Block::Paren))?;
                 break tok.span.end;
             }

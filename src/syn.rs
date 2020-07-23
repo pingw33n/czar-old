@@ -311,7 +311,7 @@ pub struct FnDecl {
     pub body: Option<S<NodeId>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumAsInner)]
 pub enum FnArgName {
     Ident(Ident),
     Self_,
@@ -319,7 +319,8 @@ pub enum FnArgName {
 
 #[derive(Debug)]
 pub struct FnDeclArg {
-    pub name: S<FnArgName>,
+    pub pub_name: S<Option<Ident>>,
+    pub priv_name: S<FnArgName>,
     pub ty: S<NodeId>,
 }
 
@@ -333,7 +334,13 @@ pub enum FnCallKind {
 pub struct FnCall {
     pub callee: S<NodeId>,
     pub kind: FnCallKind,
-    pub args: Vec<S<NodeId>>,
+    pub args: Vec<FnCallArg>,
+}
+
+#[derive(Debug)]
+pub struct FnCallArg {
+    pub name: Option<S<Ident>>,
+    pub value: S<NodeId>,
 }
 
 // struct Struct<X: Display>

@@ -96,11 +96,19 @@ impl Display<'_> {
                 self.formal_ty_args(ty_args, p)?;
 
                 p.print("(")?;
-                for (i, FnDeclArg { name, ty }) in args.iter().enumerate() {
+                for (i, FnDeclArg { pub_name, priv_name, ty }) in args.iter().enumerate() {
                     if i > 0 {
                         p.print(", ")?;
                     }
-                    match &name.value {
+                    if let Some(pub_name) = &pub_name.value {
+                        if pub_name != priv_name.value.as_ident().unwrap() {
+                            p.print(pub_name)?;
+                            p.print(' ')?;
+                        }
+                    } else if i > 0 {
+                        p.print("_ ")?;
+                    }
+                    match &priv_name.value {
                         FnArgName::Ident(v) => {
                             p.print(v)?;
                             p.print(": ")?;
@@ -136,17 +144,23 @@ impl Display<'_> {
                 let FnCall { callee, kind, args } = self.ast.fn_call(node);
                 let mut args = args.iter();
                 if *kind == FnCallKind::Method {
-                    self.expr(args.next().unwrap().value, p)?;
+                    let FnCallArg { name, value } = args.next().unwrap();
+                    assert!(name.is_none());
+                    self.expr(value.value, p)?;
                     p.print('.')?;
                 }
                 self.expr(callee.value, p)?;
 
                 p.print('(')?;
-                for (i, arg) in args.enumerate() {
+                for (i, FnCallArg{ name, value }) in args.enumerate() {
                     if i > 0 {
                         p.print(", ")?;
                     }
-                    self.node(arg.value, false, p)?;
+                    if let Some(name) = name {
+                        p.print(&name.value)?;
+                        p.print(": ")?;
+                    }
+                    self.node(value.value, false, p)?;
                 }
                 p.print(')')?;
 

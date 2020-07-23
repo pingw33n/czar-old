@@ -31,3 +31,6 @@ fn foo() {
     }
   }
 }
+fn foo(self, _ unnamed: u32, arg1: u32, pub_name priv_name: u32, _ unnamed2: u32) {
+  receiver.foo(0, arg1: 42, pub_name: 56, 78);
+}
