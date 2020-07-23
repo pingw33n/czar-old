@@ -429,15 +429,18 @@ impl<'a> Parser<'a> {
                     items.push(self.ty_expr()?);
                     delimited = self.maybe(Token::Comma).is_some();
                 }
-                let span_end = self.expect(Token::BlockClose(lex::Block::Paren)).unwrap().span.end;
+                let end = self.expect(Token::BlockClose(lex::Block::Paren)).unwrap().span;
                 let data = if items.is_empty() {
                     TyData::Unit
                 } else {
+                    if items.len() == 1 && !delimited {
+                        return self.fatal(end, "expected `,`");
+                    }
                     TyData::Tuple(Tuple {
                         items,
                     })
                 };
-                (span_end, data)
+                (end.end, data)
             }
             _ => {
                 let path = self.sym_path(true)?;

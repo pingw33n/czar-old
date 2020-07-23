@@ -405,6 +405,9 @@ impl Display<'_> {
                             }
                             self.node(v.value, true, p)?;
                         }
+                        if items.len() == 1 {
+                            p.print(',')?;
+                        }
                         p.print(')')?;
                     }
                     TyData::Unit => {
