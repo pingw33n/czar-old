@@ -98,6 +98,8 @@ impl<'a> Parser<'a> {
     }
 
     fn maybe_decl_item(&mut self) -> PResult<Option<S<NodeId>>> {
+        struct S{}
+
         let vis = self.maybe_vis();
         let tok0 = self.lex.nth(0);
         Ok(Some(match tok0.value {
@@ -117,6 +119,12 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::Static) => unimplemented!(),
             Token::Keyword(Keyword::Use) => self.use_stmt(vis)?,
             Token::Keyword(Keyword::Struct) => self.struct_decl(vis)?,
+            Token::Keyword(Keyword::Impl) => {
+                if let Some(vis) = vis {
+                    return self.fatal(vis.span, "invalid visibility for impl block")
+                }
+                self.impl_()?
+            }
             _ => {
                 if let Some(vis) = vis {
                     return self.fatal(vis.span,
@@ -1372,6 +1380,45 @@ impl<'a> Parser<'a> {
             name,
             ty_args,
             fields,
+        })))
+    }
+
+    fn impl_(&mut self) -> PResult<S<NodeId>> {
+        let span_start = self.expect(Token::Keyword(Keyword::Impl))?.span.start;
+        let ty_args = self.maybe_formal_ty_args()?;
+        let sym1 = self.sym_path(true)?;
+        let sym2 = if self.lex.maybe(Token::Keyword(Keyword::For)).is_some() {
+            Some(self.sym_path(true)?)
+        } else {
+            None
+        };
+        let (trait_, for_) = if let Some(sym2) = sym2 {
+            (Some(sym1), sym2)
+        } else {
+            (None, sym1)
+        };
+
+        if self.lex.maybe(Token::BlockOpen(lex::Block::Brace)).is_none() {
+            let tok = self.lex.nth(0);
+            return self.fatal(tok.span,
+                &format!("expected `for` or `{{`, found `{:?}`", tok.value));
+        }
+
+        let mut items = Vec::new();
+        while self.lex.nth(0).value != Token::BlockClose(lex::Block::Brace) {
+            let vis = self.maybe_vis();
+            let fn_decl = self.fn_decl(vis)?;
+            items.push(fn_decl);
+        }
+
+        let span_end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap()
+            .span.end;
+
+        Ok(Span::new(span_start, span_end).spanned(self.ast.insert_impl(Impl {
+            ty_args,
+            trait_,
+            for_,
+            items,
         })))
     }
 }

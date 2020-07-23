@@ -33,6 +33,7 @@ pub enum NodeKind {
     FieldAccess,
     FnDecl,
     FnCall,
+    Impl,
     Literal,
     ModuleDecl,
     Op,
@@ -50,6 +51,7 @@ impl NodeKind {
     pub fn needs_semi(self) -> bool {
         match self {
             | Self::Block
+            | Self::Impl
             | Self::FnDecl
             | Self::ModuleDecl
             | Self::StructDecl
@@ -85,6 +87,7 @@ pub struct Ast {
     field_accesses: NodeMap<FieldAccess>,
     fn_decls: NodeMap<FnDecl>,
     fn_calls: NodeMap<FnCall>,
+    impls: NodeMap<Impl>,
     literals: NodeMap<Literal>,
     module_decls: NodeMap<ModuleDecl>,
     ops: NodeMap<Op>,
@@ -131,6 +134,7 @@ impl Ast {
             field_accesses: Default::default(),
             fn_decls: Default::default(),
             fn_calls: Default::default(),
+            impls: Default::default(),
             literals: Default::default(),
             module_decls: Default::default(),
             ops: Default::default(),
@@ -165,6 +169,7 @@ impl Ast {
         insert_field_access, field_access, try_field_access, field_accesses, FieldAccess;
         insert_fn_decl, fn_decl, try_fn_decl, fn_decls, FnDecl;
         insert_fn_call, fn_call, try_fn_call, fn_calls, FnCall;
+        insert_impl, impl_, try_impl, impls, Impl;
         insert_literal, literal, try_literal, literals, Literal;
         insert_module_decl, module_decl, try_module_decl, module_decls, ModuleDecl;
         insert_op, op, try_op, ops, Op;
@@ -567,4 +572,12 @@ pub struct Range {
     pub kind: RangeKind,
     pub start: Option<S<NodeId>>,
     pub end: Option<S<NodeId>>,
+}
+
+#[derive(Debug)]
+pub struct Impl {
+    pub ty_args: Vec<S<Ident>>,
+    pub trait_: Option<S<NodeId>>, // SymPath
+    pub for_: S<NodeId>, // SymPath
+    pub items: Vec<S<NodeId>>,
 }

@@ -127,6 +127,7 @@ impl<'a> Codegen<'a> {
                 NodeKind::BlockFlowCtl => unimplemented!(),
                 NodeKind::Range => unimplemented!(),
                 NodeKind::Tuple => unimplemented!(),
+                NodeKind::Impl => unimplemented!(),
                 | NodeKind::Block
                 | NodeKind::Cast
                 | NodeKind::Empty
@@ -393,6 +394,7 @@ impl<'a> Codegen<'a> {
             NodeKind::UseStmt => unimplemented!(),
             NodeKind::Tuple => unimplemented!(),
             NodeKind::Range => unimplemented!(),
+            NodeKind::Impl => unimplemented!(),
             NodeKind::UsePath => unreachable!(),
             NodeKind::Empty => Value::Void,
             //     {

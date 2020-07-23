@@ -165,6 +165,34 @@ impl Display<'_> {
                 p.print(')')?;
 
             }
+            NodeKind::Impl => {
+                let Impl {
+                    ty_args,
+                    trait_,
+                    for_,
+                    items,
+                } = self.ast.impl_(node);
+                p.print("impl")?;
+                self.formal_ty_args(ty_args, p)?;
+
+                p.print(' ')?;
+                if let Some(trait_) = trait_ {
+                    self.node(trait_.value, true, p)?;
+                    p.print(" for ")?;
+                }
+
+                self.node(for_.value, true, p)?;
+
+                p.println(" {")?;
+                p.indent()?;
+
+                for item in items {
+                    self.node(item.value, false, p)?;
+                }
+
+                p.unindent()?;
+                p.println('}')?;
+            }
             NodeKind::Literal => {
                 let node = self.ast.literal(node);
                 match node {
