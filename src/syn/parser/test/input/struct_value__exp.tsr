@@ -1,0 +1,4 @@
+fn f(arg: { f1: i32, f2: {}, f3: &str }) -> { min: i32, max: i32 } {
+  { field: 42, };
+  ({ field1: 42, field2: &str, field3: {}, field4: T }) + {};
+}

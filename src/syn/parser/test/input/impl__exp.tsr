@@ -6,11 +6,11 @@ impl<T, U, V> Trait<T, U> for Struct<V> {
   pub fn free() -> i32 {
     42
   }
-  pub fn method(&self, _ arg1: u32, arg2: ()) -> i32 {
+  pub fn method(&self, _ arg1: u32, arg2: {}) -> i32 {
     let r = Self::free() - 1;
     return r;
   }
   fn method2(&mut self) {
-    self.method(0, arg2: ());
+    self.method(0, arg2: {});
   }
 }

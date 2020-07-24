@@ -1,11 +1,16 @@
 struct Foo {
 }
+struct Tuple {
+  u32,
+  {},
+  &str,
+}
 struct Foo {
-  f: (),
+  f: {},
 }
 pub struct Foo<T, U, V> {
   field1: i32,
-  field2: (u32, &str),
+  field2: {u32, &str},
   pub pub_field: path::to::Type<T, U, V>,
 }
 fn f() {

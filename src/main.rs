@@ -44,11 +44,14 @@ fn main() {
 
     let ctx = {
         let mut std_ast = Ast::new();
+        let ty = syn::Span::new(0, 0).spanned(std_ast.insert_struct_type(syn::StructType {
+            fields: vec![],
+        }));
         std_ast.insert_struct_decl(syn::StructDecl {
             name: syn::Span::new(0, 0).spanned("i32".into()),
             vis: Some(syn::Span::new(0, 0).spanned(syn::Vis { restrict: None })),
             ty_args: vec![],
-            fields: vec![]
+            ty,
         });
         let mut packages = Slab::new();
         let std = sem::PackageId(packages.insert(sem::Package {

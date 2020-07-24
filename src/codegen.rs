@@ -122,24 +122,7 @@ impl<'a> Codegen<'a> {
                 NodeKind::ModuleDecl => {
                     self.module(self.ast.module_decl(id));
                 }
-                NodeKind::StructDecl => unimplemented!(),
-                NodeKind::UseStmt => unimplemented!(),
-                NodeKind::BlockFlowCtl => unimplemented!(),
-                NodeKind::Range => unimplemented!(),
-                NodeKind::Tuple => unimplemented!(),
-                NodeKind::Impl => unimplemented!(),
-                | NodeKind::Block
-                | NodeKind::Cast
-                | NodeKind::Empty
-                | NodeKind::FieldAccess
-                | NodeKind::FnCall
-                | NodeKind::Literal
-                | NodeKind::Op
-                | NodeKind::SymPath
-                | NodeKind::TyExpr
-                | NodeKind::UsePath
-                | NodeKind::VarDecl
-                => unreachable!(),
+                _ => unimplemented!(),
             }
         }
     }
@@ -390,13 +373,6 @@ impl<'a> Codegen<'a> {
                     r.into()
                 }
             }
-            NodeKind::SymPath => unimplemented!(),
-            NodeKind::UseStmt => unimplemented!(),
-            NodeKind::Tuple => unimplemented!(),
-            NodeKind::Range => unimplemented!(),
-            NodeKind::Impl => unimplemented!(),
-            NodeKind::UsePath => unreachable!(),
-            NodeKind::Empty => Value::Void,
             //     {
             //     let path = self.ast.path(node);
             //     assert!(path.is_single() && !path.has_ty_args());
@@ -437,12 +413,7 @@ impl<'a> Codegen<'a> {
             NodeKind::Block =>  {
                 self.block(node, ctx)
             }
-            NodeKind::FnDecl => unimplemented!(),
-            NodeKind::ModuleDecl => unimplemented!(),
-            NodeKind::FieldAccess => unimplemented!(),
-            NodeKind::StructDecl => unimplemented!(),
-            NodeKind::BlockFlowCtl => unimplemented!(),
-            NodeKind::TyExpr => unreachable!(),
+            _ => unimplemented!(),
         }
     }
 

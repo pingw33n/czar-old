@@ -300,6 +300,22 @@ const EOF: char = '\0';
 struct SavedState<'a> {
     chars: Chars<'a>,
     error_count: usize,
+    saved_buf: usize,
+}
+
+pub struct SavedStateId {
+    i: Option<usize>,
+}
+
+impl Drop for SavedStateId {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
+        if let Some(i) = self.i.take() {
+            panic!("Lexer saved state {} wasn't restored or discarded", i);
+        }
+    }
 }
 
 pub struct Lexer<'a> {
@@ -307,8 +323,8 @@ pub struct Lexer<'a> {
     chars: Chars<'a>,
     buf: VecDeque<S<Token>>,
     error_count: usize,
-    saved_state: Option<SavedState<'a>>,
-    saved_buf: VecDeque<S<Token>>,
+    saved_states: Vec<SavedState<'a>>,
+    saved_bufs: Vec<S<Token>>,
 }
 
 impl<'a> Lexer<'a> {
@@ -317,9 +333,9 @@ impl<'a> Lexer<'a> {
             s,
             chars: s.chars(),
             buf: VecDeque::new(),
-            saved_buf: VecDeque::new(),
+            saved_states: Vec::new(),
+            saved_bufs: Vec::new(),
             error_count: 0,
-            saved_state: None,
         }
     }
 
@@ -352,20 +368,32 @@ impl<'a> Lexer<'a> {
         self.buf.insert(0, tok);
     }
 
-    pub fn save_state(&mut self) {
-        self.saved_state = Some(SavedState {
+    pub fn save_state(&mut self) -> SavedStateId {
+        self.saved_states.push(SavedState {
             chars: self.chars.clone(),
             error_count: self.error_count,
+            saved_buf: self.saved_bufs.len(),
         });
-        self.saved_buf.clear();
-        self.saved_buf.extend(&self.buf);
+        self.saved_bufs.extend(&self.buf);
+        SavedStateId { i: Some(self.saved_states.len()) }
     }
 
-    pub fn restore_state(&mut self) {
-        let state = self.saved_state.take().unwrap();
+    pub fn restore_state(&mut self, mut id: SavedStateId) {
+        assert_eq!(id.i.take(), Some(self.saved_states.len()));
+        let state = self.saved_states.pop().unwrap();
+        assert!(state.saved_buf <= self.saved_bufs.len());
         self.chars = state.chars;
         self.error_count = state.error_count;
-        std::mem::swap(&mut self.buf, &mut self.saved_buf);
+        self.buf.clear();
+        self.buf.extend(self.saved_bufs.drain(state.saved_buf..));
+        self.saved_bufs.truncate(state.saved_buf);
+    }
+
+    pub fn discard_state(&mut self, mut id: SavedStateId) {
+        assert_eq!(id.i.take(), Some(self.saved_states.len()));
+        let state = self.saved_states.pop().unwrap();
+        assert!(state.saved_buf <= self.saved_bufs.len());
+        self.saved_bufs.truncate(state.saved_buf);
     }
 
     pub fn is_ok(&self) -> bool {

@@ -1,6 +1,7 @@
 use std::fmt::{self, Result, Write};
 
 use super::*;
+use crate::syn::lex::Keyword::Struct;
 
 impl Ast {
     pub fn display(&self) -> Display {
@@ -22,21 +23,23 @@ impl Display<'_> {
             NodeKind::Block => {
                 let Block { exprs } = self.ast.block(node);
                 p.print("{")?;
-                p.indent()?;
+                if exprs.len() > 0 {
+                    p.indent()?;
 
-                let no_result = exprs.last()
-                    .map(|e| self.ast.is_empty_node(e.value)) == Some(true);
-                let it = exprs.iter().enumerate()
-                    .take(if no_result { exprs.len() - 1 } else { exprs.len() });
-                for (i, expr) in it {
-                    self.node(expr.value, false, p)?;
-                    if self.ast.node_kind(expr.value).needs_semi()
-                        && (no_result || i < exprs.len() - 1)
-                    {
-                        p.println(";")?;
+                    let no_result = exprs.last()
+                        .map(|e| self.ast.is_empty_node(e.value)) == Some(true);
+                    let it = exprs.iter().enumerate()
+                        .take(if no_result { exprs.len() - 1 } else { exprs.len() });
+                    for (i, expr) in it {
+                        self.node(expr.value, false, p)?;
+                        if self.ast.node_kind(expr.value).needs_semi()
+                            && (no_result || i < exprs.len() - 1)
+                        {
+                            p.println(";")?;
+                        }
                     }
+                    p.unindent()?;
                 }
-                p.unindent()?;
                 p.print("}")?;
             }
             NodeKind::BlockFlowCtl => {
@@ -332,24 +335,44 @@ impl Display<'_> {
                 }
             }
             NodeKind::StructDecl => {
-                let StructDecl { vis, name, ty_args, fields } = self.ast.struct_decl(node);
+                let StructDecl { vis, name, ty_args, ty } = self.ast.struct_decl(node);
+                let StructType { fields } = self.ast.struct_type(ty.value);
                 self.vis(vis, p)?;
                 p.print_sep("struct ")?;
                 p.print(&name.value)?;
                 self.formal_ty_args(ty_args, p)?;
-                p.print(" {")?;
-                p.indent()?;
-
-                for StructFieldDecl { vis, name, ty } in fields {
-                    self.vis(vis, p)?;
-                    p.print_sep(&name.value)?;
-                    p.print(": ")?;
-                    self.node(ty.value, true, p)?;
-                    p.println(',')?;
+                p.print(' ')?;
+                self.struct_type(ty.value, false, p)?;
+                p.println("")?;
+            }
+            NodeKind::StructType => {
+                unreachable!();
+            }
+            NodeKind::StructValue => {
+                let StructValue { fields } = self.ast.struct_value(node);
+                let named_fields = fields[0].name.is_some();
+                p.print('{')?;
+                if named_fields {
+                    p.print(' ')?;
+                }
+                for (i, StructValueField { name, value }) in fields.iter().enumerate() {
+                    if i > 0 {
+                        p.print(", ")?;
+                    }
+                    if let Some(name) = name {
+                        p.print(&name.value)?;
+                        p.print(": ")?;
+                    }
+                    self.node(value.value, false, p)?;
+                }
+                if fields.len() == 1 {
+                    p.print(',')?;
                 }
 
-                p.unindent()?;
-                p.println('}')?;
+                if named_fields {
+                    p.print(' ')?;
+                }
+                p.print('}')?;
             }
             NodeKind::SymPath => {
                 let SymPath { anchor, items } = self.ast.sym_path(node);
@@ -378,20 +401,6 @@ impl Display<'_> {
                 if needs_parens {
                     p.print(')')?;
                 }
-            }
-            NodeKind::Tuple => {
-                let Tuple { items } = self.ast.tuple(node);
-                p.print('(')?;
-                for (i, item) in items.iter().enumerate() {
-                    if i > 0 {
-                        p.print(", ")?;
-                    }
-                    self.node(item.value, false, p)?;
-                }
-                if items.len() == 1 {
-                    p.print(',')?;
-                }
-                p.print(')')?;
             }
             NodeKind::TyExpr => {
                 let TyExpr { muta, data } = self.ast.ty_expr(node);
@@ -424,22 +433,8 @@ impl Display<'_> {
                     TyData::SymPath(v) => {
                         self.node(*v, true, p)?;
                     }
-                    TyData::Tuple(Tuple { items }) => {
-                        assert!(items.len() > 0);
-                        p.print('(')?;
-                        for (i, v) in items.iter().enumerate() {
-                            if i > 0 {
-                                p.print(", ")?;
-                            }
-                            self.node(v.value, true, p)?;
-                        }
-                        if items.len() == 1 {
-                            p.print(',')?;
-                        }
-                        p.print(')')?;
-                    }
-                    TyData::Unit => {
-                        p.print("()")?;
+                    &TyData::Struct(v) => {
+                        self.struct_type(v, true, p)?;
                     }
                 }
             }
@@ -633,6 +628,45 @@ impl Display<'_> {
             p.print(">")?;
         }
         Ok(())
+    }
+
+    fn struct_type(&self, node: NodeId, inline: bool, p: &mut Printer) -> Result {
+        let StructType { fields } = self.ast.struct_type(node);
+        p.print('{')?;
+        if !inline {
+            p.indent()?;
+        }
+        let named_fields = fields.first().map(|v| v.name.is_some()).unwrap_or(false);
+        if inline && named_fields {
+            p.print(' ')?;
+        }
+        let delim = if inline { ", " } else { "," };
+        for (i, StructTypeField { vis, name, ty }) in fields.iter().enumerate() {
+            self.vis(vis, p)?;
+            if vis.is_some() {
+                p.print(' ')?;
+            }
+            if let Some(name) = name {
+                p.print(&name.value)?;
+                p.print(": ")?;
+            }
+            self.node(ty.value, true, p)?;
+            if !inline || i < fields.len() - 1 || !inline && fields.len() == 1 {
+                p.print(delim)?;
+                if !inline {
+                    p.println("")?;
+                }
+            } else if inline && fields.len() == 1 {
+                p.print(',')?;
+            }
+        }
+        if inline && named_fields {
+            p.print(' ')?;
+        }
+        if !inline {
+            p.unindent()?;
+        }
+        p.print('}')
     }
 }
 

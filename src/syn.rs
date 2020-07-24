@@ -39,8 +39,9 @@ pub enum NodeKind {
     Op,
     Range,
     StructDecl,
+    StructType,
+    StructValue,
     SymPath,
-    Tuple,
     TyExpr,
     UseStmt,
     UsePath,
@@ -55,6 +56,7 @@ impl NodeKind {
             | Self::FnDecl
             | Self::ModuleDecl
             | Self::StructDecl
+            | Self::StructType
             => false,
 
             | Self::BlockFlowCtl
@@ -66,11 +68,11 @@ impl NodeKind {
             | Self::Op
             | Self::Range
             | Self::SymPath
-            | Self::Tuple
             | Self::TyExpr
             | Self::UseStmt
             | Self::UsePath
             | Self::VarDecl
+            | Self::StructValue
             => true,
         }
     }
@@ -95,7 +97,8 @@ pub struct Ast {
     sym_paths: NodeMap<SymPath>,
     var_decls: NodeMap<VarDecl>,
     struct_decls: NodeMap<StructDecl>,
-    tuples: NodeMap<Tuple>,
+    struct_types: NodeMap<StructType>,
+    struct_values: NodeMap<StructValue>,
     ty_exprs: NodeMap<TyExpr>,
     use_stmts: NodeMap<UseStmt>,
     use_paths: NodeMap<UsePath>,
@@ -141,8 +144,9 @@ impl Ast {
             ranges: Default::default(),
             var_decls: Default::default(),
             struct_decls: Default::default(),
+            struct_types: Default::default(),
+            struct_values: Default::default(),
             sym_paths: Default::default(),
-            tuples: Default::default(),
             ty_exprs: Default::default(),
             use_stmts: Default::default(),
             use_paths: Default::default(),
@@ -175,8 +179,9 @@ impl Ast {
         insert_op, op, try_op, ops, Op;
         insert_range, range, try_range, ranges, Range;
         insert_struct_decl, struct_decl, try_struct_decl, struct_decls, StructDecl;
+        insert_struct_type, struct_type, try_struct_type, struct_types, StructType;
+        insert_struct_value, struct_value, try_struct_value, struct_values, StructValue;
         insert_sym_path, sym_path, try_sym_path, sym_paths, SymPath;
-        insert_tuple, tuple, try_tuple, tuples, Tuple;
         insert_ty_expr, ty_expr, try_ty_expr, ty_exprs, TyExpr;
         insert_use_stmt, use_stmt, try_use_stmt, use_stmts, UseStmt;
         insert_use_path, use_path, try_use_path, use_paths, UsePath;
@@ -386,8 +391,7 @@ pub enum TyData {
     Slice(Slice),
     // path::to::Type
     SymPath(NodeId),
-    Tuple(Tuple),
-    Unit,
+    Struct(NodeId),
 }
 
 // [<ty>; <len>]
@@ -395,12 +399,6 @@ pub enum TyData {
 pub struct Array {
     pub ty: S<NodeId>,
     pub len: S<NodeId>,
-}
-
-// (<ty>, <ty>)
-#[derive(Debug)]
-pub struct Tuple {
-    pub items: Vec<S<NodeId>>,
 }
 
 /// Use path terminator.
@@ -535,17 +533,33 @@ pub enum VisRestrict {
 }
 
 #[derive(Debug)]
+pub struct StructType {
+    pub fields: Vec<StructTypeField>,
+}
+
+#[derive(Debug)]
+pub struct StructTypeField {
+    pub vis: Option<S<Vis>>,
+    pub name: Option<S<Ident>>,
+    pub ty: S<NodeId>,
+}
+
+#[derive(Debug)]
+pub struct StructValue {
+    pub fields: Vec<StructValueField>,
+}
+
+#[derive(Debug)]
+pub struct StructValueField {
+    pub name: Option<S<Ident>>,
+    pub value: S<NodeId>,
+}
+
+#[derive(Debug)]
 pub struct StructDecl {
     pub vis: Option<S<Vis>>,
     pub name: S<Ident>,
     pub ty_args: Vec<S<Ident>>,
-    pub fields: Vec<StructFieldDecl>,
-}
-
-#[derive(Debug)]
-pub struct StructFieldDecl {
-    pub vis: Option<S<Vis>>,
-    pub name: S<Ident>,
     pub ty: S<NodeId>,
 }
 

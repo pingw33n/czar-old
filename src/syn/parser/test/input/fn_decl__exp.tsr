@@ -3,16 +3,11 @@ pub fn foo();
 unsafe fn foo();
 pub unsafe fn foo();
 pub unsafe fn foo(s: *u8) -> i32;
-pub fn main() -> i32 {
-}
-fn foo(a: ()) -> () {
-}
-fn foo(s: &str) {
-}
-fn foo(self) {
-}
-fn foo(&self) {
-}
+pub fn main() -> i32 {}
+fn foo(a: {}) -> {} {}
+fn foo(s: &str) {}
+fn foo(self) {}
+fn foo(&self) {}
 fn foo(&mut self, arg1: u32, arg2: Self, ...) -> &&mut Self {
   Self::bar(*self, arg1, arg2);
   self.x = 0;
@@ -20,15 +15,12 @@ fn foo(&mut self, arg1: u32, arg2: Self, ...) -> &&mut Self {
   let self_: &Self = self;
 }
 mod m {
-  fn foo() {
-  }
+  fn foo() {}
 }
 fn foo() {
-  fn bar() {
-  }
+  fn bar() {}
   mod m {
-    fn baz() {
-    }
+    fn baz() {}
   }
 }
 fn foo(self, _ unnamed: u32, arg1: u32, pub_name priv_name: u32, _ unnamed2: u32) {
