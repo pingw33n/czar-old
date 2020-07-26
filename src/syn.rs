@@ -546,6 +546,7 @@ pub struct StructTypeField {
 
 #[derive(Debug)]
 pub struct StructValue {
+    pub name: Option<S<NodeId>>, // SymPath
     pub fields: Vec<StructValueField>,
 }
 

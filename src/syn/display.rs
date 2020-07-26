@@ -18,7 +18,7 @@ pub struct Display<'a> {
 }
 
 impl Display<'_> {
-    fn node(&self, node: NodeId, in_type_pos: bool, p: &mut Printer) -> Result {
+    fn node(&self, node: NodeId, no_parens: bool, p: &mut Printer) -> Result {
         match self.ast.node_kind(node) {
             NodeKind::Block => {
                 let Block { exprs } = self.ast.block(node);
@@ -336,7 +336,6 @@ impl Display<'_> {
             }
             NodeKind::StructDecl => {
                 let StructDecl { vis, name, ty_args, ty } = self.ast.struct_decl(node);
-                let StructType { fields } = self.ast.struct_type(ty.value);
                 self.vis(vis, p)?;
                 p.print_sep("struct ")?;
                 p.print(&name.value)?;
@@ -349,8 +348,12 @@ impl Display<'_> {
                 unreachable!();
             }
             NodeKind::StructValue => {
-                let StructValue { fields } = self.ast.struct_value(node);
-                let named_fields = fields[0].name.is_some();
+                let StructValue { name, fields } = self.ast.struct_value(node);
+                if let Some(name) = name {
+                    self.node(name.value, true, p)?;
+                    p.print(' ')?;
+                }
+                let named_fields = fields.first().map(|v| v.name.is_some()).unwrap_or(false);
                 p.print('{')?;
                 if named_fields {
                     p.print(' ')?;
@@ -365,7 +368,7 @@ impl Display<'_> {
                     }
                     self.node(value.value, false, p)?;
                 }
-                if fields.len() == 1 {
+                if name.is_none() && fields.len() == 1 {
                     p.print(',')?;
                 }
 
@@ -375,9 +378,10 @@ impl Display<'_> {
                 p.print('}')?;
             }
             NodeKind::SymPath => {
+                struct S<T> {v: T}
                 let SymPath { anchor, items } = self.ast.sym_path(node);
                 self.path_anchor(anchor.map(|v| v.value), p)?;
-                let needs_parens = !in_type_pos && !items.last().unwrap().ty_args.is_empty();
+                let needs_parens = !no_parens && !items.last().unwrap().ty_args.is_empty();
                 if needs_parens {
                     p.print('(')?;
                 }

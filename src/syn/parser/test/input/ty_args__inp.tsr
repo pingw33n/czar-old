@@ -2,4 +2,7 @@ fn f() {
   foo(Map<K, V>(0));
   foo(Map<K, V>0);
   foo(Map<K);
+  foo(Map<K>,);
+  Struct<T, U<V>>{ foo: "foo" };
+  Struct<T, U<V>>.foo();
 }

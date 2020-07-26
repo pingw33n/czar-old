@@ -28,6 +28,7 @@ struct PrecAssoc {
     assoc: u32,
 }
 
+const NAMED_STRUCT_VALUE_PREC: PrecAssoc = PrecAssoc { prec: 10000, assoc: 1 };
 const FIELD_ACCESS_PREC: PrecAssoc = PrecAssoc { prec: 180, assoc: 1 };
 const FN_CALL_PREC: PrecAssoc = PrecAssoc { prec: 170, assoc: 1 };
 const UNWRAP_PREC: PrecAssoc = PrecAssoc { prec: 160, assoc: 1 };
@@ -316,7 +317,11 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let body = self.maybe_block()?;
+        let body = if let Some(tok) = self.lex.maybe(Token::BlockOpen(lex::Block::Brace)) {
+            Some(self.block(tok.span.start)?)
+        } else {
+            None
+        };
         let span_end = if let Some(body) = &body {
             body.span.end
         } else {
@@ -501,10 +506,12 @@ impl<'a> Parser<'a> {
                         if !in_type_pos {
                             let tok = self.lex.nth(0);
                             match tok.value {
-                                | Token::BlockOpen(lex::Block::Paren)
+                                | Token::BlockOpen(_)
                                 | Token::BlockClose(_)
                                 | Token::Semi
                                 | Token::ColonColon
+                                | Token::Comma
+                                | Token::Dot
                                 => {
                                     self.lex.discard_state(save);
                                     Ok(ty_args)
@@ -777,14 +784,8 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn maybe_block(&mut self) -> PResult<Option<S<NodeId>>> {
-        let tok = self.lex.nth(0);
-        if tok.value != Token::BlockOpen(lex::Block::Brace) {
-            return Ok(None);
-        }
-        self.lex.consume();
-        let span_start = tok.span.start;
-
+    // Expects '{' to be already consumed.
+    fn block(&mut self, start: usize) -> PResult<S<NodeId>> {
         let mut exprs = Vec::new();
         let span_end = loop {
             let expr = if let Some(v) = self.maybe_block_expr()? {
@@ -821,9 +822,9 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Ok(Some(Span::new(span_start, span_end).spanned(self.ast.insert_block(Block {
+        Ok(Span::new(start, span_end).spanned(self.ast.insert_block(Block {
             exprs,
-        }))))
+        })))
     }
 
     fn maybe_expr(&mut self) -> PResult<Option<S<NodeId>>> {
@@ -943,86 +944,10 @@ impl<'a> Parser<'a> {
                 self.expect(Token::BlockClose(lex::Block::Paren))?;
                 expr
             }
-            // Block or struct
+            // Block or unnamed struct
             Token::BlockOpen(lex::Block::Brace) => {
-                enum Probe {
-                    Struct {
-                        first_field: StructValueField,
-                    },
-                    Block,
-                }
-                let probe = if self.lex.nth(1).value == Token::Ident && self.lex.nth(2).value == Token::Colon {
-                    self.lex.consume(); // {
-                    let name = self.ident()?;
-                    self.expect(Token::Colon).unwrap();
-                    let value = self.expr(0)?;
-                    Probe::Struct {
-                        first_field: StructValueField {
-                            name: Some(name),
-                            value,
-                        }
-                    }
-                } else {
-                    let save = self.lex.save_state();
-                    self.lex.consume(); // {
-                    if_chain! {
-                        if let Ok(expr) = self.expr(0);
-                        if self.lex.nth(0).value == Token::Comma;
-                        then {
-                            self.lex.discard_state(save);
-                            Probe::Struct {
-                                first_field: StructValueField {
-                                    name: None,
-                                    value: expr
-                                }
-                            }
-                        } else {
-                            // FIXME remove added AST nodes
-                            self.lex.restore_state(save);
-                            Probe::Block
-                        }
-                    }
-                };
-                match probe {
-                    Probe::Struct { first_field } => {
-                        let mut fields = Vec::new();
-                        let named_fields = first_field.name.is_some();
-                        fields.push(first_field);
-                        loop {
-                            let delimited = self.lex.maybe(Token::Comma).is_some();
-                            if self.lex.nth(0).value == Token::BlockClose(lex::Block::Brace) {
-                                break;
-                            }
-                            if !delimited {
-                                let tok = self.lex.nth(0);
-                                return self.fatal(tok.span, &format!("expected `,` or `}}` but found `{:?}`", tok.value));
-                            }
-
-                            let name = if named_fields {
-                                let name = self.ident()?;
-                                self.expect(Token::Colon)?;
-                                Some(name)
-                            } else {
-                                None
-                            };
-
-                            let value = self.expr(0)?;
-
-                            fields.push(StructValueField {
-                                name,
-                                value,
-                            });
-                        }
-                        let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
-
-                        tok.span.extended(end).spanned(self.ast.insert_struct_value(StructValue {
-                            fields,
-                        }))
-                    }
-                    Probe::Block => {
-                        self.maybe_block()?.unwrap()
-                    }
-                }
+                self.lex.consume();
+                self.block_or_struct(None, tok.span.start)?
             }
             // Start-unbounded range
             Token::DotDot | Token::DotDotEq => {
@@ -1049,6 +974,13 @@ impl<'a> Parser<'a> {
         loop {
             let tok = self.lex.nth(0);
             let PrecAssoc { prec, assoc } = match tok.value {
+                // Named struct value.
+                Token::BlockOpen(lex::Block::Brace)
+                    if self.ast.node_kind(left.value) == NodeKind::SymPath =>
+                {
+                    NAMED_STRUCT_VALUE_PREC
+                }
+
                 // Field access or method call
                 Token::Dot => FIELD_ACCESS_PREC,
 
@@ -1161,6 +1093,13 @@ impl<'a> Parser<'a> {
                 self.binary_op(tok.span, left, prec, simple)?
             } else {
                 match tok.value {
+                    // Named struct value.
+                    Token::BlockOpen(lex::Block::Brace)
+                        if self.ast.node_kind(left.value) == NodeKind::SymPath =>
+                    {
+                        self.block_or_struct(Some(left), left.span.start)?
+                    }
+
                     Token::Dot => {
                         self.field_access_or_method_call(left)?
                     }
@@ -1472,6 +1411,107 @@ impl<'a> Parser<'a> {
         Ok(Span::new(start, end.end).spanned(self.ast.insert_struct_type(StructType {
             fields,
         })))
+    }
+
+    // Expects the first '{' be already consumed.
+    fn block_or_struct(&mut self, struct_name: Option<S<NodeId>>, start: usize) -> PResult<S<NodeId>> {
+        enum Probe {
+            StructStart {
+                first_field: StructValueField,
+            },
+            EmptyStruct {
+                end: usize,
+            },
+            Block,
+        }
+        let is_struct = struct_name.is_some();
+        let probe = if self.lex.nth(0).value == Token::Ident && self.lex.nth(1).value == Token::Colon {
+            let name = self.ident()?;
+            self.expect(Token::Colon).unwrap();
+            let value = self.expr(0)?;
+            Probe::StructStart {
+                first_field: StructValueField {
+                    name: Some(name),
+                    value,
+                }
+            }
+        } else if is_struct && self.lex.nth(0).value == Token::BlockClose(lex::Block::Brace) {
+            let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
+            Probe::EmptyStruct { end }
+        } else {
+            let save = if is_struct { None } else { Some(self.lex.save_state()) };
+            match self.expr(0) {
+                Ok(expr) if is_struct || self.lex.nth(0).value == Token::Comma => {
+                    if let Some(save) = save {
+                        self.lex.discard_state(save);
+                    }
+                    Probe::StructStart {
+                        first_field: StructValueField {
+                            name: None,
+                            value: expr
+                        }
+                    }
+                }
+                Err(err) if is_struct => {
+                    return Err(err);
+                }
+                _ => {
+                    assert!(!is_struct);
+                    if let Some(save) = save {
+                        // FIXME remove added AST nodes
+                        self.lex.restore_state(save);
+                    }
+                    Probe::Block
+                }
+            }
+        };
+        Ok(match probe {
+            Probe::StructStart { first_field } => {
+                let mut fields = Vec::new();
+                let named_fields = first_field.name.is_some();
+                fields.push(first_field);
+                loop {
+                    let delimited = self.lex.maybe(Token::Comma).is_some();
+                    if self.lex.nth(0).value == Token::BlockClose(lex::Block::Brace) {
+                        break;
+                    }
+                    if !delimited {
+                        let tok = self.lex.nth(0);
+                        return self.fatal(tok.span, &format!("expected `,` or `}}` but found `{:?}`", tok.value));
+                    }
+
+                    let name = if named_fields {
+                        let name = self.ident()?;
+                        self.expect(Token::Colon)?;
+                        Some(name)
+                    } else {
+                        None
+                    };
+
+                    let value = self.expr(0)?;
+
+                    fields.push(StructValueField {
+                        name,
+                        value,
+                    });
+                }
+                let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
+
+                Span::new(start, end).spanned(self.ast.insert_struct_value(StructValue {
+                    name: struct_name,
+                    fields,
+                }))
+            }
+            Probe::EmptyStruct { end } => {
+                Span::new(start, end).spanned(self.ast.insert_struct_value(StructValue {
+                    name: struct_name,
+                    fields: Vec::new(),
+                }))
+            }
+            Probe::Block => {
+                self.block(start)?
+            }
+        })
     }
 }
 

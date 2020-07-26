@@ -4,4 +4,8 @@ fn f(arg: {f1: i32, f2: {}, f3: &str}) -> {min: i32, max: i32} {
     field2: &str,
     field3: {},
     field4: T} + {};
+
+  Struct {}
+    + Struct<T,U<V, Foo>>{field1: "foo"}.blah(Struct{})
+    * -S { f1: u32, f2: "foo", };
 }
