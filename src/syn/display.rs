@@ -348,31 +348,34 @@ impl Display<'_> {
                 unreachable!();
             }
             NodeKind::StructValue => {
-                let StructValue { name, fields } = self.ast.struct_value(node);
+                let StructValue {
+                    name,
+                    anonymous_fields,
+                    fields } = self.ast.struct_value(node);
                 if let Some(name) = name {
                     self.node(name.value, true, p)?;
                     p.print(' ')?;
                 }
-                let named_fields = fields.first().map(|v| v.name.is_some()).unwrap_or(false);
                 p.print('{')?;
-                if named_fields {
+                if !fields.is_empty() {
                     p.print(' ')?;
-                }
-                for (i, StructValueField { name, value }) in fields.iter().enumerate() {
-                    if i > 0 {
-                        p.print(", ")?;
+                    if anonymous_fields.is_some() {
+                        p.print("0: ")?;
                     }
-                    if let Some(name) = name {
-                        p.print(&name.value)?;
-                        p.print(": ")?;
+                    for (i, StructValueField { name, value }) in fields.iter().enumerate() {
+                        if i > 0 {
+                            p.print(", ")?;
+                        }
+                        if let Some(name) = name {
+                            p.print(&name.value)?;
+                            p.print(": ")?;
+                        }
+                        self.node(value.value, false, p)?;
                     }
-                    self.node(value.value, false, p)?;
-                }
-                if name.is_none() && fields.len() == 1 {
-                    p.print(',')?;
-                }
+                    if name.is_none() && fields.len() == 1 {
+                        p.print(',')?;
+                    }
 
-                if named_fields {
                     p.print(' ')?;
                 }
                 p.print('}')?;

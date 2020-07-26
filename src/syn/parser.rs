@@ -1170,7 +1170,7 @@ impl<'a> Parser<'a> {
                 ident.map(Field::Ident)
             }
             Token::Literal(lex::Literal::Int) => {
-                let IntLiteral { value, ty } = self.int_literal()?;
+                let IntLiteral { value, ty } = self.int_literal()?.value;
                 if ty.is_some() {
                     return self.fatal(field.span, "type suffix is not allowed in tuple field index");
                 }
@@ -1255,7 +1255,7 @@ impl<'a> Parser<'a> {
         };
         let lit = match kind {
             lex::Literal::Int => {
-                Literal::Int(self.int_literal()?)
+                Literal::Int(self.int_literal()?.value)
             }
             lex::Literal::String => {
                 self.lex.consume();
@@ -1273,11 +1273,11 @@ impl<'a> Parser<'a> {
         Ok(tok.with_value(self.ast.insert_literal(lit)))
     }
 
-    fn int_literal(&mut self) -> PResult<IntLiteral> {
+    fn int_literal(&mut self) -> PResult<S<IntLiteral>> {
         let span = self.expect(Token::Literal(lex::Literal::Int))?.span;
         let s = &self.s[span.range()];
         match s.parse::<IntLiteral>() {
-            Ok(v) => Ok(v),
+            Ok(v) => Ok(span.spanned(v)),
             Err(_) => {
                 self.fatal(span, "invalid integer literal")
             }
@@ -1418,12 +1418,14 @@ impl<'a> Parser<'a> {
         enum Probe {
             StructStart {
                 first_field: StructValueField,
+                anonymous_fields: Option<S<()>>,
             },
             EmptyStruct {
                 end: usize,
             },
             Block,
         }
+        // If there's a name it's always a struct, never a block.
         let is_struct = struct_name.is_some();
         let probe = if self.lex.nth(0).value == Token::Ident && self.lex.nth(1).value == Token::Colon {
             let name = self.ident()?;
@@ -1433,7 +1435,27 @@ impl<'a> Parser<'a> {
                 first_field: StructValueField {
                     name: Some(name),
                     value,
-                }
+                },
+                anonymous_fields: None,
+            }
+        } else if self.lex.nth(0).value == Token::Literal(lex::Literal::Int)
+            && self.lex.nth(1).value == Token::Colon
+        {
+            let anonymous_fields = self.int_literal()?;
+            if anonymous_fields.value.ty.is_some() {
+                return self.fatal(anonymous_fields.span, "unexpected int literal type suffix");
+            }
+            if anonymous_fields.value.value != 0 {
+                return self.fatal(anonymous_fields.span, "invalid tuple field number");
+            }
+            self.expect(Token::Colon).unwrap();
+            let value = self.expr(0)?;
+            Probe::StructStart {
+                first_field: StructValueField {
+                    name: None,
+                    value,
+                },
+                anonymous_fields: Some(anonymous_fields.with_value({})),
             }
         } else if is_struct && self.lex.nth(0).value == Token::BlockClose(lex::Block::Brace) {
             let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
@@ -1449,7 +1471,8 @@ impl<'a> Parser<'a> {
                         first_field: StructValueField {
                             name: None,
                             value: expr
-                        }
+                        },
+                        anonymous_fields: None,
                     }
                 }
                 Err(err) if is_struct => {
@@ -1466,9 +1489,8 @@ impl<'a> Parser<'a> {
             }
         };
         Ok(match probe {
-            Probe::StructStart { first_field } => {
+            Probe::StructStart { first_field , anonymous_fields } => {
                 let mut fields = Vec::new();
-                let named_fields = first_field.name.is_some();
                 fields.push(first_field);
                 loop {
                     let delimited = self.lex.maybe(Token::Comma).is_some();
@@ -1480,7 +1502,13 @@ impl<'a> Parser<'a> {
                         return self.fatal(tok.span, &format!("expected `,` or `}}` but found `{:?}`", tok.value));
                     }
 
-                    let name = if named_fields {
+                    let name = if self.lex.nth(0).value == Token::Ident
+                        && self.lex.nth(1).value == Token::Colon
+                    {
+                        if anonymous_fields.is_some() {
+                            let tok = self.lex.nth(0);
+                            return self.fatal(tok.span, "unexpected field name");
+                        }
                         let name = self.ident()?;
                         self.expect(Token::Colon)?;
                         Some(name)
@@ -1499,12 +1527,14 @@ impl<'a> Parser<'a> {
 
                 Span::new(start, end).spanned(self.ast.insert_struct_value(StructValue {
                     name: struct_name,
+                    anonymous_fields,
                     fields,
                 }))
             }
             Probe::EmptyStruct { end } => {
                 Span::new(start, end).spanned(self.ast.insert_struct_value(StructValue {
                     name: struct_name,
+                    anonymous_fields: None,
                     fields: Vec::new(),
                 }))
             }

@@ -547,6 +547,8 @@ pub struct StructTypeField {
 #[derive(Debug)]
 pub struct StructValue {
     pub name: Option<S<NodeId>>, // SymPath
+    /// Whether the value had `0:` specifier.
+    pub anonymous_fields: Option<S<()>>,
     pub fields: Vec<StructValueField>,
 }
 
