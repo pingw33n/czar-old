@@ -109,18 +109,17 @@ impl<'a> Codegen<'a> {
     }
 
     pub fn lower(&mut self) {
-        self.module(self.ast.module_decl(self.ast.root.value));
+        self.module(self.ast.module_decl(self.ast.root));
     }
 
     fn module(&mut self, module_decl: &ModuleDecl) {
-        for item in &module_decl.items {
-            let id = item.value;
-            match self.ast.node_kind(id) {
+        for &item in &module_decl.items {
+            match self.ast.node_kind(item).value {
                 NodeKind::FnDecl => {
-                    self.func(self.ast.fn_decl(id));
+                    self.func(self.ast.fn_decl(item));
                 }
                 NodeKind::ModuleDecl => {
-                    self.module(self.ast.module_decl(id));
+                    self.module(self.ast.module_decl(item));
                 }
                 _ => unimplemented!(),
             }
@@ -151,13 +150,13 @@ impl<'a> Codegen<'a> {
 
     fn func(&mut self, fn_decl: &FnDecl) {
         let ret_ty = if let Some(ty) = fn_decl.ret_ty {
-            self.ty(ty.value)
+            self.ty(ty)
         } else {
             self.ty_void()
         };
         let mut args_ty = Vec::with_capacity(fn_decl.args.len());
         for arg in &fn_decl.args {
-            args_ty.push(self.ty(arg.ty.value));
+            args_ty.push(self.ty(arg.ty));
         }
         let func_ty = unsafe {
             LLVMFunctionType(ret_ty, args_ty.as_mut_ptr(), args_ty.len() as u32, 0)
@@ -170,7 +169,7 @@ impl<'a> Codegen<'a> {
         };
         assert!(!func.is_null());
 
-        if let Some(body) = fn_decl.body.as_ref() {
+        if let Some(body) = fn_decl.body {
             unsafe {
                 let bb = LLVMAppendBasicBlockInContext(self.context, func,
                     b"entry\0".as_ptr() as *const _);
@@ -185,7 +184,7 @@ impl<'a> Codegen<'a> {
                 unimplemented!();
             }
 
-            let ret = self.block(body.value, ctx);
+            let ret = self.block(body, ctx);
             match ret {
                 Value::Void => unsafe { LLVMBuildRetVoid(self.builder); }
                 Value::Value(ret) => unsafe { LLVMBuildRet(self.builder,ret.as_ptr()); }
@@ -194,14 +193,14 @@ impl<'a> Codegen<'a> {
     }
 
     fn expr(&self, node: NodeId, ctx: &mut ExprCtx) -> Value {
-        match self.ast.node_kind(node) {
+        match self.ast.node_kind(node).value {
             NodeKind::VarDecl => {
                 let VarDecl { muta: _, name, ty, init } = self.ast.var_decl(node);
                 unsafe {
-                    let ty = self.ty(ty.as_ref().expect("unimpl").value);
+                    let ty = self.ty(ty.expect("unimpl"));
                     let ptr = LLVMBuildAlloca(self.builder, ty, cstring(&name.value).as_ptr());
 
-                    let init = init.expect("unimpl").value;
+                    let init = init.expect("unimpl");
                     let init = self.expr(init, ctx).into_value().unwrap();
 
                     LLVMBuildStore(self.builder, init.as_ptr(), ptr);
@@ -213,11 +212,11 @@ impl<'a> Codegen<'a> {
             }
             NodeKind::Cast => {
                 let Cast { expr, ty } = self.ast.cast(node);
-                let v = self.expr(expr.value, ctx);
+                let v = self.expr(*expr, ctx);
                 if v.as_void().is_some() {
                     return Value::Void;
                 }
-                let ty = self.ty(ty.value);
+                let ty = self.ty(*ty);
                 v.dump();
                 unsafe {
                     println!();
@@ -279,8 +278,8 @@ impl<'a> Codegen<'a> {
             NodeKind::Op => {
                 match self.ast.op(node) {
                     Op::Binary(op) => {
-                        let l = self.expr(op.left.value, ctx).into_value().unwrap();
-                        let r = self.expr(op.right.value, ctx).into_value().unwrap();
+                        let l = self.expr(op.left, ctx).into_value().unwrap();
+                        let r = self.expr(op.right, ctx).into_value().unwrap();
                         match op.kind.value {
                             BinaryOpKind::Add => {
                                 unsafe {
@@ -334,7 +333,7 @@ impl<'a> Codegen<'a> {
                         }
                     }
                     Op::Unary(op) => {
-                        let arg = self.expr(op.arg.value, ctx).into_value().unwrap();
+                        let arg = self.expr(op.arg, ctx).into_value().unwrap();
                         match op.kind.value {
                             UnaryOpKind::Neg => {
                                 unsafe {
@@ -353,7 +352,7 @@ impl<'a> Codegen<'a> {
             }
             NodeKind::FnCall => {
                 let fn_call = self.ast.fn_call(node);
-                let callee = self.expr(fn_call.callee.value, ctx).into_value().unwrap().as_ptr();
+                let callee = self.expr(fn_call.callee, ctx).into_value().unwrap().as_ptr();
                 let mut args = Vec::with_capacity(fn_call.args.len());
                 for FnCallArg{ name, value } in &fn_call.args {
                     unimplemented!();
@@ -453,8 +452,8 @@ impl<'a> Codegen<'a> {
         let block = self.ast.block(block);
         ctx.vars.push(HashMap::new());
         let mut val = Value::Void;
-        for expr in &block.exprs {
-            val = self.expr(expr.value, ctx);
+        for &expr in &block.exprs {
+            val = self.expr(expr, ctx);
         }
         ctx.vars.pop().unwrap();
         val

@@ -40,7 +40,7 @@ impl Semantic {
     }
 
     pub fn run(&mut self, ctx: &Context) {
-        self.visit_node(ctx.ast.root.value, ctx);
+        self.visit_node(ctx.ast.root, ctx);
     }
 
     fn visit_node(&mut self, node: NodeId, ctx: &Context) {

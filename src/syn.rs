@@ -82,7 +82,7 @@ pub type NodeMap<T> = HashMap<NodeId, T>;
 
 #[derive(Debug)]
 pub struct Ast {
-    nodes: Slab<NodeKind>,
+    nodes: Slab<S<NodeKind>>,
     blocks: NodeMap<Block>,
     block_flow_ctls: NodeMap<BlockFlowCtl>,
     casts: NodeMap<Cast>,
@@ -103,7 +103,7 @@ pub struct Ast {
     use_stmts: NodeMap<UseStmt>,
     use_paths: NodeMap<UsePath>,
 
-    pub root: S<NodeId>,
+    pub root: NodeId,
 }
 
 macro_rules! ast_node_ops {
@@ -118,9 +118,9 @@ macro_rules! ast_node_ops {
             self.$f.get(&id)
         }
 
-        pub fn $insert(&mut self, v: $ty) -> NodeId {
-            let id = NodeId(self.nodes.insert(NodeKind::$ty));
-            self.$f.insert(id, v);
+        pub fn $insert(&mut self, v: S<$ty>) -> NodeId {
+            let id = NodeId(self.nodes.insert(v.span.spanned(NodeKind::$ty)));
+            self.$f.insert(id, v.value);
             id
         }
         )*
@@ -150,20 +150,20 @@ impl Ast {
             ty_exprs: Default::default(),
             use_stmts: Default::default(),
             use_paths: Default::default(),
-            root: Span::new(0, 0).spanned(NodeId::null()),
+            root: NodeId::null(),
         }
     }
 
-    pub fn node_kind(&self, id: NodeId) -> NodeKind {
+    pub fn node_kind(&self, id: NodeId) -> S<NodeKind> {
         self.nodes[id.0]
     }
 
-    pub fn insert_empty_node(&mut self) -> NodeId {
-        NodeId(self.nodes.insert(NodeKind::Empty))
+    pub fn insert_empty_node(&mut self, span: Span) -> NodeId {
+        NodeId(self.nodes.insert(span.spanned(NodeKind::Empty)))
     }
 
     pub fn is_empty_node(&self, id: NodeId) -> bool {
-        self.nodes[id.0] == NodeKind::Empty
+        self.nodes[id.0].value == NodeKind::Empty
     }
 
     ast_node_ops! {
@@ -234,8 +234,8 @@ pub enum BinaryOpKind {
 #[derive(Debug)]
 pub struct BinaryOp {
     pub kind: S<BinaryOpKind>,
-    pub left: S<NodeId>,
-    pub right: S<NodeId>,
+    pub left: NodeId,
+    pub right: NodeId,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -252,20 +252,20 @@ pub enum UnaryOpKind {
 #[derive(Debug)]
 pub struct UnaryOp {
     pub kind: S<UnaryOpKind>,
-    pub arg: S<NodeId>,
+    pub arg: NodeId,
 }
 
 #[derive(Debug)]
 pub struct VarDecl {
     pub muta: Option<S<()>>,
     pub name: S<Ident>,
-    pub ty: Option<S<NodeId>>,
-    pub init: Option<S<NodeId>>,
+    pub ty: Option<NodeId>,
+    pub init: Option<NodeId>,
 }
 
 #[derive(Debug)]
 pub struct Block {
-    pub exprs: Vec<S<NodeId>>,
+    pub exprs: Vec<NodeId>,
 }
 
 impl Block {
@@ -287,7 +287,7 @@ pub enum BlockFlowCtlKind {
 pub struct BlockFlowCtl {
     pub kind: BlockFlowCtlKind,
     pub label: Option<S<Label>>,
-    pub value: Option<S<NodeId>>,
+    pub value: Option<NodeId>,
 }
 
 pub type Ident = String;
@@ -300,7 +300,7 @@ pub type Label = String;
 #[derive(Debug)]
 pub struct ModuleDecl {
     pub name: Option<ModuleName>,
-    pub items: Vec<S<NodeId>>,
+    pub items: Vec<NodeId>,
 }
 
 #[derive(Debug)]
@@ -315,10 +315,10 @@ pub struct FnDecl {
     pub vis: Option<S<Vis>>,
     pub ty_args: Vec<S<Ident>>,
     pub args: Vec<FnDeclArg>,
-    pub ret_ty: Option<S<NodeId>>,
+    pub ret_ty: Option<NodeId>,
     pub unsaf: Option<S<()>>,
     pub variadic: Option<S<()>>,
-    pub body: Option<S<NodeId>>,
+    pub body: Option<NodeId>,
 }
 
 #[derive(Debug, EnumAsInner)]
@@ -331,7 +331,7 @@ pub enum FnArgName {
 pub struct FnDeclArg {
     pub pub_name: S<Option<Ident>>,
     pub priv_name: S<FnArgName>,
-    pub ty: S<NodeId>,
+    pub ty: NodeId,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -342,7 +342,7 @@ pub enum FnCallKind {
 
 #[derive(Debug)]
 pub struct FnCall {
-    pub callee: S<NodeId>,
+    pub callee: NodeId,
     pub kind: FnCallKind,
     pub args: Vec<FnCallArg>,
 }
@@ -350,7 +350,7 @@ pub struct FnCall {
 #[derive(Debug)]
 pub struct FnCallArg {
     pub name: Option<S<Ident>>,
-    pub value: S<NodeId>,
+    pub value: NodeId,
 }
 
 // struct Struct<X: Display>
@@ -397,8 +397,8 @@ pub enum TyData {
 // [<ty>; <len>]
 #[derive(Debug)]
 pub struct Array {
-    pub ty: S<NodeId>,
-    pub len: S<NodeId>,
+    pub ty: NodeId,
+    pub len: NodeId,
 }
 
 /// Use path terminator.
@@ -492,7 +492,7 @@ pub enum PathIdent {
 #[derive(Debug)]
 pub struct PathItem {
     pub ident: S<PathIdent>,
-    pub ty_args: Vec<S<NodeId>>, // TyExpr
+    pub ty_args: Vec<NodeId>, // TyExpr
 }
 
 #[derive(Debug, EnumAsInner)]
@@ -512,14 +512,14 @@ impl fmt::Display for Field {
 
 #[derive(Debug)]
 pub struct FieldAccess {
-    pub receiver: S<NodeId>,
+    pub receiver: NodeId,
     pub field: S<Field>,
 }
 
 #[derive(Debug)]
 pub struct Cast {
-    pub expr: S<NodeId>,
-    pub ty: S<NodeId>,
+    pub expr: NodeId,
+    pub ty: NodeId,
 }
 
 #[derive(Debug)]
@@ -541,12 +541,12 @@ pub struct StructType {
 pub struct StructTypeField {
     pub vis: Option<S<Vis>>,
     pub name: Option<S<Ident>>,
-    pub ty: S<NodeId>,
+    pub ty: NodeId,
 }
 
 #[derive(Debug)]
 pub struct StructValue {
-    pub name: Option<S<NodeId>>, // SymPath
+    pub name: Option<NodeId>, // SymPath
     /// Whether the value had `0:` specifier.
     pub anonymous_fields: Option<S<()>>,
     pub fields: Vec<StructValueField>,
@@ -555,7 +555,7 @@ pub struct StructValue {
 #[derive(Debug)]
 pub struct StructValueField {
     pub name: Option<S<Ident>>,
-    pub value: S<NodeId>,
+    pub value: NodeId,
 }
 
 #[derive(Debug)]
@@ -563,7 +563,7 @@ pub struct StructDecl {
     pub vis: Option<S<Vis>>,
     pub name: S<Ident>,
     pub ty_args: Vec<S<Ident>>,
-    pub ty: S<NodeId>,
+    pub ty: NodeId,
 }
 
 #[derive(Debug)]
@@ -587,14 +587,14 @@ pub enum RangeKind {
 #[derive(Debug)]
 pub struct Range {
     pub kind: RangeKind,
-    pub start: Option<S<NodeId>>,
-    pub end: Option<S<NodeId>>,
+    pub start: Option<NodeId>,
+    pub end: Option<NodeId>,
 }
 
 #[derive(Debug)]
 pub struct Impl {
     pub ty_args: Vec<S<Ident>>,
-    pub trait_: Option<S<NodeId>>, // SymPath
-    pub for_: S<NodeId>, // SymPath
-    pub items: Vec<S<NodeId>>,
+    pub trait_: Option<NodeId>, // SymPath
+    pub for_: NodeId, // SymPath
+    pub items: Vec<NodeId>,
 }

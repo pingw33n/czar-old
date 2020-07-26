@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod test;
 
-use if_chain::if_chain;
 use std::convert::TryFrom;
 
 use super::*;
@@ -78,7 +77,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse(mut self) -> PResult<()> {
-        let root = self.module_decl_inner(None)?;
+        let root = self.module_decl_inner(0, None)?;
         self.ast.root = root;
         if self.lex.is_ok() {
             Ok(())
@@ -99,7 +98,7 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn maybe_decl_item(&mut self) -> PResult<Option<S<NodeId>>> {
+    fn maybe_decl_item(&mut self) -> PResult<Option<NodeId>> {
         struct S{}
 
         let vis = self.maybe_vis();
@@ -137,9 +136,9 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn module_decl_inner(&mut self, name: Option<ModuleName>) -> PResult<S<NodeId>> {
+    fn module_decl_inner(&mut self, start: usize, name: Option<ModuleName>) -> PResult<NodeId> {
         let mut items = Vec::new();
-        loop {
+        let end = loop {
             if let Some(item) = self.maybe_decl_item()? {
                 items.push(item);
             } else {
@@ -150,12 +149,10 @@ impl<'a> Parser<'a> {
                     return self.fatal(tok.span,
                         &format!("expected `decl_item`, found `{:?}`", tok.value));
                 }
-                break;
+                break tok.span.end;
             }
-        }
-        let span_start = items.first().map(|v| v.span.start).unwrap_or(0);
-        let span_end = items.last().map(|v| v.span.end).unwrap_or(0);
-        Ok(Span::new(span_start, span_end).spanned(self.ast.insert_module_decl(ModuleDecl {
+        };
+        Ok(self.ast.insert_module_decl(Span::new(start, end).spanned(ModuleDecl {
             name,
             items,
         })))
@@ -163,16 +160,18 @@ impl<'a> Parser<'a> {
 
     // [pub] mod foo { ... }
     // [pub] mod foo;
-    fn module_decl(&mut self, vis: Option<S<Vis>>) -> PResult<S<NodeId>> {
-        let modu = self.expect(Token::Keyword(Keyword::Mod))?;
+    fn module_decl(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
+        let mod_ = self.expect(Token::Keyword(Keyword::Mod))?;
+        let start = vis.as_ref().map(|v| v.span.start)
+            .unwrap_or(mod_.span.start);
         let name = self.ident()?;
         let name = ModuleName {
             name,
             vis,
         };
-        let mut r = if let Token::BlockOpen(lex::Block::Brace) = self.lex.nth(0).value {
+        Ok(if let Token::BlockOpen(lex::Block::Brace) = self.lex.nth(0).value {
             self.lex.consume();
-            let r = self.module_decl_inner(Some(name))?;
+            let r = self.module_decl_inner(start, Some(name))?;
             self.expect(Token::BlockClose(lex::Block::Brace))?;
             r
         } else {
@@ -185,24 +184,21 @@ impl<'a> Parser<'a> {
             path.push(format!("{}.tsar", name.name.value));
             let s = Self::read_file(self.fs, &path)?;
             Parser::new(&s, Some(&name.name.value), path, self.fs, &mut self.ast).parse()?;
-            let r = std::mem::replace(&mut self.ast.root,
-                Span::new(0, 0).spanned(NodeId::null()));
-            assert_ne!(r.value, NodeId::null());
+            let r = std::mem::replace(&mut self.ast.root, NodeId::null());
+            assert_ne!(r, NodeId::null());
             r
-        };
-        r.span.start = modu.span.start;
-        Ok(r)
+        })
     }
 
     // use <path>;
-    fn use_stmt(&mut self, vis: Option<S<Vis>>) -> PResult<S<NodeId>> {
-        let span_start = self.expect(Token::Keyword(Keyword::Use))?.span.start;
+    fn use_stmt(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
+        let start = self.expect(Token::Keyword(Keyword::Use))?.span.start;
         let anchor = self.maybe_path_anchor()?;
-        let path = self.use_path()?.value;
-        let span_end = self.expect(Token::Semi)?.span.end;
-        Ok(Span::new(span_start, span_end).spanned(self.ast.insert_use_stmt(UseStmt {
+        let path = self.use_path()?;
+        let end = self.expect(Token::Semi)?.span.end;
+        Ok(self.ast.insert_use_stmt(Span::new(start, end).spanned(UseStmt {
             vis,
-            path: Span::new(span_start, span_end).spanned(AnchoredPath {
+            path: Span::new(start, end).spanned(AnchoredPath {
                 anchor: anchor.map(|v| v.value),
                 path,
             }),
@@ -218,12 +214,12 @@ impl<'a> Parser<'a> {
         Err(PError::Parse)
     }
 
-    fn fn_decl(&mut self, vis: Option<S<Vis>>) -> PResult<S<NodeId>> {
+    fn fn_decl(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
         let unsaf = self.lex.maybe(Token::Keyword(Keyword::Unsafe))
             .map(|v| v.map(|_| {}));
 
         let tok = self.expect(Token::Keyword(Keyword::Fn))?;
-        let span_start = vis.as_ref().map(|v| v.span.start)
+        let start = vis.as_ref().map(|v| v.span.start)
             .or(unsaf.as_ref().map(|v| v.span.start))
             .unwrap_or(tok.span.start);
 
@@ -257,30 +253,29 @@ impl<'a> Parser<'a> {
                         return self.fatal(tok.span, &format!("expected `self`, found `{:?}`", tok.value));
                     }
                     if let Some(self_) = self_ {
-                        let ty = self.ast.insert_sym_path(SymPath {
+                        let ty = self.ast.insert_sym_path(self_.with_value(SymPath {
                             anchor: None,
                             items: vec![PathItem {
                                 ident: self_.with_value(PathIdent::SelfType),
                                 ty_args: Vec::new(),
                             }],
-                        });
-                        let mut ty = self.ast.insert_ty_expr(TyExpr {
-                            muta: mut_.map(|v| v.with_value(())),
-                            data: self_.with_value(TyData::SymPath(ty)),
-                        });
+                        }));
+                        let mut ty = self.ast.insert_ty_expr(
+                            Span::new(mut_.map(|v| v.span.start).unwrap_or(self_.span.start), self_.span.end).spanned(TyExpr {
+                                muta: mut_.map(|v| v.with_value(())),
+                                data: self_.with_value(TyData::SymPath(ty)),
+                            }));
                         if let Some(ref_) = ref_ {
-                            ty = self.ast.insert_ty_expr(TyExpr {
-                                muta: None,
-                                data: ref_.with_value(TyData::Ref(ty))
-                            })
+                            ty = self.ast.insert_ty_expr(
+                                Span::new(ref_.span.start, self_.span.end).spanned(TyExpr {
+                                    muta: None,
+                                    data: ref_.with_value(TyData::Ref(ty))
+                                }));
                         }
-                        let span_start = ref_.map(|v| v.span.start)
-                            .or(mut_.map(|v| v.span.start))
-                            .unwrap_or(self_.span.start);
                         Some(FnDeclArg {
                             pub_name: self_.with_value(None),
                             priv_name: self_.with_value(FnArgName::Self_),
-                            ty: Span::new(span_start, self_.span.end).spanned(ty)
+                            ty,
                         })
                     } else {
                         None
@@ -322,13 +317,13 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        let span_end = if let Some(body) = &body {
-            body.span.end
+        let end = if let Some(body) = body {
+            self.ast.node_kind(body).span.end
         } else {
             self.expect(Token::Semi)?.span.end
         };
 
-        Ok(Span::new(span_start, span_end).spanned(self.ast.insert_fn_decl(FnDecl {
+        Ok(self.ast.insert_fn_decl(Span::new(start, end).spanned(FnDecl {
             name,
             vis,
             ty_args,
@@ -375,33 +370,33 @@ impl<'a> Parser<'a> {
     // foo<T>
     // foo<T>::bar<U>
     // foo<T>::bar<U>::baz<V>
-    fn ty_expr(&mut self) -> PResult<S<NodeId>> {
+    fn ty_expr(&mut self) -> PResult<NodeId> {
         let muta = self.lex.maybe(Token::Keyword(Keyword::Mut))
             .map(|tok| tok.map(|_| {}));
         let tok = self.lex.nth(0);
-        let span_start = muta.map(|s| s.span.start)
+        let start = muta.map(|s| s.span.start)
             .unwrap_or(tok.span.start);
 
-        let (span_end, data) = match tok.value {
+        let (end, data) = match tok.value {
             Token::Amp | Token::AmpAmp => {
                 self.lex.consume();
                 let ty = self.ty_expr()?;
-                let span_end = ty.span.end;
+                let end = self.ast.node_kind(ty).span.end;
+                let span = Span::new(tok.span.start + 1, end);
                 let data = if tok.value == Token::AmpAmp {
-                    TyData::Ref(self.ast.insert_ty_expr(TyExpr {
+                    TyData::Ref(self.ast.insert_ty_expr(span.spanned(TyExpr {
                         muta: None,
-                        data: S::new(Span::new(tok.span.start + 1, ty.span.end),
-                            TyData::Ref(ty.value)),
-                    }))
+                        data: span.spanned(TyData::Ref(ty)),
+                    })))
                 } else {
-                    TyData::Ref(ty.value)
+                    TyData::Ref(ty)
                 };
-                (span_end, data)
+                (end, data)
             }
             Token::Star => {
                 self.lex.consume();
                 let ty = self.ty_expr()?;
-                (ty.span.end, TyData::Ptr(ty.value))
+                (self.ast.node_kind(ty).span.end, TyData::Ptr(ty))
             },
             Token::BlockOpen(lex::Block::Bracket) => {
                 self.lex.consume();
@@ -416,25 +411,24 @@ impl<'a> Parser<'a> {
                     // [<ty>*]
                     let resizable = self.lex.maybe(Token::Star).is_some();
                     TyData::Slice(Slice {
-                        ty: ty.value,
+                        ty,
                         resizable,
                     })
                 };
-                let span_end = self.expect(Token::BlockClose(lex::Block::Bracket))?.span.end;
-                (span_end, data)
+                let end = self.expect(Token::BlockClose(lex::Block::Bracket))?.span.end;
+                (end, data)
             }
             Token::BlockOpen(lex::Block::Brace) => {
-                let S { span, value } = self.struct_type(false)?;
-                (span.end, TyData::Struct(value))
+                let struct_ = self.struct_type(false)?;
+                (self.ast.node_kind(struct_).span.end, TyData::Struct(struct_))
             }
             _ => {
                 let path = self.sym_path(true)?;
-                (path.span.end, TyData::SymPath(path.value))
+                (self.ast.node_kind(path).span.end, TyData::SymPath(path))
             }
         };
-        let data = S::new(Span::new(tok.span.start, span_end), data);
-        Ok(Span::new(span_start, span_end)
-            .spanned(self.ast.insert_ty_expr(TyExpr { muta, data })))
+        let data = Span::new(tok.span.start, end).spanned(data);
+        Ok(self.ast.insert_ty_expr(Span::new(start, end).spanned(TyExpr { muta, data })))
     }
 
     fn maybe_path_anchor(&mut self) -> PResult<Option<S<PathAnchor>>> {
@@ -478,7 +472,7 @@ impl<'a> Parser<'a> {
         Ok(Some(r))
     }
 
-    fn sym_path(&mut self, in_type_pos: bool) -> PResult<S<NodeId>> {
+    fn sym_path(&mut self, in_type_pos: bool) -> PResult<NodeId> {
         let anchor = self.maybe_path_anchor()?;
 
         let mut items = Vec::new();
@@ -550,13 +544,13 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let span_start = anchor.map(|v| v.span.start)
+        let start = anchor.map(|v| v.span.start)
             .unwrap_or(items[0].ident.span.start);
         let last = items.last().unwrap();
-        let span_end = last.ty_args.last()
-            .map(|s| s.span.end)
+        let end = last.ty_args.last()
+            .map(|&v| self.ast.node_kind(v).span.end)
             .unwrap_or(last.ident.span.end);
-        Ok(Span::new(span_start, span_end).spanned(self.ast.insert_sym_path(SymPath {
+        Ok(self.ast.insert_sym_path(Span::new(start, end).spanned(SymPath {
             anchor,
             items,
         })))
@@ -573,16 +567,15 @@ impl<'a> Parser<'a> {
     fn path_terms(&mut self) -> PResult<S<Vec<S<PathTerm>>>> {
         let mut terms = Vec::new();
         let list = self.lex.maybe(Token::BlockOpen(lex::Block::Brace));
-        let mut span_end = None;
-        loop {
+        let end = loop {
             let tok = self.lex.nth(0);
             let term = match tok.value {
                 Token::Keyword(Keyword::SelfLower) if list.is_some() => {
                     self.lex.consume();
                     let renamed_as = self.maybe_as_ident()?;
-                    let span_end = renamed_as.as_ref().map(|v| v.span.end)
+                    let end = renamed_as.as_ref().map(|v| v.span.end)
                         .unwrap_or(tok.span.end);
-                    Span::new(tok.span.start, span_end).spanned(PathTerm::Self_(PathTermSelf {
+                    Span::new(tok.span.start, end).spanned(PathTerm::Self_(PathTermSelf {
                         renamed_as,
                     }))
                 }
@@ -602,13 +595,13 @@ impl<'a> Parser<'a> {
                             renamed_as,
                         }))
                     } else {
-                        self.use_path()?.map(PathTerm::Path)
+                        let path = self.use_path()?;
+                        self.ast.node_kind(path).span.spanned(PathTerm::Path(path))
                     }
                 }
                 Token::BlockClose(lex::Block::Brace) => {
                     self.lex.consume();
-                    span_end = Some(tok.span.end);
-                    break;
+                    break Some(tok.span.end);
                 }
                 _ => {
                     return self.fatal(tok.span, &format!("unexpected {:?}", tok.value));
@@ -616,7 +609,7 @@ impl<'a> Parser<'a> {
             };
             terms.push(term);
             if list.is_none() {
-                break;
+                break None;
             }
 
             if self.lex.maybe(Token::Comma).is_none()
@@ -624,14 +617,14 @@ impl<'a> Parser<'a> {
             {
                 return self.fatal(tok.span, &format!("unexpected {:?}", tok.value));
             }
-        }
-        let span_start = list.map(|v| v.span.start)
+        };
+        let start = list.map(|v| v.span.start)
             .unwrap_or_else(|| terms.first().unwrap().span.start);
-        let span_end = span_end.unwrap_or_else(|| terms.last().unwrap().span.end);
-        Ok(Span::new(span_start, span_end).spanned(terms))
+        let end = end.unwrap_or_else(|| terms.last().unwrap().span.end);
+        Ok(Span::new(start, end).spanned(terms))
     }
 
-    fn use_path(&mut self) -> PResult<S<NodeId>> {
+    fn use_path(&mut self) -> PResult<NodeId> {
         #[derive(Clone, Copy, Debug)]
         enum State {
             Done,
@@ -677,13 +670,13 @@ impl<'a> Parser<'a> {
         let terms = self.path_terms()?;
         let span_start = prefix.first().map(|v| v.span.start)
             .unwrap_or(terms.span.start);
-        Ok(Span::new(span_start, terms.span.end).spanned(self.ast.insert_use_path(UsePath {
+        Ok(self.ast.insert_use_path(Span::new(span_start, terms.span.end).spanned(UsePath {
             prefix,
             terms: terms.value,
         })))
     }
 
-    fn path_ty_args(&mut self) -> PResult<Vec<S<NodeId>>> {
+    fn path_ty_args(&mut self) -> PResult<Vec<NodeId>> {
         self.expect(Token::Lt)?;
         let mut ty_args = Vec::new();
         loop {
@@ -745,7 +738,7 @@ impl<'a> Parser<'a> {
         Ok(ty_args)
     }
 
-    fn maybe_block_expr(&mut self) -> PResult<Option<S<NodeId>>> {
+    fn maybe_block_expr(&mut self) -> PResult<Option<NodeId>> {
         let decl_item = self.maybe_decl_item()?;
         if decl_item.is_some() {
             return Ok(decl_item);
@@ -754,7 +747,7 @@ impl<'a> Parser<'a> {
         let tok = self.lex.nth(0);
         Ok(Some(match tok.value {
             Token::Keyword(Keyword::Let) => {
-                let span_start = tok.span.start;
+                let start = tok.span.start;
                 self.lex.consume();
                 let muta = self.lex.maybe(Token::Keyword(Keyword::Mut))
                     .map(|v| v.map(|_| {}));
@@ -769,11 +762,9 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
-                let span_end =
-                    init.as_ref().map(|v| v.span.end)
-                        .or(ty.as_ref().map(|v| v.span.end))
-                        .unwrap_or(name.span.end);
-                Span::new(span_start, span_end).spanned(self.ast.insert_var_decl(VarDecl {
+                let end = init.or(ty).map(|v| self.ast.node_kind(v).span.end)
+                    .unwrap_or(name.span.end);
+                self.ast.insert_var_decl(Span::new(start, end).spanned(VarDecl {
                     muta,
                     name,
                     ty,
@@ -785,9 +776,9 @@ impl<'a> Parser<'a> {
     }
 
     // Expects '{' to be already consumed.
-    fn block(&mut self, start: usize) -> PResult<S<NodeId>> {
+    fn block(&mut self, start: usize) -> PResult<NodeId> {
         let mut exprs = Vec::new();
-        let span_end = loop {
+        let end = loop {
             let expr = if let Some(v) = self.maybe_block_expr()? {
                 Some(v)
             } else {
@@ -798,7 +789,7 @@ impl<'a> Parser<'a> {
             let end = self.lex.maybe(Token::BlockClose(lex::Block::Brace));
 
             let empty_expr = expr.is_none();
-            let expr_kind = expr.map(|v| self.ast.node_kind(v.value));
+            let expr_kind = expr.map(|v| self.ast.node_kind(v).value);
             if let Some(expr) = expr {
                 exprs.push(expr);
             }
@@ -807,7 +798,7 @@ impl<'a> Parser<'a> {
                 // If we have empty expression in the middle of block or
                 // semicolon at the end of the block, add an Empty node as expr.
                 if empty_expr || end.is_some() {
-                    exprs.push(empty.with_value(self.ast.insert_empty_node()));
+                    exprs.push(self.ast.insert_empty_node(empty.span));
                 }
             }
 
@@ -822,12 +813,12 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Ok(Span::new(start, span_end).spanned(self.ast.insert_block(Block {
+        Ok(self.ast.insert_block(Span::new(start, end).spanned(Block {
             exprs,
         })))
     }
 
-    fn maybe_expr(&mut self) -> PResult<Option<S<NodeId>>> {
+    fn maybe_expr(&mut self) -> PResult<Option<NodeId>> {
         let tok = self.lex.nth(0);
         if is_expr_delim(tok.value) {
             return Ok(None);
@@ -835,28 +826,31 @@ impl<'a> Parser<'a> {
         self.expr(0).map(Some)
     }
 
-    fn unary_op(&mut self, span: Span, kind: UnaryOpKind) -> PResult<S<NodeId>> {
+    fn unary_op(&mut self, span: Span, kind: UnaryOpKind) -> PResult<NodeId> {
         let arg = self.expr(UNARY_PREC.prec)?;
-        Ok(Span::new(span.start, arg.span.end)
-            .spanned(self.ast.insert_op(Op::Unary(UnaryOp {
+        Ok(self.ast.insert_op(Span::new(span.start, self.ast.node_kind(arg).span.end).spanned(
+            Op::Unary(UnaryOp {
                 kind: span.spanned(kind),
                 arg,
             }))))
     }
 
-    fn binary_op(&mut self, span: Span, left: S<NodeId>, prec: u32, kind: BinaryOpKind) -> PResult<S<NodeId>> {
+    fn binary_op(&mut self, span: Span, left: NodeId, prec: u32, kind: BinaryOpKind) -> PResult<NodeId> {
         let right = self.expr(prec)?;
-        Ok(left.span.extended(right.span.end).spanned(self.ast.insert_op(Op::Binary(BinaryOp {
-            kind: span.spanned(kind),
-            left,
-            right,
-        }))))
+        let start = self.ast.node_kind(left).span.start;
+        let end = self.ast.node_kind(right).span.end;
+        Ok(self.ast.insert_op(Span::new(start, end).spanned(
+            Op::Binary(BinaryOp {
+                kind: span.spanned(kind),
+                left,
+                right,
+            }))))
     }
 
-    fn check_assoc_defined(&self, left: S<NodeId>, op: S<Token>, f: impl Fn(BinaryOpKind) -> bool)
+    fn check_assoc_defined(&self, left: NodeId, op: S<Token>, f: impl Fn(BinaryOpKind) -> bool)
         -> PResult<()>
     {
-        if self.ast.try_op(left.value)
+        if self.ast.try_op(left)
             .and_then(|n| n.as_binary())
             .filter(|b| f(b.kind.value))
             .is_some()
@@ -867,7 +861,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expr(&mut self, min_prec: u32) -> PResult<S<NodeId>> {
+    fn expr(&mut self, min_prec: u32) -> PResult<NodeId> {
         let tok = self.lex.nth(0);
         // Handle prefix position.
         let mut left = match tok.value {
@@ -901,9 +895,9 @@ impl<'a> Parser<'a> {
                     .map(|t| t.span.spanned(lex::label(&self.s[t.span.range()])));
                 let value = self.maybe_expr()?;
                 let span_end = label.as_ref().map(|t| t.span.end)
-                    .or(value.map(|t| t.span.end))
+                    .or(value.map(|v| self.ast.node_kind(v).span.end))
                     .unwrap_or(tok.span.end);
-                tok.span.extended(span_end).spanned(self.ast.insert_block_flow_ctl(BlockFlowCtl {
+                self.ast.insert_block_flow_ctl(tok.span.extended(span_end).spanned(BlockFlowCtl {
                     kind: BlockFlowCtlKind::Break,
                     label,
                     value,
@@ -911,7 +905,7 @@ impl<'a> Parser<'a> {
             }
             Token::Keyword(Keyword::Continue) => {
                 self.lex.consume();
-                tok.span.spanned(self.ast.insert_block_flow_ctl(BlockFlowCtl {
+               self.ast.insert_block_flow_ctl(tok.span.spanned(BlockFlowCtl {
                     kind: BlockFlowCtlKind::Continue,
                     label: None,
                     value: None,
@@ -920,10 +914,10 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::Return) => {
                 self.lex.consume();
                 let value = self.maybe_expr()?;
-                let span_end = value.map(|t| t.span.end)
+                let span_end = value.map(|v| self.ast.node_kind(v).span.end)
                     .unwrap_or(tok.span.end);
 
-                tok.span.extended(span_end).spanned(self.ast.insert_block_flow_ctl(BlockFlowCtl {
+                self.ast.insert_block_flow_ctl(tok.span.extended(span_end).spanned(BlockFlowCtl {
                     kind: BlockFlowCtlKind::Return,
                     label: None,
                     value,
@@ -932,7 +926,7 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::False) | Token::Keyword(Keyword::True) => {
                 self.lex.consume();
                 let v = tok.value == Token::Keyword(Keyword::True);
-                tok.span.spanned(self.ast.insert_literal(Literal::Bool(v)))
+                self.ast.insert_literal(tok.span.spanned(Literal::Bool(v)))
             }
             Token::Literal(_) => {
                 self.literal()?
@@ -958,9 +952,9 @@ impl<'a> Parser<'a> {
                     RangeKind::Inclusive
                 };
                 let end = self.maybe_expr()?;
-                let span_end = end.map(|v| v.span.end)
+                let span_end = end.map(|v| self.ast.node_kind(v).span.end)
                     .unwrap_or(tok.span.end);
-                tok.span.extended(span_end).spanned(self.ast.insert_range(Range {
+                self.ast.insert_range(tok.span.extended(span_end).spanned(Range {
                     kind,
                     start: None,
                     end,
@@ -976,7 +970,7 @@ impl<'a> Parser<'a> {
             let PrecAssoc { prec, assoc } = match tok.value {
                 // Named struct value.
                 Token::BlockOpen(lex::Block::Brace)
-                    if self.ast.node_kind(left.value) == NodeKind::SymPath =>
+                    if self.ast.node_kind(left).value == NodeKind::SymPath =>
                 {
                     NAMED_STRUCT_VALUE_PREC
                 }
@@ -1095,9 +1089,9 @@ impl<'a> Parser<'a> {
                 match tok.value {
                     // Named struct value.
                     Token::BlockOpen(lex::Block::Brace)
-                        if self.ast.node_kind(left.value) == NodeKind::SymPath =>
+                        if self.ast.node_kind(left).value == NodeKind::SymPath =>
                     {
-                        self.block_or_struct(Some(left), left.span.start)?
+                        self.block_or_struct(Some(left), self.ast.node_kind(left).span.start)?
                     }
 
                     Token::Dot => {
@@ -1114,25 +1108,28 @@ impl<'a> Parser<'a> {
                         r
                     }
                     Token::Quest => {
-                        left.span.extended(tok.span.end)
-                            .spanned(self.ast.insert_op(Op::Unary(UnaryOp {
+                        self.ast.insert_op(self.ast.node_kind(left).span.extended(tok.span.end).spanned(
+                            Op::Unary(UnaryOp {
                                 kind: tok.span.spanned(UnaryOpKind::PropagatingUnwrap),
                                 arg: left,
                             })))
                     }
                     Token::Excl => {
-                        left.span.extended(tok.span.end)
-                            .spanned(self.ast.insert_op(Op::Unary(UnaryOp {
+                        self.ast.insert_op(self.ast.node_kind(left).span.extended(tok.span.end).spanned(
+                            Op::Unary(UnaryOp {
                                 kind: tok.span.spanned(UnaryOpKind::PanickingUnwrap),
                                 arg: left,
                             })))
                     }
                     Token::Keyword(Keyword::As) => {
                         let ty = self.ty_expr()?;
-                        left.span.extended(ty.span.end).spanned(self.ast.insert_cast(Cast {
-                            expr: left,
-                            ty,
-                        }))
+                        let span = self.ast.node_kind(left).span
+                            .extended(self.ast.node_kind(ty).span.end);
+                        self.ast.insert_cast(span.spanned(
+                            Cast {
+                                expr: left,
+                                ty,
+                            }))
                     }
                     // Start-bounded range
                     Token::DotDot | Token::DotDotEq => {
@@ -1142,9 +1139,9 @@ impl<'a> Parser<'a> {
                             RangeKind::Inclusive
                         };
                         let end = self.maybe_expr()?;
-                        let span_end = end.map(|v| v.span.end)
+                        let span_end = end.map(|v| self.ast.node_kind(v).span.end)
                             .unwrap_or(tok.span.end);
-                        tok.span.extended(span_end).spanned(self.ast.insert_range(Range {
+                        self.ast.insert_range(tok.span.extended(span_end).spanned(Range {
                             kind,
                             start: Some(left),
                             end,
@@ -1157,14 +1154,14 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn field_access_or_method_call(&mut self, receiver: S<NodeId>) -> PResult<S<NodeId>> {
+    fn field_access_or_method_call(&mut self, receiver: NodeId) -> PResult<NodeId> {
         let field = self.lex.nth(0);
         let field = match field.value {
             Token::Ident => {
                 let ident = self.ident()?;
                 if self.lex.maybe(Token::BlockOpen(lex::Block::Paren)).is_some() {
-                    let callee = ident.span.spanned(
-                        self.ast.insert_sym_path(SymPath::from_ident(ident)));
+                    let callee = self.ast.insert_sym_path(
+                        ident.span.spanned(SymPath::from_ident(ident)));
                     return self.fn_call(callee, Some(receiver));
                 }
                 ident.map(Field::Ident)
@@ -1186,15 +1183,16 @@ impl<'a> Parser<'a> {
                     &format!("expected field identifier or tuple field index, found `{:?}`", field.value));
             }
         };
-        Ok(receiver.span.extended(field.span.end)
-            .spanned(self.ast.insert_field_access(FieldAccess {
+        let span = self.ast.node_kind(receiver).span.extended(field.span.end);
+        Ok(self.ast.insert_field_access(span.spanned(
+            FieldAccess {
                 receiver,
                 field,
             })))
     }
 
     // Expects the opening paren to be already consumed.
-    fn fn_call(&mut self, callee: S<NodeId>, receiver: Option<S<NodeId>>) -> PResult<S<NodeId>> {
+    fn fn_call(&mut self, callee: NodeId, receiver: Option<NodeId>) -> PResult<NodeId> {
         let mut args = Vec::new();
         let kind = if let Some(receiver) = receiver {
             args.push(FnCallArg {
@@ -1205,7 +1203,7 @@ impl<'a> Parser<'a> {
         } else {
             FnCallKind::Free
         };
-        let span_end = loop {
+        let end = loop {
             let name = if self.lex.nth(0).value == Token::Ident
                 && self.lex.nth(1).value == Token::Colon
             {
@@ -1239,14 +1237,15 @@ impl<'a> Parser<'a> {
                 break tok.span.end;
             }
         };
-        Ok(callee.span.extended(span_end).spanned(self.ast.insert_fn_call(FnCall {
+        let span = self.ast.node_kind(callee).span.extended(end);
+        Ok(self.ast.insert_fn_call(span.spanned(FnCall {
             callee,
             kind,
             args,
         })))
     }
 
-    fn literal(&mut self) -> PResult<S<NodeId>> {
+    fn literal(&mut self) -> PResult<NodeId> {
         let tok = self.lex.nth(0);
         let kind = if let Token::Literal(v) = tok.value {
             v
@@ -1270,7 +1269,7 @@ impl<'a> Parser<'a> {
                 self.char_literal(tok.span)?
             }
         };
-        Ok(tok.with_value(self.ast.insert_literal(lit)))
+        Ok(self.ast.insert_literal(tok.with_value(lit)))
     }
 
     fn int_literal(&mut self) -> PResult<S<IntLiteral>> {
@@ -1314,16 +1313,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn struct_decl(&mut self, vis: Option<S<Vis>>) -> PResult<S<NodeId>> {
+    fn struct_decl(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
         self.expect(Token::Keyword(Keyword::Struct))?;
 
         let name = self.ident()?;
         let ty_args = self.maybe_formal_ty_args()?;
         let ty = self.struct_type(true)?;
 
-        let span_start = vis.as_ref().map(|v| v.span.start)
+        let start = vis.as_ref().map(|v| v.span.start)
             .unwrap_or(name.span.start);
-        Ok(Span::new(span_start, ty.span.end).spanned(self.ast.insert_struct_decl(StructDecl {
+        let end = self.ast.node_kind(ty).span.end;
+        Ok(self.ast.insert_struct_decl(Span::new(start, end).spanned(StructDecl {
             vis,
             name,
             ty_args,
@@ -1331,8 +1331,8 @@ impl<'a> Parser<'a> {
         })))
     }
 
-    fn impl_(&mut self) -> PResult<S<NodeId>> {
-        let span_start = self.expect(Token::Keyword(Keyword::Impl))?.span.start;
+    fn impl_(&mut self) -> PResult<NodeId> {
+        let start = self.expect(Token::Keyword(Keyword::Impl))?.span.start;
         let ty_args = self.maybe_formal_ty_args()?;
         let sym1 = self.sym_path(true)?;
         let sym2 = if self.lex.maybe(Token::Keyword(Keyword::For)).is_some() {
@@ -1359,10 +1359,10 @@ impl<'a> Parser<'a> {
             items.push(fn_decl);
         }
 
-        let span_end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap()
+        let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap()
             .span.end;
 
-        Ok(Span::new(span_start, span_end).spanned(self.ast.insert_impl(Impl {
+        Ok(self.ast.insert_impl(Span::new(start, end).spanned(Impl {
             ty_args,
             trait_,
             for_,
@@ -1370,7 +1370,7 @@ impl<'a> Parser<'a> {
         })))
     }
 
-    fn struct_type(&mut self, field_vis: bool) -> PResult<S<NodeId>> {
+    fn struct_type(&mut self, field_vis: bool) -> PResult<NodeId> {
         let start = self.expect(Token::BlockOpen(lex::Block::Brace))?.span.start;
         let mut fields = Vec::new();
         let mut delimited = true;
@@ -1408,13 +1408,13 @@ impl<'a> Parser<'a> {
             return self.fatal(end, "expected `,`");
         }
 
-        Ok(Span::new(start, end.end).spanned(self.ast.insert_struct_type(StructType {
+        Ok(self.ast.insert_struct_type(Span::new(start, end.end).spanned(StructType {
             fields,
         })))
     }
 
     // Expects the first '{' be already consumed.
-    fn block_or_struct(&mut self, struct_name: Option<S<NodeId>>, start: usize) -> PResult<S<NodeId>> {
+    fn block_or_struct(&mut self, struct_name: Option<NodeId>, start: usize) -> PResult<NodeId> {
         enum Probe {
             StructStart {
                 first_field: StructValueField,
@@ -1525,14 +1525,14 @@ impl<'a> Parser<'a> {
                 }
                 let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
 
-                Span::new(start, end).spanned(self.ast.insert_struct_value(StructValue {
+                self.ast.insert_struct_value(Span::new(start, end).spanned(StructValue {
                     name: struct_name,
                     anonymous_fields,
                     fields,
                 }))
             }
             Probe::EmptyStruct { end } => {
-                Span::new(start, end).spanned(self.ast.insert_struct_value(StructValue {
+                self.ast.insert_struct_value(Span::new(start, end).spanned(StructValue {
                     name: struct_name,
                     anonymous_fields: None,
                     fields: Vec::new(),
