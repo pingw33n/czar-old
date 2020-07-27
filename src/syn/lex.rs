@@ -632,6 +632,7 @@ impl<'a> Lexer<'a> {
                     depth += 1;
                 }
                 ('*', '/') => {
+                    self.next_char();
                     depth -= 1;
                     if depth == 0 {
                         break;

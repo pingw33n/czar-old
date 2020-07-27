@@ -1,0 +1,6 @@
+/// comment
+fn f/*foobar*/(/**/)
+// comment
+{ // fn f
+
+/*/*/*nested*/*/*/}

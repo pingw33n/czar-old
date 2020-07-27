@@ -17,7 +17,7 @@ pub struct Display<'a> {
 }
 
 impl Display<'_> {
-    fn node(&self, node: NodeId, no_parens: bool, at_group_level: bool, p: &mut Printer) -> Result {
+    fn node(&self, node: NodeId, at_group_level: bool, p: &mut Printer) -> Result {
         match self.ast.node_kind(node).value {
             NodeKind::Block => {
                 let Block { exprs } = self.ast.block(node);
@@ -31,7 +31,7 @@ impl Display<'_> {
                     let it = exprs.iter().enumerate()
                         .take(if no_result { exprs.len() - 1 } else { exprs.len() });
                     for (i, &expr) in it {
-                        self.node(expr, false, true, p)?;
+                        self.node(expr, true, p)?;
                         if !self.ast.node_kind(expr).value.is_stmt()
                             && (no_result || i < exprs.len() - 1)
                         {
@@ -55,24 +55,24 @@ impl Display<'_> {
                 }
                 if let &Some(value) = value {
                     p.print(' ')?;
-                    self.node(value, false, false, p)?;
+                    self.node(value, false, p)?;
                 }
             }
             NodeKind::Cast => {
                 let Cast { expr, ty } = self.ast.cast(node);
                 self.expr(*expr, p)?;
                 p.print(" as ")?;
-                self.node(*ty, true, false, p)?;
+                self.node(*ty, false, p)?;
             }
             NodeKind::IfExpr => {
                 let IfExpr { cond, if_true, if_false } = self.ast.if_expr(node);
                 p.print("if (")?;
-                self.node(*cond, true, false, p)?;
+                self.node(*cond, false, p)?;
                 p.print(") ")?;
-                self.node(*if_true, true, false, p)?;
+                self.node(*if_true, false, p)?;
                 if let &Some(if_false) = if_false {
                     p.print(" else ")?;
-                    self.node(if_false, true, false, p)?;
+                    self.node(if_false, false, p)?;
                 }
                 p.println("")?;
             }
@@ -127,11 +127,11 @@ impl Display<'_> {
                         FnArgName::Ident(v) => {
                             p.print(v)?;
                             p.print(": ")?;
-                            self.node(*ty, true, false, p)?;
+                            self.node(*ty, false, p)?;
                         }
                         FnArgName::Self_ => {
                             let s = &mut String::new();
-                            self.node(*ty, true, false, &mut Printer::new(s))?;
+                            self.node(*ty, false, &mut Printer::new(s))?;
                             p.print(s.to_ascii_lowercase())?;
                         }
                     }
@@ -144,12 +144,12 @@ impl Display<'_> {
 
                 if let &Some(ret_ty) = ret_ty {
                     p.print(" -> ")?;
-                    self.node(ret_ty, true, false, p)?;
+                    self.node(ret_ty, false, p)?;
                 }
 
                 if let &Some(body) = body {
                     p.print(" ")?;
-                    self.node(body, false, false, p)?;
+                    self.node(body, false, p)?;
                 } else {
                     p.print(";")?;
                 }
@@ -175,7 +175,7 @@ impl Display<'_> {
                         p.print(&name.value)?;
                         p.print(": ")?;
                     }
-                    self.node(*value, false, true, p)?;
+                    self.node(*value, true, p)?;
                 }
                 p.print(')')?;
 
@@ -192,17 +192,17 @@ impl Display<'_> {
 
                 p.print(' ')?;
                 if let Some(trait_) = trait_ {
-                    self.node(*trait_, true, false, p)?;
+                    self.node(*trait_, false, p)?;
                     p.print(" for ")?;
                 }
 
-                self.node(*for_, true, false, p)?;
+                self.node(*for_, false, p)?;
 
                 p.println(" {")?;
                 p.indent()?;
 
                 for &item in items {
-                    self.node(item, false, false, p)?;
+                    self.node(item, false, p)?;
                 }
 
                 p.unindent()?;
@@ -254,7 +254,7 @@ impl Display<'_> {
                     p.indent()?;
                 }
                 for &item in items {
-                    self.node(item, false, false, p)?;
+                    self.node(item, false, p)?;
                 }
                 if name.is_some() {
                     p.unindent()?;
@@ -311,7 +311,7 @@ impl Display<'_> {
 
                         if kind.value == Index {
                             p.print("[")?;
-                            self.node(*right, false, false, p)?;
+                            self.node(*right, false, p)?;
                             p.print("]")?;
                         } else {
                             let s = match kind.value {
@@ -409,7 +409,7 @@ impl Display<'_> {
                     anonymous_fields,
                     fields } = self.ast.struct_value(node);
                 if let &Some(name) = name {
-                    self.node(name, true, false, p)?;
+                    self.node(name, false, p)?;
                     p.print(' ')?;
                 }
                 p.print('{')?;
@@ -426,24 +426,21 @@ impl Display<'_> {
                             p.print(&name.value)?;
                             p.print(": ")?;
                         }
-                        self.node(*value, false, false, p)?;
+                        self.node(*value, false, p)?;
                     }
                     if name.is_none() && fields.len() == 1 {
                         p.print(',')?;
                     }
 
                     p.print(' ')?;
+                } else {
+                    p.print("/*{,}*/")?;
                 }
                 p.print('}')?;
             }
             NodeKind::SymPath => {
-                struct S<T> {v: T}
                 let SymPath { anchor, items } = self.ast.sym_path(node);
                 self.path_anchor(anchor.map(|v| v.value), p)?;
-                let needs_parens = !no_parens && !items.last().unwrap().ty_args.is_empty();
-                if needs_parens {
-                    p.print('(')?;
-                }
                 for (i, PathItem { ident, ty_args }) in items.iter().enumerate() {
                     if i > 0 {
                         p.print("::")?;
@@ -456,13 +453,10 @@ impl Display<'_> {
                             if i > 0 {
                                 p.print(", ")?;
                             }
-                            self.node(*v, true, false, p)?;
+                            self.node(*v, false, p)?;
                         }
                         p.print(">")?;
                     }
-                }
-                if needs_parens {
-                    p.print(')')?;
                 }
             }
             NodeKind::TyExpr => {
@@ -473,28 +467,28 @@ impl Display<'_> {
                 match &data.value {
                     &TyData::Array(Array { ty, len }) => {
                         p.print("[")?;
-                        self.node(ty, true, false, p)?;
-                        self.node(len, false, false, p)?;
+                        self.node(ty, false, p)?;
+                        self.node(len, false, p)?;
                         p.print("]")?;
                     }
                     &TyData::Ptr(v) => {
                         p.print("*")?;
-                        self.node(v, true, false, p)?;
+                        self.node(v, false, p)?;
                     }
                     &TyData::Ref(v) => {
                         p.print("&")?;
-                        self.node(v, true, false, p)?;
+                        self.node(v, false, p)?;
                     }
                     &TyData::Slice(Slice { ty, resizable }) => {
                         p.print("[")?;
-                        self.node(ty, true, false, p)?;
+                        self.node(ty, false, p)?;
                         if resizable {
                             p.print("*")?;
                         }
                         p.print("]")?;
                     }
                     &TyData::SymPath(v) => {
-                        self.node(v, true, false, p)?;
+                        self.node(v, false, p)?;
                     }
                     &TyData::Struct(v) => {
                         self.struct_type(v, true, p)?;
@@ -521,11 +515,11 @@ impl Display<'_> {
                 self.ident(&name.value, p)?;
                 if let &Some(ty) = ty {
                     p.print(": ")?;
-                    self.node(ty, true, false, p)?;
+                    self.node(ty, false, p)?;
                 }
                 if let &Some(init) = init {
                     p.print(" = ")?;
-                    self.node(init, false, false, p)?;
+                    self.node(init, false, p)?;
                 }
             }
         }
@@ -674,7 +668,7 @@ impl Display<'_> {
         if !no_parens {
             p.print('(')?;
         }
-        self.node(node, false, !no_parens, p)?;
+        self.node(node, !no_parens, p)?;
         if !no_parens {
             p.print(')')?;
         }
@@ -710,7 +704,7 @@ impl Display<'_> {
                 p.print(&name.value)?;
                 p.print(": ")?;
             }
-            self.node(*ty, true, false, p)?;
+            self.node(*ty, false, p)?;
             if !inline || i < fields.len() - 1 || !inline && fields.len() == 1 {
                 p.print(delim)?;
                 if !inline {
@@ -809,6 +803,6 @@ impl<'a> Printer<'a> {
 
 impl<'a> fmt::Display for Display<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result {
-        self.node(self.node, false, false, &mut Printer::new(f))
+        self.node(self.node, false, &mut Printer::new(f))
     }
 }

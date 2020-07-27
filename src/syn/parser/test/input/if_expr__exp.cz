@@ -8,7 +8,7 @@ fn f() {
   }
   if ({}) {}
   if ({}) {} else {}
-  if (Struct {}) {}
+  if (Struct {/*{,}*/}) {}
   if (Func({})) {}
   if (Struct { 0 }) {}
   if ({ 0, }) {}
