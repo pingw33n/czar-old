@@ -49,16 +49,14 @@ pub struct Parser<'a> {
     s: &'a str,
     lex: Lexer<'a>,
     ast: &'a mut Ast,
-    mod_name: Option<&'a Ident>,
-    path: PathBuf,
+    source_id: SourceId,
     fs: &'a mut dyn Fs,
 }
 
 impl<'a> Parser<'a> {
     fn new(
         s: &'a str,
-        mod_name: Option<&'a Ident>,
-        path: PathBuf,
+        source_id: SourceId,
         fs: &'a mut dyn Fs,
         ast: &'a mut Ast,
     ) -> Self {
@@ -66,8 +64,7 @@ impl<'a> Parser<'a> {
             s,
             lex: Lexer::new(s),
             ast,
-            mod_name,
-            path,
+            source_id,
             fs,
         }
     }
@@ -77,7 +74,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse(mut self) -> PResult<()> {
-        let root = self.module_decl_inner(0, None)?;
+        let root = self.module_decl_inner(Some(self.source_id), 0, None)?;
         self.ast.root = root;
         if self.lex.is_ok() {
             Ok(())
@@ -98,7 +95,7 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn maybe_decl_item(&mut self) -> PResult<Option<NodeId>> {
+    fn maybe_decl_item(&mut self, top_level: bool) -> PResult<Option<NodeId>> {
         struct S{}
 
         let vis = self.maybe_vis();
@@ -116,7 +113,7 @@ impl<'a> Parser<'a> {
                 }
             }
             Token::Keyword(Keyword::Fn) => self.fn_decl(vis)?,
-            Token::Keyword(Keyword::Mod) => self.module_decl(vis)?,
+            Token::Keyword(Keyword::Mod) => self.module_decl(top_level, vis)?,
             Token::Keyword(Keyword::Static) => unimplemented!(),
             Token::Keyword(Keyword::Use) => self.use_stmt(vis)?,
             Token::Keyword(Keyword::Struct) => self.struct_decl(vis)?,
@@ -136,10 +133,14 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn module_decl_inner(&mut self, start: usize, name: Option<ModuleName>) -> PResult<NodeId> {
+    fn module_decl_inner(&mut self,
+        source_id: Option<SourceId>,
+        start: usize,
+        name: Option<ModuleName>,
+    ) -> PResult<NodeId> {
         let mut items = Vec::new();
         let end = loop {
-            if let Some(item) = self.maybe_decl_item()? {
+            if let Some(item) = self.maybe_decl_item(source_id.is_some())? {
                 items.push(item);
             } else {
                 let tok = self.lex.nth(0);
@@ -153,6 +154,7 @@ impl<'a> Parser<'a> {
             }
         };
         Ok(self.ast.insert_module_decl(Span::new(start, end).spanned(ModuleDecl {
+            source_id,
             name,
             items,
         })))
@@ -160,7 +162,7 @@ impl<'a> Parser<'a> {
 
     // [pub] mod foo { ... }
     // [pub] mod foo;
-    fn module_decl(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
+    fn module_decl(&mut self, top_level: bool, vis: Option<S<Vis>>) -> PResult<NodeId> {
         let mod_ = self.expect(Token::Keyword(Keyword::Mod))?;
         let start = vis.as_ref().map(|v| v.span.start)
             .unwrap_or(mod_.span.start);
@@ -169,23 +171,39 @@ impl<'a> Parser<'a> {
             name,
             vis,
         };
-        Ok(if let Token::BlockOpen(lex::Block::Brace) = self.lex.nth(0).value {
-            self.lex.consume();
-            let r = self.module_decl_inner(start, Some(name))?;
-            self.expect(Token::BlockClose(lex::Block::Brace))?;
-            r
-        } else {
-            self.expect(Token::Semi)?;
 
-            let mut path = self.path.clone();
-            if let Some(mod_name) = &self.mod_name {
-                path.push(mod_name);
-            }
-            path.push(format!("{}.tsar", name.name.value));
-            let s = Self::read_file(self.fs, &path)?;
-            Parser::new(&s, Some(&name.name.value), path, self.fs, &mut self.ast).parse()?;
+        Ok(if self.lex.nth(0).value == Token::Semi {
+            let end = self.lex.next().span.end;
+
+            let (path, content) = {
+                let source = self.ast.source(self.source_id);
+                let mut path = source.path.to_path_buf();
+                assert!(path.pop());
+                if top_level {
+                    if let Some(mod_name) = &source.mod_name {
+                        path.push(mod_name);
+                    }
+                } else {
+                    return self.fatal(Span::new(start, end),
+                        "module file declaration can be top level only");
+                }
+                path.push(source_file_name(&name.name.value));
+                let content = Self::read_file(self.fs, &path)?;
+                (path, content)
+            };
+            let source_id = self.ast.insert_source(Source {
+                mod_name: Some(name.name.value.clone()),
+                path,
+            });
+
+            Parser::new(&content, source_id, self.fs, &mut self.ast).parse()?;
             let r = std::mem::replace(&mut self.ast.root, NodeId::null());
             assert_ne!(r, NodeId::null());
+            r
+        } else {
+            self.expect(Token::BlockOpen(lex::Block::Brace))?;
+            let r = self.module_decl_inner(None, start, Some(name))?;
+            self.expect(Token::BlockClose(lex::Block::Brace))?;
             r
         })
     }
@@ -739,7 +757,7 @@ impl<'a> Parser<'a> {
     }
 
     fn maybe_block_expr(&mut self) -> PResult<Option<NodeId>> {
-        let decl_item = self.maybe_decl_item()?;
+        let decl_item = self.maybe_decl_item(false)?;
         if decl_item.is_some() {
             return Ok(decl_item);
         }
@@ -1545,11 +1563,15 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn parse_file_with(path: impl AsRef<Path>, fs: &mut dyn Fs) -> PResult<Ast> {
-    let path = path.as_ref();
+pub fn parse_file_with(path: impl AsRef<Path>, fs: &mut dyn Fs) -> PResult<Ast> {
+    let path = path.as_ref().to_path_buf();
     let mut ast = Ast::new();
-    let s = Parser::read_file(fs, path)?;
-    Parser::new(&s, None, path.to_path_buf(), fs, &mut ast).parse()?;
+    let content = Parser::read_file(fs, &path)?;
+    let source_id = ast.insert_source(Source {
+        mod_name: None,
+        path,
+    });
+    Parser::new(&content, source_id, fs, &mut ast).parse()?;
     Ok(ast)
 }
 
@@ -1572,7 +1594,11 @@ pub fn parse_str(s: &str) -> PResult<Ast> {
     }
 
     let mut ast = Ast::new();
-    Parser::new(&s, None, "unnamed.tsr".into(), &mut NotFoundFs, &mut ast).parse()?;
+    let source_id = ast.insert_source(Source {
+        mod_name: None,
+        path: source_file_name("unnamed"),
+    });
+    Parser::new(s, source_id, &mut NotFoundFs, &mut ast).parse()?;
     Ok(ast)
 }
 

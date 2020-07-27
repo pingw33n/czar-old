@@ -232,7 +232,7 @@ impl Display<'_> {
                 }
             }
             NodeKind::ModuleDecl => {
-                let ModuleDecl{ name, items } = self.ast.module_decl(node);
+                let ModuleDecl{ source_id: _, name, items } = self.ast.module_decl(node);
                 if let Some(n) = name {
                     self.vis(&n.vis, p)?;
                     p.print_sep("mod")?;

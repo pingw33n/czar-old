@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use lex::{Keyword, Lexer, Token};
 
 pub use lex::{FloatLiteral, FloatTypeSuffix, IntLiteral, IntTypeSuffix, S, Span, Spanned};
-pub use parser::{parse_file, parse_str};
+pub use parser::{Fs, parse_file, parse_file_with, parse_str};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(transparent)]
@@ -80,6 +80,14 @@ impl NodeKind {
 
 pub type NodeMap<T> = HashMap<NodeId, T>;
 
+pub type SourceId = usize;
+
+#[derive(Debug)]
+pub struct Source {
+    pub mod_name: Option<Ident>,
+    pub path: PathBuf,
+}
+
 #[derive(Debug)]
 pub struct Ast {
     nodes: Slab<S<NodeKind>>,
@@ -102,6 +110,8 @@ pub struct Ast {
     ty_exprs: NodeMap<TyExpr>,
     use_stmts: NodeMap<UseStmt>,
     use_paths: NodeMap<UsePath>,
+
+    sources: Slab<Source>,
 
     pub root: NodeId,
 }
@@ -150,8 +160,17 @@ impl Ast {
             ty_exprs: Default::default(),
             use_stmts: Default::default(),
             use_paths: Default::default(),
+            sources: Default::default(),
             root: NodeId::null(),
         }
+    }
+
+    pub fn source(&self, id: SourceId) -> &Source {
+        &self.sources[id]
+    }
+
+    pub fn insert_source(&mut self, source: Source) -> SourceId {
+        self.sources.insert(source)
     }
 
     pub fn node_kind(&self, id: NodeId) -> S<NodeKind> {
@@ -299,6 +318,7 @@ pub type Label = String;
 /// ```
 #[derive(Debug)]
 pub struct ModuleDecl {
+    pub source_id: Option<SourceId>,
     pub name: Option<ModuleName>,
     pub items: Vec<NodeId>,
 }
@@ -597,4 +617,8 @@ pub struct Impl {
     pub trait_: Option<NodeId>, // SymPath
     pub for_: NodeId, // SymPath
     pub items: Vec<NodeId>,
+}
+
+pub fn source_file_name(mod_name: &str) -> PathBuf {
+    format!("{}.cz", mod_name).into()
 }
