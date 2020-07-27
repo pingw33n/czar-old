@@ -71,12 +71,22 @@ struct ExprState {
 
     /// Whether the expr parser recognizes struct constructors.
     parse_struct_value: bool,
+
+    /// Are we immediately after '{' or '('?
+    at_group_start: bool,
 }
 
 impl ExprState {
     fn with_min_prec(self, min_prec: u32) -> Self {
         Self {
             min_prec,
+            ..self
+        }
+    }
+
+    fn with_at_group_start(self, at_group_start: bool) -> Self {
+        Self {
+            at_group_start,
             ..self
         }
     }
@@ -87,6 +97,7 @@ impl Default for ExprState {
         Self {
             min_prec: 0,
             parse_struct_value: true,
+            at_group_start: false,
         }
     }
 }
@@ -142,8 +153,6 @@ impl<'a> Parser<'a> {
     }
 
     fn maybe_decl_item(&mut self, top_level: bool) -> PResult<Option<NodeId>> {
-        struct S{}
-
         let vis = self.maybe_vis();
         let tok0 = self.lex.nth(0);
         Ok(Some(match tok0.value {
@@ -820,43 +829,6 @@ impl<'a> Parser<'a> {
         Ok(ty_args)
     }
 
-    fn maybe_block_expr(&mut self) -> PResult<Option<NodeId>> {
-        let decl_item = self.maybe_decl_item(false)?;
-        if decl_item.is_some() {
-            return Ok(decl_item);
-        }
-
-        let tok = self.lex.nth(0);
-        Ok(Some(match tok.value {
-            Token::Keyword(Keyword::Let) => {
-                let start = tok.span.start;
-                self.lex.consume();
-                let muta = self.lex.maybe(Token::Keyword(Keyword::Mut))
-                    .map(|v| v.map(|_| {}));
-                let name = self.ident()?;
-                let ty = if self.lex.maybe(Token::Colon).is_some() {
-                    Some(self.ty_expr()?)
-                } else {
-                    None
-                };
-                let init = if self.lex.maybe(Token::Eq).is_some() {
-                    Some(self.expr(Default::default())?)
-                } else {
-                    None
-                };
-                let end = init.or(ty).map(|v| self.ast.node_kind(v).span.end)
-                    .unwrap_or(name.span.end);
-                self.ast.insert_var_decl(Span::new(start, end).spanned(VarDecl {
-                    muta,
-                    name,
-                    ty,
-                    init,
-                }))
-            }
-            _ => return Ok(None),
-        }))
-    }
-
     fn block(&mut self) -> PResult<NodeId> {
         let tok = self.expect(Token::BlockOpen(lex::Block::Brace))?;
         self.block_inner(tok.span.start)
@@ -866,10 +838,13 @@ impl<'a> Parser<'a> {
     fn block_inner(&mut self, start: usize) -> PResult<NodeId> {
         let mut exprs = Vec::new();
         let end = loop {
-            let expr = if let Some(v) = self.maybe_block_expr()? {
+            let expr = if let Some(v) = self.maybe_decl_item(false)? {
                 Some(v)
             } else {
-                self.maybe_expr(Default::default())?
+                self.maybe_expr(ExprState {
+                    at_group_start: true,
+                    ..Default::default()
+                })?
             };
 
             let semi = self.lex.maybe(Token::Semi);
@@ -1032,7 +1007,10 @@ impl<'a> Parser<'a> {
             Token::BlockOpen(lex::Block::Paren) => {
                 self.lex.consume();
 
-                let expr = self.expr(Default::default())?;
+                let expr = self.expr(ExprState {
+                    at_group_start: true,
+                    ..Default::default()
+                })?;
                 self.expect(Token::BlockClose(lex::Block::Paren))?;
                 expr
             }
@@ -1085,6 +1063,34 @@ impl<'a> Parser<'a> {
                     cond,
                     if_true,
                     if_false,
+                }))
+            }
+            Token::Keyword(Keyword::Let) => {
+                if !state.at_group_start {
+                    return self.fatal(tok.span, "this `let` usage requires explicit grouping");
+                }
+                let start = tok.span.start;
+                self.lex.consume();
+                let muta = self.lex.maybe(Token::Keyword(Keyword::Mut))
+                    .map(|v| v.map(|_| {}));
+                let name = self.ident()?;
+                let ty = if self.lex.maybe(Token::Colon).is_some() {
+                    Some(self.ty_expr()?)
+                } else {
+                    None
+                };
+                let init = if self.lex.maybe(Token::Eq).is_some() {
+                    Some(self.expr(Default::default())?)
+                } else {
+                    None
+                };
+                let end = init.or(ty).map(|v| self.ast.node_kind(v).span.end)
+                    .unwrap_or(name.span.end);
+                self.ast.insert_var_decl(Span::new(start, end).spanned(VarDecl {
+                    muta,
+                    name,
+                    ty,
+                    init,
                 }))
             }
             _ => if let Some(v) = self.maybe_sym_path(false)? {
@@ -1167,7 +1173,14 @@ impl<'a> Parser<'a> {
                 | Token::HatEq
                 | Token::PipeEq
                 | Token::AmpEq
-                => ASSIGN_PREC,
+                => {
+                    if !state.at_group_start {
+                        let start = self.ast.node_kind(left).span.start;
+                        return self.fatal(Span::new(start, tok.span.end),
+                            "this assignment operator usage requires parenthesis");
+                    }
+                    ASSIGN_PREC
+                },
 
                 _ => break,
             };
@@ -1342,7 +1355,10 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            let value = self.maybe_expr(Default::default())?;
+            let value = self.maybe_expr(ExprState {
+                at_group_start: true,
+                ..Default::default()
+            })?;
             if let Some(value) = value {
                 args.push(FnCallArg {
                     name,

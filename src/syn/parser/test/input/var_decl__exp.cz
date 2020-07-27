@@ -7,6 +7,10 @@ fn f() {
   let x: Type;
   let x: MyType<Ta1, Foo<X, Y>>;
   let mut x: T;
+  x = foo;
   let x: mut T;
   let _unused: mut MyType<T>::Foo<U>::Bar<V> = HashMap<&str, Vec<u32>>::new();
+  let x = ((let y = 0) && {
+    let z = y + 42
+  }) || ((let foo) && (foo = 42));
 }
