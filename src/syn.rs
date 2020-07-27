@@ -33,6 +33,7 @@ pub enum NodeKind {
     FieldAccess,
     FnDecl,
     FnCall,
+    IfExpr,
     Impl,
     Literal,
     ModuleDecl,
@@ -49,15 +50,17 @@ pub enum NodeKind {
 }
 
 impl NodeKind {
-    pub fn needs_semi(self) -> bool {
+    /// Statements don't need ';' delimiter in blocks and modules.
+    pub fn is_stmt(self) -> bool {
         match self {
             | Self::Block
             | Self::Impl
+            | Self::IfExpr
             | Self::FnDecl
             | Self::ModuleDecl
             | Self::StructDecl
             | Self::StructType
-            => false,
+            => true,
 
             | Self::BlockFlowCtl
             | Self::Cast
@@ -73,7 +76,7 @@ impl NodeKind {
             | Self::UsePath
             | Self::VarDecl
             | Self::StructValue
-            => true,
+            => false,
         }
     }
 }
@@ -97,6 +100,7 @@ pub struct Ast {
     field_accesses: NodeMap<FieldAccess>,
     fn_decls: NodeMap<FnDecl>,
     fn_calls: NodeMap<FnCall>,
+    if_exprs: NodeMap<IfExpr>,
     impls: NodeMap<Impl>,
     literals: NodeMap<Literal>,
     module_decls: NodeMap<ModuleDecl>,
@@ -147,6 +151,7 @@ impl Ast {
             field_accesses: Default::default(),
             fn_decls: Default::default(),
             fn_calls: Default::default(),
+            if_exprs: Default::default(),
             impls: Default::default(),
             literals: Default::default(),
             module_decls: Default::default(),
@@ -192,6 +197,7 @@ impl Ast {
         insert_field_access, field_access, try_field_access, field_accesses, FieldAccess;
         insert_fn_decl, fn_decl, try_fn_decl, fn_decls, FnDecl;
         insert_fn_call, fn_call, try_fn_call, fn_calls, FnCall;
+        insert_if_expr, if_expr, try_if_expr, if_exprs, IfExpr;
         insert_impl, impl_, try_impl, impls, Impl;
         insert_literal, literal, try_literal, literals, Literal;
         insert_module_decl, module_decl, try_module_decl, module_decls, ModuleDecl;
@@ -617,6 +623,13 @@ pub struct Impl {
     pub trait_: Option<NodeId>, // SymPath
     pub for_: NodeId, // SymPath
     pub items: Vec<NodeId>,
+}
+
+#[derive(Debug)]
+pub struct IfExpr {
+    pub cond: NodeId,
+    pub if_true: NodeId,
+    pub if_false: Option<NodeId>,
 }
 
 pub fn source_file_name(mod_name: &str) -> PathBuf {

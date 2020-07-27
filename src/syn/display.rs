@@ -31,7 +31,7 @@ impl Display<'_> {
                         .take(if no_result { exprs.len() - 1 } else { exprs.len() });
                     for (i, &expr) in it {
                         self.node(expr, false, p)?;
-                        if self.ast.node_kind(expr).value.needs_semi()
+                        if !self.ast.node_kind(expr).value.is_stmt()
                             && (no_result || i < exprs.len() - 1)
                         {
                             p.println(";")?;
@@ -62,6 +62,18 @@ impl Display<'_> {
                 self.expr(*expr, p)?;
                 p.print(" as ")?;
                 self.node(*ty, true, p)?;
+            }
+            NodeKind::IfExpr => {
+                let IfExpr { cond, if_true, if_false } = self.ast.if_expr(node);
+                p.print("if (")?;
+                self.node(*cond, true, p)?;
+                p.print(") ")?;
+                self.node(*if_true, true, p)?;
+                if let &Some(if_false) = if_false {
+                    p.print(" else ")?;
+                    self.node(if_false, true, p)?;
+                }
+                p.println("")?;
             }
             NodeKind::FieldAccess => {
                 let FieldAccess { receiver, field } = self.ast.field_access(node);

@@ -1,0 +1,35 @@
+fn f() {
+  if (Cond) {}
+  if (Cond) {
+    0
+  }
+  if (Cond) {
+    foo
+  }
+  if ({}) {}
+  if ({}) {} else {}
+  if (Struct {}) {}
+  if (Func({})) {}
+  if (Struct { 0 }) {}
+  if ({ 0, }) {}
+  if (Struct { foo }) {}
+  if ({ foo, }) {}
+  if (Struct { 0: foo }) {}
+  if ({ 0: foo, }) {}
+  if (Struct { foo: 0 }) {}
+  if (true) {
+    (if ((a < b) == c) {
+      a.foo()
+    } else {
+      b.foo()
+    }
+    ) + (&((if (x) {
+      0
+    } else {
+      "foo"
+    }
+    )?));
+  } else {
+    return {};
+  }
+}

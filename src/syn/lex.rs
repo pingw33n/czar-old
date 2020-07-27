@@ -402,12 +402,12 @@ impl<'a> Lexer<'a> {
 
     fn fill_buf(&mut self, len: usize) {
         while self.buf.len() < len {
-            let tok = self.next1();
+            let tok = self.next_meaningful();
             self.buf.push_back(tok);
         }
     }
 
-    fn next1(&mut self) -> S<Token> {
+    fn next_meaningful(&mut self) -> S<Token> {
         loop {
             let r = self.next0();
             match r.value {
