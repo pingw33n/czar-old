@@ -26,7 +26,8 @@ impl Display<'_> {
                     p.indent()?;
 
                     let no_result = exprs.last()
-                        .map(|&e| self.ast.is_empty_node(e)) == Some(true);
+                        .and_then(|&v| self.ast.try_struct_value(v))
+                        .map(|v| v.fields.is_empty()) == Some(true);
                     let it = exprs.iter().enumerate()
                         .take(if no_result { exprs.len() - 1 } else { exprs.len() });
                     for (i, &expr) in it {
@@ -482,9 +483,6 @@ impl Display<'_> {
                     p.print(" = ")?;
                     self.node(init, false, p)?;
                 }
-            }
-            NodeKind::Empty => {
-                p.println(";")?;
             }
         }
         Ok(())

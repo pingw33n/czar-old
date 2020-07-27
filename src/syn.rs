@@ -29,7 +29,6 @@ pub enum NodeKind {
     Block,
     BlockFlowCtl,
     Cast,
-    Empty,
     FieldAccess,
     FnDecl,
     FnCall,
@@ -64,7 +63,6 @@ impl NodeKind {
 
             | Self::BlockFlowCtl
             | Self::Cast
-            | Self::Empty
             | Self::FieldAccess
             | Self::FnCall
             | Self::Literal
@@ -180,14 +178,6 @@ impl Ast {
 
     pub fn node_kind(&self, id: NodeId) -> S<NodeKind> {
         self.nodes[id.0]
-    }
-
-    pub fn insert_empty_node(&mut self, span: Span) -> NodeId {
-        NodeId(self.nodes.insert(span.spanned(NodeKind::Empty)))
-    }
-
-    pub fn is_empty_node(&self, id: NodeId) -> bool {
-        self.nodes[id.0].value == NodeKind::Empty
     }
 
     ast_node_ops! {

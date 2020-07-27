@@ -855,9 +855,13 @@ impl<'a> Parser<'a> {
 
             if let Some(semi) = semi {
                 // If we have empty expression in the middle of block or
-                // semicolon at the end of the block, add an Empty node as expr.
+                // semicolon at the end of the block, add an empty unnamed struct.
                 if expr.is_none() || end.is_some() {
-                    exprs.push(self.ast.insert_empty_node(semi.span));
+                    exprs.push(self.ast.insert_struct_value(semi.span.spanned(StructValue {
+                        name: None,
+                        anonymous_fields: None,
+                        fields: Vec::new(),
+                    })));
                 }
             }
 
