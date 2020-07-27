@@ -104,24 +104,21 @@ impl Display<'_> {
                         p.print(", ")?;
                     }
                     if let Some(pub_name) = &pub_name.value {
-                        if pub_name != priv_name.value.as_ident().unwrap() {
+                        if pub_name != &priv_name.value {
                             p.print(pub_name)?;
                             p.print(' ')?;
                         }
                     } else if i > 0 {
                         p.print("_ ")?;
                     }
-                    match &priv_name.value {
-                        FnArgName::Ident(v) => {
-                            p.print(v)?;
-                            p.print(": ")?;
-                            self.node(*ty, false, p)?;
-                        }
-                        FnArgName::Self_ => {
-                            let s = &mut String::new();
-                            self.node(*ty, false, &mut Printer::new(s))?;
-                            p.print(s.to_ascii_lowercase())?;
-                        }
+                    if priv_name.value.is_self_value() {
+                        let s = &mut String::new();
+                        self.node(*ty, false, &mut Printer::new(s))?;
+                        p.print(s.to_ascii_lowercase())?;
+                    } else {
+                        p.print(&priv_name.value)?;
+                        p.print(": ")?;
+                        self.node(*ty, false, p)?;
                     }
 
                     if variadic.is_some() && i == args.len() - 1 {
@@ -451,7 +448,7 @@ impl Display<'_> {
                         p.print("::")?;
                     }
 
-                    self.path_ident(ident, p)?;
+                    self.ident(&ident.value, p)?;
                     if !ty_args.is_empty() {
                         p.print("<")?;
                         for (i, v) in ty_args.iter().enumerate() {
@@ -588,10 +585,6 @@ impl Display<'_> {
                 PathTerm::Star => {
                     p.print("*")?;
                 }
-                PathTerm::Self_(PathTermSelf { renamed_as }) => {
-                    p.print("self")?;
-                    self.path_term_as(renamed_as, p)?;
-                }
             }
             if terms.len() > 1 {
                 p.println(",")?;
@@ -618,7 +611,7 @@ impl Display<'_> {
         let raw = match ident.to_ascii_lowercase().as_str() {
             // Disambiguate for float literal tests.
             "inf" | "infinity" | "nan" => true,
-            _ => ident.parse::<Keyword>().is_ok(),
+            _ => false,
         };
 
         if raw {
@@ -626,14 +619,6 @@ impl Display<'_> {
         }
 
         p.print(ident)
-    }
-
-    fn path_ident(&self, ident: &S<PathIdent>, p: &mut Printer) -> Result {
-        match &ident.value {
-            PathIdent::Ident(v) => self.ident(v, p),
-            PathIdent::SelfType => p.print("Self"),
-            PathIdent::SelfValue => p.print("self"),
-        }
     }
 
     fn char(&self, c: char, escape_single_quote: bool, p: &mut Printer) -> Result {

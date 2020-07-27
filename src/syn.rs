@@ -315,7 +315,66 @@ pub struct BlockFlowCtl {
     pub value: Option<NodeId>,
 }
 
-pub type Ident = String;
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct Ident(String);
+
+impl Ident {
+    const SELF_VALUE: &'static str = "self";
+    const SELF_TYPE: &'static str = "Self";
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn self_value() -> Self {
+        Self(Ident::SELF_VALUE.into())
+    }
+
+    pub fn self_type() -> Self {
+        Self(Ident::SELF_TYPE.into())
+    }
+
+    pub fn is_self_value(&self) -> bool {
+        &self.0 == Ident::SELF_VALUE
+    }
+
+    pub fn is_self_type(&self) -> bool {
+        &self.0 == Ident::SELF_TYPE
+    }
+}
+
+impl std::ops::Deref for Ident {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Display for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<String> for Ident {
+    fn from(v: String) -> Self {
+        Self(v)
+    }
+}
+
+impl From<&str> for Ident {
+    fn from(v: &str) -> Self {
+        Self::from(v.to_owned())
+    }
+}
+
+impl AsRef<str> for Ident {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
 pub type Label = String;
 
 /// ```
@@ -347,16 +406,10 @@ pub struct FnDecl {
     pub body: Option<NodeId>,
 }
 
-#[derive(Debug, EnumAsInner)]
-pub enum FnArgName {
-    Ident(Ident),
-    Self_,
-}
-
 #[derive(Debug)]
 pub struct FnDeclArg {
     pub pub_name: S<Option<Ident>>,
-    pub priv_name: S<FnArgName>,
+    pub priv_name: S<Ident>,
     pub ty: NodeId,
 }
 
@@ -432,18 +485,12 @@ pub struct Array {
 pub enum PathTerm {
     Ident(PathTermIdent),
     Path(NodeId),
-    Self_(PathTermSelf),
     Star,
 }
 
 #[derive(Debug)]
 pub struct PathTermIdent {
     pub ident: S<Ident>,
-    pub renamed_as: Option<S<Ident>>,
-}
-
-#[derive(Debug)]
-pub struct PathTermSelf {
     pub renamed_as: Option<S<Ident>>,
 }
 
@@ -491,33 +538,16 @@ impl SymPath {
         Self {
             anchor: None,
             items: vec![PathItem {
-                ident: ident.map(PathIdent::Ident),
+                ident,
                 ty_args: Vec::new(),
             }],
         }
     }
-
-    // pub fn is_single(&self) -> bool {
-    //     self.prefix.len() == 0 && self.terms.len() == 1
-    // }
-
-    // pub fn has_ty_args(&self) -> bool {
-    //     self.prefix.iter().any(|i| !i.value.ty_args.is_empty()) ||
-    //         self.terms.iter().any(|t|
-    //             t.value.as_item().map(|i| !i.value.ty_args.is_empty()).unwrap_or(false))
-    // }
-}
-
-#[derive(Debug)]
-pub enum PathIdent {
-    Ident(Ident),
-    SelfType,
-    SelfValue,
 }
 
 #[derive(Debug)]
 pub struct PathItem {
-    pub ident: S<PathIdent>,
+    pub ident: S<Ident>,
     pub ty_args: Vec<NodeId>, // TyExpr
 }
 

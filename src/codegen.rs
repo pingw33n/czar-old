@@ -163,7 +163,7 @@ impl<'a> Codegen<'a> {
         };
         assert!(!func_ty.is_null());
 
-        let name = CString::new(fn_decl.name.value.clone()).unwrap();
+        let name = CString::new(fn_decl.name.value.as_str()).unwrap();
         let func = unsafe {
             LLVMAddFunction(self.module, name.as_ptr(), func_ty)
         };

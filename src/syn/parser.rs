@@ -236,7 +236,7 @@ impl<'a> Parser<'a> {
                 assert!(path.pop());
                 if top_level {
                     if let Some(mod_name) = &source.mod_name {
-                        path.push(mod_name);
+                        path.push(mod_name.as_str());
                     }
                 } else {
                     return self.fatal(Span::new(start, end),
@@ -329,7 +329,7 @@ impl<'a> Parser<'a> {
                         let ty = self.ast.insert_sym_path(self_.with_value(SymPath {
                             anchor: None,
                             items: vec![PathItem {
-                                ident: self_.with_value(PathIdent::SelfType),
+                                ident: self_.with_value(Ident::self_type()),
                                 ty_args: Vec::new(),
                             }],
                         }));
@@ -347,7 +347,7 @@ impl<'a> Parser<'a> {
                         }
                         Some(FnDeclArg {
                             pub_name: self_.with_value(None),
-                            priv_name: self_.with_value(FnArgName::Self_),
+                            priv_name: self_.with_value(Ident::self_value()),
                             ty,
                         })
                     } else {
@@ -367,7 +367,6 @@ impl<'a> Parser<'a> {
                         let priv_name = self.maybe_ident()?.unwrap_or_else(|| pub_name.clone());
                         (pub_name.map(Some), priv_name)
                     };
-                    let priv_name = priv_name.map(FnArgName::Ident);
                     self.expect(Token::Colon)?;
                     let ty = self.ty_expr()?;
                     FnDeclArg { pub_name, priv_name, ty }
@@ -436,7 +435,11 @@ impl<'a> Parser<'a> {
         if value.is_empty() {
             self.fatal(span, "missing raw identifier or raw string")
         } else {
-            Ok(span.spanned(value))
+            match value.as_str() {
+                "_" | "self" | "Self" => return self.fatal(span, "invalid raw identifier"),
+                _ => {}
+            }
+            Ok(span.spanned(value.into()))
         }
     }
 
@@ -564,15 +567,15 @@ impl<'a> Parser<'a> {
             let ident = match tok.value {
                 Token::Keyword(Keyword::SelfLower) => {
                     self.lex.consume();
-                    tok.span.spanned(PathIdent::SelfValue)
+                    tok.span.spanned(Ident::self_value())
                 }
                 Token::Keyword(Keyword::SelfUpper) => {
                     self.lex.consume();
-                    tok.span.spanned(PathIdent::SelfType)
+                    tok.span.spanned(Ident::self_type())
                 }
                 _ => {
                     if let Some(v) = self.maybe_ident()? {
-                        v.map(PathIdent::Ident)
+                        v
                     } else if items.is_empty() {
                         return Ok(None);
                     } else {
@@ -666,7 +669,8 @@ impl<'a> Parser<'a> {
                     let renamed_as = self.maybe_as_ident()?;
                     let end = renamed_as.as_ref().map(|v| v.span.end)
                         .unwrap_or(tok.span.end);
-                    Span::new(tok.span.start, end).spanned(PathTerm::Self_(PathTermSelf {
+                    Span::new(tok.span.start, end).spanned(PathTerm::Ident(PathTermIdent {
+                        ident: tok.span.spanned(Ident::self_value()),
                         renamed_as,
                     }))
                 }
