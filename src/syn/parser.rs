@@ -65,6 +65,32 @@ const OR_PREC: PrecAssoc = PrecAssoc { prec: 50, assoc: 1 };
 const RANGE_PREC: PrecAssoc = PrecAssoc { prec: 40, assoc: 1 };
 const ASSIGN_PREC: PrecAssoc = PrecAssoc { prec: 30, assoc: 0 };
 
+#[derive(Clone, Copy)]
+struct ExprState {
+    min_prec: u32,
+
+    /// Whether the expr parser recognizes struct constructors.
+    parse_struct_value: bool,
+}
+
+impl ExprState {
+    fn with_min_prec(self, min_prec: u32) -> Self {
+        Self {
+            min_prec,
+            ..self
+        }
+    }
+}
+
+impl Default for ExprState {
+    fn default() -> Self {
+        Self {
+            min_prec: 0,
+            parse_struct_value: true,
+        }
+    }
+}
+
 pub struct Parser<'a> {
     s: &'a str,
     lex: Lexer<'a>,
@@ -440,7 +466,7 @@ impl<'a> Parser<'a> {
                 self.lex.consume();
                 let ty = self.ty_expr()?;
                 let data = if self.lex.maybe(Token::Semi).is_some() {
-                    let len = self.expr(0, true)?;
+                    let len = self.expr(Default::default())?;
                     TyData::Array(Array {
                         ty,
                         len,
@@ -814,7 +840,7 @@ impl<'a> Parser<'a> {
                     None
                 };
                 let init = if self.lex.maybe(Token::Eq).is_some() {
-                    Some(self.expr(0, true)?)
+                    Some(self.expr(Default::default())?)
                 } else {
                     None
                 };
@@ -843,7 +869,7 @@ impl<'a> Parser<'a> {
             let expr = if let Some(v) = self.maybe_block_expr()? {
                 Some(v)
             } else {
-                self.maybe_expr(0, true)?
+                self.maybe_expr(Default::default())?
             };
 
             let semi = self.lex.maybe(Token::Semi);
@@ -883,8 +909,8 @@ impl<'a> Parser<'a> {
         })))
     }
 
-    fn unary_op(&mut self, span: Span, kind: UnaryOpKind, allow_struct_value: bool) -> PResult<NodeId> {
-        let arg = self.expr(UNARY_PREC.prec, allow_struct_value)?;
+    fn unary_op(&mut self, span: Span, kind: UnaryOpKind, state: ExprState) -> PResult<NodeId> {
+        let arg = self.expr(state.with_min_prec(UNARY_PREC.prec))?;
         Ok(self.ast.insert_op(Span::new(span.start, self.ast.node_kind(arg).span.end).spanned(
             Op::Unary(UnaryOp {
                 kind: span.spanned(kind),
@@ -895,11 +921,10 @@ impl<'a> Parser<'a> {
     fn binary_op(&mut self,
         span: Span,
         left: NodeId,
-        prec: u32,
         kind: BinaryOpKind,
-        allow_struct_value: bool,
+        state: ExprState,
     ) -> PResult<NodeId> {
-        let right = self.expr(prec, allow_struct_value)?;
+        let right = self.expr(state)?;
         let start = self.ast.node_kind(left).span.start;
         let end = self.ast.node_kind(right).span.end;
         Ok(self.ast.insert_op(Span::new(start, end).spanned(
@@ -924,8 +949,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expr(&mut self, min_prec: u32, allow_struct_value: bool) -> PResult<NodeId> {
-        if let Some(v) = self.maybe_expr(min_prec, allow_struct_value)? {
+    fn expr(&mut self, state: ExprState) -> PResult<NodeId> {
+        if let Some(v) = self.maybe_expr(state)? {
             Ok(v)
         } else {
             let tok = self.lex.nth(0);
@@ -934,17 +959,17 @@ impl<'a> Parser<'a> {
     }
 
     /// `allow_struct_value` allows struct constructors.
-    fn maybe_expr(&mut self, min_prec: u32, allow_struct_value: bool) -> PResult<Option<NodeId>> {
+    fn maybe_expr(&mut self, state: ExprState) -> PResult<Option<NodeId>> {
         let tok = self.lex.nth(0);
         // Handle prefix position.
         let mut left = match tok.value {
             Token::Minus => {
                 self.lex.consume();
-                self.unary_op(tok.span, UnaryOpKind::Neg, allow_struct_value)?
+                self.unary_op(tok.span, UnaryOpKind::Neg, state)?
             }
             Token::Star => {
                 self.lex.consume();
-                self.unary_op(tok.span, UnaryOpKind::Deref, allow_struct_value)?
+                self.unary_op(tok.span, UnaryOpKind::Deref, state)?
             }
             Token::Amp | Token::AmpAmp => {
                 self.lex.consume();
@@ -956,17 +981,17 @@ impl<'a> Parser<'a> {
                 } else {
                     (UnaryOpKind::Addr, tok.span)
                 };
-                self.unary_op(span, kind, allow_struct_value)?
+                self.unary_op(span, kind, state)?
             }
             Token::Excl => {
                 self.lex.consume();
-                self.unary_op(tok.span, UnaryOpKind::Not, allow_struct_value)?
+                self.unary_op(tok.span, UnaryOpKind::Not, state)?
             }
             Token::Keyword(Keyword::Break) => {
                 self.lex.consume();
                 let label = self.lex.maybe(Token::Label)
                     .map(|t| t.span.spanned(lex::label(&self.s[t.span.range()])));
-                let value = self.maybe_expr(0, true)?;
+                let value = self.maybe_expr(Default::default())?;
                 let span_end = label.as_ref().map(|t| t.span.end)
                     .or(value.map(|v| self.ast.node_kind(v).span.end))
                     .unwrap_or(tok.span.end);
@@ -986,7 +1011,7 @@ impl<'a> Parser<'a> {
             }
             Token::Keyword(Keyword::Return) => {
                 self.lex.consume();
-                let value = self.maybe_expr(0, true)?;
+                let value = self.maybe_expr(Default::default())?;
                 let span_end = value.map(|v| self.ast.node_kind(v).span.end)
                     .unwrap_or(tok.span.end);
 
@@ -1007,14 +1032,14 @@ impl<'a> Parser<'a> {
             Token::BlockOpen(lex::Block::Paren) => {
                 self.lex.consume();
 
-                let expr = self.expr(0, true)?;
+                let expr = self.expr(Default::default())?;
                 self.expect(Token::BlockClose(lex::Block::Paren))?;
                 expr
             }
             // Block or unnamed struct
             Token::BlockOpen(lex::Block::Brace) => {
                 self.lex.consume();
-                if allow_struct_value {
+                if state.parse_struct_value {
                     self.block_or_struct(None, tok.span.start)
                 } else {
                     self.block_inner(tok.span.start)
@@ -1028,7 +1053,7 @@ impl<'a> Parser<'a> {
                 } else {
                     RangeKind::Inclusive
                 };
-                let end = self.maybe_expr(0, true)?;
+                let end = self.maybe_expr(Default::default())?;
                 let span_end = end.map(|v| self.ast.node_kind(v).span.end)
                     .unwrap_or(tok.span.end);
                 self.ast.insert_range(tok.span.extended(span_end).spanned(Range {
@@ -1041,7 +1066,10 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::If) => {
                 self.lex.consume();
                 let needs_parens = self.lex.nth(0).value == Token::BlockOpen(lex::Block::Brace);
-                let cond = self.expr(0, false)?;
+                let cond = self.expr(ExprState {
+                    parse_struct_value: false,
+                    ..Default::default()
+                })?;
                 if needs_parens {
                     return self.fatal(self.ast.node_kind(cond).span,
                         "parenthesis are required here");
@@ -1073,8 +1101,9 @@ impl<'a> Parser<'a> {
             let PrecAssoc { prec, assoc } = match tok.value {
                 // Named struct value.
                 Token::BlockOpen(lex::Block::Brace)
-                    if allow_struct_value && self.ast.node_kind(left).value == NodeKind::SymPath =>
-                {
+                    if state.parse_struct_value
+                        && self.ast.node_kind(left).value == NodeKind::SymPath
+                => {
                     NAMED_STRUCT_VALUE_PREC
                 }
 
@@ -1143,10 +1172,10 @@ impl<'a> Parser<'a> {
                 _ => break,
             };
 
-            if prec < min_prec {
+            if prec < state.min_prec {
                 break;
             }
-            let prec = prec + assoc;
+            let state = state.with_min_prec(prec + assoc);
 
             self.lex.consume();
 
@@ -1183,7 +1212,7 @@ impl<'a> Parser<'a> {
                 _ => None,
             };
             left = if let Some(simple) = simple {
-                self.binary_op(tok.span, left, prec, simple, allow_struct_value)?
+                self.binary_op(tok.span, left, simple, state)?
             } else {
                 match tok.value {
                     // Named struct value.
@@ -1202,7 +1231,8 @@ impl<'a> Parser<'a> {
                     }
                     // Indexing
                     Token::BlockOpen(lex::Block::Bracket) => {
-                        let r = self.binary_op(tok.span, left, 0, BinaryOpKind::Index, true)?;
+                        let r = self.binary_op(tok.span, left, BinaryOpKind::Index,
+                            Default::default())?;
                         self.expect(Token::BlockClose(lex::Block::Bracket))?;
                         r
                     }
@@ -1237,7 +1267,7 @@ impl<'a> Parser<'a> {
                         } else {
                             RangeKind::Inclusive
                         };
-                        let end = self.maybe_expr(0, true)?;
+                        let end = self.maybe_expr(Default::default())?;
                         let span_end = end.map(|v| self.ast.node_kind(v).span.end)
                             .unwrap_or(tok.span.end);
                         self.ast.insert_range(tok.span.extended(span_end).spanned(Range {
@@ -1312,7 +1342,7 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            let value = self.maybe_expr(0, true)?;
+            let value = self.maybe_expr(Default::default())?;
             if let Some(value) = value {
                 args.push(FnCallArg {
                     name,
@@ -1529,7 +1559,7 @@ impl<'a> Parser<'a> {
         let probe = if self.lex.nth(0).value == Token::Ident && self.lex.nth(1).value == Token::Colon {
             let name = self.ident()?;
             self.expect(Token::Colon).unwrap();
-            let value = self.expr(0, true)?;
+            let value = self.expr(Default::default())?;
             Probe::StructStart {
                 first_field: StructValueField {
                     name: Some(name),
@@ -1548,7 +1578,7 @@ impl<'a> Parser<'a> {
                 return self.fatal(anonymous_fields.span, "invalid tuple field number");
             }
             self.expect(Token::Colon).unwrap();
-            let value = self.expr(0, true)?;
+            let value = self.expr(Default::default())?;
             Probe::StructStart {
                 first_field: StructValueField {
                     name: None,
@@ -1561,7 +1591,7 @@ impl<'a> Parser<'a> {
             Probe::EmptyStruct { end }
         } else {
             let save = if is_struct { None } else { Some(self.lex.save_state()) };
-            match self.expr(0, true) {
+            match self.expr(Default::default()) {
                 Ok(expr) if is_struct || self.lex.nth(0).value == Token::Comma => {
                     if let Some(save) = save {
                         self.lex.discard_state(save);
@@ -1615,7 +1645,7 @@ impl<'a> Parser<'a> {
                         None
                     };
 
-                    let value = self.expr(0, true)?;
+                    let value = self.expr(Default::default())?;
 
                     fields.push(StructValueField {
                         name,
