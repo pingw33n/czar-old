@@ -1078,10 +1078,6 @@ impl<'a> Parser<'a> {
                     NAMED_STRUCT_VALUE_PREC
                 }
 
-                Token::BlockOpen(lex::Block::Brace) if !allow_struct_value => {
-                    break;
-                }
-
                 // Field access or method call
                 Token::Dot => FIELD_ACCESS_PREC,
 
@@ -1686,14 +1682,3 @@ pub fn parse_str(s: &str) -> PResult<Ast> {
     Parser::new(s, source_id, &mut NotFoundFs, &mut ast).parse()?;
     Ok(ast)
 }
-
-// fn is_expr_delim(tok: Token) -> bool {
-//     match tok {
-//         | Token::BlockClose(..)
-//         | Token::Comma
-//         | Token::Keyword(_)
-//         | Token::Semi
-//         => true,
-//         _ => false,
-//     }
-// }
