@@ -1,0 +1,10 @@
+fn f() {
+  loop{}
+  loop {
+    loop {
+      loop {
+        42
+      }
+    }
+  } + loop {}
+}

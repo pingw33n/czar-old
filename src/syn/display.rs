@@ -64,18 +64,6 @@ impl Display<'_> {
                 p.print(" as ")?;
                 self.node(*ty, false, p)?;
             }
-            NodeKind::IfExpr => {
-                let IfExpr { cond, if_true, if_false } = self.ast.if_expr(node);
-                p.print("if (")?;
-                self.node(*cond, false, p)?;
-                p.print(") ")?;
-                self.node(*if_true, false, p)?;
-                if let &Some(if_false) = if_false {
-                    p.print(" else ")?;
-                    self.node(if_false, false, p)?;
-                }
-                p.println("")?;
-            }
             NodeKind::FieldAccess => {
                 let FieldAccess { receiver, field } = self.ast.field_access(node);
                 let excl = self.ast.try_literal(*receiver)
@@ -178,7 +166,18 @@ impl Display<'_> {
                     self.node(*value, true, p)?;
                 }
                 p.print(')')?;
-
+            }
+            NodeKind::IfExpr => {
+                let IfExpr { cond, if_true, if_false } = self.ast.if_expr(node);
+                p.print("if (")?;
+                self.node(*cond, true, p)?;
+                p.print(") ")?;
+                self.node(*if_true, false, p)?;
+                if let &Some(if_false) = if_false {
+                    p.print(" else ")?;
+                    self.node(if_false, false, p)?;
+                }
+                p.println("")?;
             }
             NodeKind::Impl => {
                 let Impl {
@@ -243,6 +242,12 @@ impl Display<'_> {
                         p.print("()")?;
                     }
                 }
+            }
+            NodeKind::Loop => {
+                let Loop { block } = self.ast.loop_(node);
+                p.print("loop ")?;
+                self.node(*block, false, p)?;
+                p.println("")?;
             }
             NodeKind::ModuleDecl => {
                 let ModuleDecl{ source_id: _, name, items } = self.ast.module_decl(node);
@@ -522,6 +527,14 @@ impl Display<'_> {
                     self.node(init, false, p)?;
                 }
             }
+            NodeKind::While => {
+                let While { cond, block } = self.ast.while_(node);
+                p.print("while (")?;
+                self.node(*cond, true, p)?;
+                p.print(") ")?;
+                self.node(*block, false, p)?;
+                p.println("")?;
+            }
         }
         Ok(())
     }
@@ -645,22 +658,20 @@ impl Display<'_> {
     }
 
     fn expr(&self, node: NodeId, p: &mut Printer) -> Result {
-        let no_parens = matches!(self.ast.node_kind(node).value,
-            NodeKind::SymPath
-            | NodeKind::FnCall
-            | NodeKind::Literal
-            | NodeKind::FieldAccess
-            | NodeKind::Block);
-        self.expr0(node, no_parens, p)
+        self.expr_excl(node, false, p)
     }
 
     fn expr_excl(&self, node: NodeId, excl: bool, p: &mut Printer) -> Result {
         let no_parens = !excl && matches!(self.ast.node_kind(node).value,
-            NodeKind::SymPath
-            | NodeKind::FnCall
-            | NodeKind::Literal
+            NodeKind::Block
             | NodeKind::FieldAccess
-            | NodeKind::Block);
+            | NodeKind::FnCall
+            | NodeKind::IfExpr
+            | NodeKind::Literal
+            | NodeKind::Loop
+            | NodeKind::SymPath
+            | NodeKind::While
+        );
         self.expr0(node, no_parens, p)
     }
 

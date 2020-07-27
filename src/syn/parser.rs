@@ -1093,6 +1093,32 @@ impl<'a> Parser<'a> {
                     init,
                 }))
             }
+            // `while` expression
+            Token::Keyword(Keyword::While) => {
+                self.lex.consume();
+                let needs_parens = self.lex.nth(0).value == Token::BlockOpen(lex::Block::Brace);
+                let cond = self.expr(ExprState {
+                    parse_struct_value: false,
+                    ..Default::default()
+                })?;
+                if needs_parens {
+                    return self.fatal(self.ast.node_kind(cond).span,
+                        "parenthesis are required here");
+                }
+                let block = self.block()?;
+                self.ast.insert_while(tok.span.extended(self.ast.node_kind(block).span.end).spanned(While {
+                    cond,
+                    block,
+                }))
+            }
+            // `loop` expression
+            Token::Keyword(Keyword::Loop) => {
+                self.lex.consume();
+                let block = self.block()?;
+                self.ast.insert_loop(tok.span.extended(self.ast.node_kind(block).span.end).spanned(Loop {
+                    block,
+                }))
+            }
             _ => if let Some(v) = self.maybe_sym_path(false)? {
                 v
             } else {

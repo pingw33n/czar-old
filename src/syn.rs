@@ -35,6 +35,7 @@ pub enum NodeKind {
     IfExpr,
     Impl,
     Literal,
+    Loop,
     ModuleDecl,
     Op,
     Range,
@@ -46,6 +47,7 @@ pub enum NodeKind {
     UseStmt,
     UsePath,
     VarDecl,
+    While,
 }
 
 impl NodeKind {
@@ -55,10 +57,12 @@ impl NodeKind {
             | Self::Block
             | Self::Impl
             | Self::IfExpr
+            | Self::Loop
             | Self::FnDecl
             | Self::ModuleDecl
             | Self::StructDecl
             | Self::StructType
+            | Self::While
             => true,
 
             | Self::BlockFlowCtl
@@ -101,6 +105,7 @@ pub struct Ast {
     if_exprs: NodeMap<IfExpr>,
     impls: NodeMap<Impl>,
     literals: NodeMap<Literal>,
+    loops: NodeMap<Loop>,
     module_decls: NodeMap<ModuleDecl>,
     ops: NodeMap<Op>,
     ranges: NodeMap<Range>,
@@ -112,6 +117,7 @@ pub struct Ast {
     ty_exprs: NodeMap<TyExpr>,
     use_stmts: NodeMap<UseStmt>,
     use_paths: NodeMap<UsePath>,
+    whiles: NodeMap<While>,
 
     sources: Slab<Source>,
 
@@ -152,6 +158,7 @@ impl Ast {
             if_exprs: Default::default(),
             impls: Default::default(),
             literals: Default::default(),
+            loops: Default::default(),
             module_decls: Default::default(),
             ops: Default::default(),
             ranges: Default::default(),
@@ -163,6 +170,7 @@ impl Ast {
             ty_exprs: Default::default(),
             use_stmts: Default::default(),
             use_paths: Default::default(),
+            whiles: Default::default(),
             sources: Default::default(),
             root: NodeId::null(),
         }
@@ -190,6 +198,7 @@ impl Ast {
         insert_if_expr, if_expr, try_if_expr, if_exprs, IfExpr;
         insert_impl, impl_, try_impl, impls, Impl;
         insert_literal, literal, try_literal, literals, Literal;
+        insert_loop, loop_, try_loop, loops, Loop;
         insert_module_decl, module_decl, try_module_decl, module_decls, ModuleDecl;
         insert_op, op, try_op, ops, Op;
         insert_range, range, try_range, ranges, Range;
@@ -201,6 +210,7 @@ impl Ast {
         insert_use_stmt, use_stmt, try_use_stmt, use_stmts, UseStmt;
         insert_use_path, use_path, try_use_path, use_paths, UsePath;
         insert_var_decl, var_decl, try_var_decl, var_decls, VarDecl;
+        insert_while, while_, try_while, whiles, While;
     }
 }
 
@@ -620,6 +630,17 @@ pub struct IfExpr {
     pub cond: NodeId,
     pub if_true: NodeId,
     pub if_false: Option<NodeId>,
+}
+
+#[derive(Debug)]
+pub struct While {
+    pub cond: NodeId,
+    pub block: NodeId,
+}
+
+#[derive(Debug)]
+pub struct Loop {
+    pub block: NodeId,
 }
 
 pub fn source_file_name(mod_name: &str) -> PathBuf {

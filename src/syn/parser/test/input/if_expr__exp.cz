@@ -18,17 +18,17 @@ fn f() {
   if ({ 0: foo, }) {}
   if (Struct { foo: 0 }) {}
   if (true) {
-    (if ((a < b) == c) {
+    if ((a < b) == c) {
       a.foo()
     } else {
       b.foo()
     }
-    ) + (&((if (x) {
+     + (&(if (x) {
       0
     } else {
       "foo"
     }
-    )?));
+    ?));
   } else {
     return {};
   }

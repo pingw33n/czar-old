@@ -13,7 +13,7 @@ fn test() {
 
         if let Some(exp) = exp {
             let ast = crate::syn::parse_str(exp).unwrap();
-            assert_eq!(ast.display().to_string(), exp, "unparsable disable output: {}", name);
+            assert_eq!(ast.display().to_string(), exp, "expected output doesn't parse into itself: {}", name);
         }
     }
 }
