@@ -30,8 +30,9 @@ pub enum NodeKind {
     BlockFlowCtl,
     Cast,
     FieldAccess,
-    FnDecl,
     FnCall,
+    FnDecl,
+    FnDeclArg,
     IfExpr,
     Impl,
     Literal,
@@ -44,6 +45,7 @@ pub enum NodeKind {
     StructValue,
     SymPath,
     TyExpr,
+    TypeArg,
     UseStmt,
     UsePath,
     VarDecl,
@@ -69,11 +71,13 @@ impl NodeKind {
             | Self::Cast
             | Self::FieldAccess
             | Self::FnCall
+            | Self::FnDeclArg
             | Self::Literal
             | Self::Op
             | Self::Range
             | Self::SymPath
             | Self::TyExpr
+            | Self::TypeArg
             | Self::UseStmt
             | Self::UsePath
             | Self::VarDecl
@@ -101,6 +105,7 @@ pub struct Ast {
     casts: NodeMap<Cast>,
     field_accesses: NodeMap<FieldAccess>,
     fn_decls: NodeMap<FnDecl>,
+    fn_decl_args: NodeMap<FnDeclArg>,
     fn_calls: NodeMap<FnCall>,
     if_exprs: NodeMap<IfExpr>,
     impls: NodeMap<Impl>,
@@ -115,6 +120,7 @@ pub struct Ast {
     struct_types: NodeMap<StructType>,
     struct_values: NodeMap<StructValue>,
     ty_exprs: NodeMap<TyExpr>,
+    type_args: NodeMap<TypeArg>,
     use_stmts: NodeMap<UseStmt>,
     use_paths: NodeMap<UsePath>,
     whiles: NodeMap<While>,
@@ -154,6 +160,7 @@ impl Ast {
             casts: Default::default(),
             field_accesses: Default::default(),
             fn_decls: Default::default(),
+            fn_decl_args: Default::default(),
             fn_calls: Default::default(),
             if_exprs: Default::default(),
             impls: Default::default(),
@@ -168,6 +175,7 @@ impl Ast {
             struct_values: Default::default(),
             sym_paths: Default::default(),
             ty_exprs: Default::default(),
+            type_args: Default::default(),
             use_stmts: Default::default(),
             use_paths: Default::default(),
             whiles: Default::default(),
@@ -194,6 +202,7 @@ impl Ast {
         insert_cast, cast, try_cast, casts, Cast;
         insert_field_access, field_access, try_field_access, field_accesses, FieldAccess;
         insert_fn_decl, fn_decl, try_fn_decl, fn_decls, FnDecl;
+        insert_fn_decl_arg, fn_decl_arg, try_fn_decl_arg, fn_decl_args, FnDeclArg;
         insert_fn_call, fn_call, try_fn_call, fn_calls, FnCall;
         insert_if_expr, if_expr, try_if_expr, if_exprs, IfExpr;
         insert_impl, impl_, try_impl, impls, Impl;
@@ -207,6 +216,7 @@ impl Ast {
         insert_struct_value, struct_value, try_struct_value, struct_values, StructValue;
         insert_sym_path, sym_path, try_sym_path, sym_paths, SymPath;
         insert_ty_expr, ty_expr, try_ty_expr, ty_exprs, TyExpr;
+        insert_type_arg, type_arg, try_type_arg, type_args, TypeArg;
         insert_use_stmt, use_stmt, try_use_stmt, use_stmts, UseStmt;
         insert_use_path, use_path, try_use_path, use_paths, UsePath;
         insert_var_decl, var_decl, try_var_decl, var_decls, VarDecl;
@@ -395,11 +405,16 @@ pub struct ModuleName {
 }
 
 #[derive(Debug)]
+pub struct TypeArg {
+    pub name: S<Ident>,
+}
+
+#[derive(Debug)]
 pub struct FnDecl {
     pub name: S<Ident>,
     pub vis: Option<S<Vis>>,
-    pub ty_args: Vec<S<Ident>>,
-    pub args: Vec<FnDeclArg>,
+    pub ty_args: Vec<NodeId>,
+    pub args: Vec<NodeId>,
     pub ret_ty: Option<NodeId>,
     pub unsaf: Option<S<()>>,
     pub variadic: Option<S<()>>,
@@ -618,7 +633,7 @@ pub struct StructValueField {
 pub struct StructDecl {
     pub vis: Option<S<Vis>>,
     pub name: S<Ident>,
-    pub ty_args: Vec<S<Ident>>,
+    pub ty_args: Vec<NodeId>,
     pub ty: NodeId,
 }
 
@@ -649,7 +664,7 @@ pub struct Range {
 
 #[derive(Debug)]
 pub struct Impl {
-    pub ty_args: Vec<S<Ident>>,
+    pub ty_args: Vec<NodeId>,
     pub trait_: Option<NodeId>, // SymPath
     pub for_: NodeId, // SymPath
     pub items: Vec<NodeId>,

@@ -371,7 +371,9 @@ impl<'a> Parser<'a> {
                     let ty = self.ty_expr()?;
                     FnDeclArg { pub_name, priv_name, ty }
                 };
-                args.push(arg);
+                let start = arg.pub_name.span.start;
+                let end = self.ast.node_kind(arg.ty).span.end;
+                args.push(self.ast.insert_fn_decl_arg(Span::new(start, end).spanned(arg)));
             }
 
             delimited = self.lex.maybe(Token::Comma).is_some();
@@ -801,7 +803,7 @@ impl<'a> Parser<'a> {
         Ok(ty_args)
     }
 
-    fn maybe_formal_ty_args(&mut self) -> PResult<Vec<S<Ident>>> {
+    fn maybe_formal_ty_args(&mut self) -> PResult<Vec<NodeId>> {
         let tok = self.lex.nth(0);
         if tok.value != Token::Lt {
             return Ok(Vec::new());
@@ -813,7 +815,9 @@ impl<'a> Parser<'a> {
 
         loop {
             let name = self.ident()?;
-            ty_args.push(name);
+            ty_args.push(self.ast.insert_type_arg(name.span.spanned(TypeArg {
+                name,
+            })));
 
             let seen_comma = self.lex.maybe(Token::Comma).is_some();
 

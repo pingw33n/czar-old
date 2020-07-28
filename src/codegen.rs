@@ -155,9 +155,10 @@ impl<'a> Codegen<'a> {
             self.ty_void()
         };
         let mut args_ty = Vec::with_capacity(fn_decl.args.len());
-        for arg in &fn_decl.args {
-            args_ty.push(self.ty(arg.ty));
-        }
+        // for arg in &fn_decl.args {
+        //     args_ty.push(self.ty(arg.ty));
+        // }
+        unimplemented!();
         let func_ty = unsafe {
             LLVMFunctionType(ret_ty, args_ty.as_mut_ptr(), args_ty.len() as u32, 0)
         };

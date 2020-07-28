@@ -99,7 +99,8 @@ impl Display<'_> {
                 self.formal_ty_args(ty_args, p)?;
 
                 p.print("(")?;
-                for (i, FnDeclArg { pub_name, priv_name, ty }) in args.iter().enumerate() {
+                for (i, &arg) in args.iter().enumerate() {
+                    let FnDeclArg { pub_name, priv_name, ty } = self.ast.fn_decl_arg(arg);
                     if i > 0 {
                         p.print(", ")?;
                     }
@@ -140,6 +141,7 @@ impl Display<'_> {
                 }
                 p.println("")?;
             }
+            NodeKind::FnDeclArg => unreachable!(),
             NodeKind::FnCall => {
                 let FnCall { callee, kind, args } = self.ast.fn_call(node);
                 let mut args = args.iter();
@@ -497,6 +499,7 @@ impl Display<'_> {
                     }
                 }
             }
+            NodeKind::TypeArg => unreachable!(),
             NodeKind::UseStmt => {
                 let UseStmt { vis, path } = self.ast.use_stmt(node);
                 let AnchoredPath { anchor, path } = path.value;
@@ -671,10 +674,10 @@ impl Display<'_> {
         Ok(())
     }
 
-    fn formal_ty_args(&self, ty_args: &Vec<S<Ident>>, p: &mut Printer) -> Result {
+    fn formal_ty_args(&self, ty_args: &[NodeId], p: &mut Printer) -> Result {
         if !ty_args.is_empty() {
             p.print("<")?;
-            p.print_sep_seq(ty_args.iter().map(|v| &v.value), ", ")?;
+            p.print_sep_seq(ty_args.iter().map(|&v| &self.ast.type_arg(v).name.value), ", ")?;
             p.print(">")?;
         }
         Ok(())

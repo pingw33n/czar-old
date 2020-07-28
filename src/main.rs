@@ -5,38 +5,34 @@
 use crate::codegen::OutputFileKind;
 use slab::Slab;
 use std::collections::HashMap;
-use crate::sem::Context;
+use crate::sem::{Context, DiscoverNames, AstTraverser, Namespace};
 use crate::syn::Ast;
 
 mod codegen;
 mod sem;
 mod syn;
+mod util;
 
 fn main() {
-    //    let mut p = Parser::new("// line comment
-//    pub fn foo<A<C, D<E>>, B>() -> Int {
-//        //-(1 + 10) * 42 + my::var / path::<T>::bar::foo::<U>(4242);
-//        self.field;
-//        self.method(1, true, false)
-//    }");
-
     let mut ast = syn::parse_str(r##"
 
-    extern fn puts(fmt: *u8) -> i32;
+    fn fib(_ v: i32) -> i32 {
+        if v <= 1 {
+            v
+        } else {
+            let a = v - 1;
+            let b = v - 2;
+            fib(a) + fib(b)
+        }
+    }
 
-    // fn foo(x: i32, y: i32) -> i32 {
-    //     (x + y) * 2
-    // }
+    fn fib() {}
 
-    // fn main() -> i32 {
-    //     // puts("Hello, world!\n\0".as_ptr());
-    //     // let x: i32 = 1 + 2;
-    //     // let x: i32 = x + 6;
-    //     // x * 2
-    //     // super::foo::bar::XX::<T>();
-    //     // foo(123, 456)
-    // }
+    fn main() {
+        print_i32(fib(10));
+    }
 
+    unsafe fn print_i32(_ v: i32);
 
     "##).unwrap();
 
@@ -69,15 +65,27 @@ fn main() {
         }
     };
 
+    let mut ns = Namespace::default();
+    {
+        let mut trv = AstTraverser {
+            ast: &ast,
+            namespace: &mut ns,
+            visitor: &mut DiscoverNames,
+        };
+        trv.traverse();
+    }
 
-    let mut cg = codegen::Codegen::new(&ast);
-    {
-        measure_time::print_time!("llvm ir");
-        cg.lower();
-    }
-    cg.dump();
-    {
-        measure_time::print_time!("llvm codegen");
-        cg.write("/tmp/out.asm", OutputFileKind::Assembly);
-    }
+    ns.print(&ast);
+
+
+    // let mut cg = codegen::Codegen::new(&ast);
+    // {
+    //     measure_time::print_time!("llvm ir");
+    //     cg.lower();
+    // }
+    // cg.dump();
+    // {
+    //     measure_time::print_time!("llvm codegen");
+    //     cg.write("/tmp/out.asm", OutputFileKind::Assembly);
+    // }
 }
