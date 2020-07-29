@@ -4,8 +4,9 @@
 
 use slab::Slab;
 use std::collections::HashMap;
-use crate::sem::{Context, DiscoverNames, AstTraverser, Names, ResolvedNames, ResolveNames};
+use crate::sem::{Context, DiscoverNames, Names, ResolvedNames, ResolveNames};
 use crate::syn::Ast;
+use crate::syn::traverse::AstTraverser;
 
 // mod codegen;
 mod sem;
@@ -64,24 +65,22 @@ fn main() {
 
     eprintln!("{}", ast.display());
 
-    let mut ns = Names::default();
+    let names = &mut Names::default();
     {
         let mut trv = AstTraverser {
             ast: &ast,
-            names: &mut ns,
-            visitor: &mut DiscoverNames,
+            visitor: &mut DiscoverNames::new(names),
         };
         trv.traverse();
     }
 
-    ns.print(&ast);
+    names.print(&ast);
 
-    let mut rn = ResolvedNames::default();
+    let rn = &mut ResolvedNames::default();
     {
         let mut trv = AstTraverser {
             ast: &ast,
-            names: &mut ns,
-            visitor: &mut ResolveNames::new(&mut rn),
+            visitor: &mut ResolveNames::new(names, rn),
         };
         trv.traverse();
     }

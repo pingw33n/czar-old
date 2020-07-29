@@ -1,6 +1,7 @@
 mod display;
 mod lex;
 mod parser;
+pub mod traverse;
 
 use enum_as_inner::EnumAsInner;
 use slab::Slab;
