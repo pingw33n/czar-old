@@ -544,7 +544,7 @@ impl<'a> Parser<'a> {
                 _ => return Ok(None),
             })
         };
-        if r.value != PathAnchor::Root {
+        if !matches!(r.value, PathAnchor::Root) {
             self.expect(Token::ColonColon)?;
         }
         Ok(Some(r))

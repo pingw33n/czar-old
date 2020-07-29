@@ -46,8 +46,8 @@ pub enum NodeKind {
     SymPath,
     TyExpr,
     TypeArg,
-    UseStmt,
     UsePath,
+    UseStmt,
     VarDecl,
     While,
 }
@@ -131,15 +131,22 @@ pub struct Ast {
 }
 
 macro_rules! ast_node_ops {
-    ($($insert:ident, $get:ident, $try_get:ident, $f:ident, $ty:ident;)*) => {
+    ($($insert:ident, $get:ident, $get_mut:ident, $try_get:ident, $try_get_mut:ident, $f:ident, $ty:ident;)*) => {
         $(
         pub fn $get(&self, id: NodeId) -> &$ty {
             &self.$f[&id]
         }
 
+        pub fn $get_mut(&mut self, id: NodeId) -> &mut $ty {
+            self.$try_get_mut(id).unwrap()
+        }
 
         pub fn $try_get(&self, id: NodeId) -> Option<&$ty> {
             self.$f.get(&id)
+        }
+
+        pub fn $try_get_mut(&mut self, id: NodeId) -> Option<&mut $ty> {
+            self.$f.get_mut(&id)
         }
 
         pub fn $insert(&mut self, v: S<$ty>) -> NodeId {
@@ -197,30 +204,30 @@ impl Ast {
     }
 
     ast_node_ops! {
-        insert_block, block, try_block, blocks, Block;
-        insert_block_flow_ctl, block_flow_ctl, try_block_flow_ctl, block_flow_ctls, BlockFlowCtl;
-        insert_cast, cast, try_cast, casts, Cast;
-        insert_field_access, field_access, try_field_access, field_accesses, FieldAccess;
-        insert_fn_decl, fn_decl, try_fn_decl, fn_decls, FnDecl;
-        insert_fn_decl_arg, fn_decl_arg, try_fn_decl_arg, fn_decl_args, FnDeclArg;
-        insert_fn_call, fn_call, try_fn_call, fn_calls, FnCall;
-        insert_if_expr, if_expr, try_if_expr, if_exprs, IfExpr;
-        insert_impl, impl_, try_impl, impls, Impl;
-        insert_literal, literal, try_literal, literals, Literal;
-        insert_loop, loop_, try_loop, loops, Loop;
-        insert_module_decl, module_decl, try_module_decl, module_decls, ModuleDecl;
-        insert_op, op, try_op, ops, Op;
-        insert_range, range, try_range, ranges, Range;
-        insert_struct_decl, struct_decl, try_struct_decl, struct_decls, StructDecl;
-        insert_struct_type, struct_type, try_struct_type, struct_types, StructType;
-        insert_struct_value, struct_value, try_struct_value, struct_values, StructValue;
-        insert_sym_path, sym_path, try_sym_path, sym_paths, SymPath;
-        insert_ty_expr, ty_expr, try_ty_expr, ty_exprs, TyExpr;
-        insert_type_arg, type_arg, try_type_arg, type_args, TypeArg;
-        insert_use_stmt, use_stmt, try_use_stmt, use_stmts, UseStmt;
-        insert_use_path, use_path, try_use_path, use_paths, UsePath;
-        insert_var_decl, var_decl, try_var_decl, var_decls, VarDecl;
-        insert_while, while_, try_while, whiles, While;
+        insert_block, block, block_mut, try_block, try_block_mut, blocks, Block;
+        insert_block_flow_ctl, block_flow_ctl, block_flow_ctl_mut, try_block_flow_ctl, try_block_flow_ctl_mut, block_flow_ctls, BlockFlowCtl;
+        insert_cast, cast, cast_mut, try_cast, try_cast_mut, casts, Cast;
+        insert_field_access, field_access, field_access_mut, try_field_access, try_field_access_mut, field_accesses, FieldAccess;
+        insert_fn_decl, fn_decl, fn_decl_mut, try_fn_decl, try_fn_decl_mut, fn_decls, FnDecl;
+        insert_fn_decl_arg, fn_decl_arg, fn_decl_arg_mut, try_fn_decl_arg, try_fn_decl_arg_mut, fn_decl_args, FnDeclArg;
+        insert_fn_call, fn_call, fn_call_mut, try_fn_call, try_fn_call_mut, fn_calls, FnCall;
+        insert_if_expr, if_expr, if_expr_mut, try_if_expr, try_if_expr_mut, if_exprs, IfExpr;
+        insert_impl, impl_, impl_mut, try_impl, try_impl_mut, impls, Impl;
+        insert_literal, literal, literal_mut, try_literal, try_literal_mut, literals, Literal;
+        insert_loop, loop_, loop_mut, try_loop, try_loop_mut, loops, Loop;
+        insert_module_decl, module_decl, module_decl_mut, try_module_decl, try_module_decl_mut, module_decls, ModuleDecl;
+        insert_op, op, op_mut, try_op, try_op_mut, ops, Op;
+        insert_range, range, range_mut, try_range, try_range_mut, ranges, Range;
+        insert_struct_decl, struct_decl, struct_decl_mut, try_struct_decl, try_struct_decl_mut, struct_decls, StructDecl;
+        insert_struct_type, struct_type, struct_type_mut, try_struct_type, try_struct_type_mut, struct_types, StructType;
+        insert_struct_value, struct_value, struct_value_mut, try_struct_value, try_struct_value_mut, struct_values, StructValue;
+        insert_sym_path, sym_path, sym_path_mut, try_sym_path, try_sym_path_mut, sym_paths, SymPath;
+        insert_ty_expr, ty_expr, ty_expr_mut, try_ty_expr, try_ty_expr_mut, ty_exprs, TyExpr;
+        insert_type_arg, type_arg, type_arg_mut, try_type_arg, try_type_arg_mut, type_args, TypeArg;
+        insert_use_stmt, use_stmt, use_stmt_mut, try_use_stmt, try_use_stmt_mut, use_stmts, UseStmt;
+        insert_use_path, use_path, use_path_mut, try_use_path, try_use_path_mut, use_paths, UsePath;
+        insert_var_decl, var_decl, var_decl_mut, try_var_decl, try_var_decl_mut, var_decls, VarDecl;
+        insert_while, while_, while_mut, try_while, try_while_mut, whiles, While;
     }
 }
 
@@ -509,7 +516,7 @@ pub struct PathTermIdent {
     pub renamed_as: Option<S<Ident>>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub enum PathAnchor {
     Package,
     Root,
@@ -523,14 +530,14 @@ pub enum PathAnchor {
 #[derive(Debug)]
 pub struct UsePath {
     /// ```
-    /// path::to::{self, io, another::path:to::{...}}
-    /// ^^^^  ^^
+    /// path::to::{self, io, another::path:to:*}
+    /// ^^^^  ^^             ^^^^^^^^^^^^^^^^
     /// ```
     pub prefix: Vec<S<Ident>>,
 
     /// ```
-    /// path::to::{self, io, another::path:to::{...}}
-    ///            ^^^^  ^^  ^^^^^^^^^^^^^^^^^^^^^^^
+    /// path::to::{self, io, another::path:to::*}
+    ///            ^^^^  ^^                    ^
     /// ```
     /// Never empty.
     pub terms: Vec<S<PathTerm>>,

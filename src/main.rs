@@ -2,13 +2,12 @@
 #![deny(non_snake_case)]
 #![deny(unused_must_use)]
 
-use crate::codegen::OutputFileKind;
 use slab::Slab;
 use std::collections::HashMap;
-use crate::sem::{Context, DiscoverNames, AstTraverser, Namespace};
+use crate::sem::{Context, DiscoverNames, AstTraverser, Names, ResolvedNames, ResolveNames};
 use crate::syn::Ast;
 
-mod codegen;
+// mod codegen;
 mod sem;
 mod syn;
 mod util;
@@ -20,13 +19,11 @@ fn main() {
         if v <= 1 {
             v
         } else {
-            let a = v - 1;
-            let b = v - 2;
+            let a: i32 = v - 1;
+            let b: i32 = v - 2;
             fib(a) + fib(b)
         }
     }
-
-    fn fib() {}
 
     fn main() {
         print_i32(fib(10));
@@ -36,46 +33,58 @@ fn main() {
 
     "##).unwrap();
 
-    eprintln!("{}", ast.display());
-
-    let ctx = {
-        let mut std_ast = Ast::new();
-        let ty = std_ast.insert_struct_type(syn::Span::new(0, 0).spanned(syn::StructType {
+    let _ctx = {
+        // let mut std_ast = Ast::new();
+        let ty = ast.insert_struct_type(syn::Span::new(0, 0).spanned(syn::StructType {
             fields: vec![],
         }));
-        std_ast.insert_struct_decl(syn::Span::new(0, 0).spanned(syn::StructDecl {
+        let sd = ast.insert_struct_decl(syn::Span::new(0, 0).spanned(syn::StructDecl {
             name: syn::Span::new(0, 0).spanned("i32".into()),
             vis: Some(syn::Span::new(0, 0).spanned(syn::Vis { restrict: None })),
             ty_args: vec![],
             ty,
         }));
-        let mut packages = Slab::new();
-        let std = sem::PackageId(packages.insert(sem::Package {
-            name: "std".into(),
-            ast: std_ast,
-        }));
-
-        let mut package_by_name = HashMap::new();
-        package_by_name.insert(packages[std.0].name.clone(), std);
-
-        Context {
-            packages,
-            package_by_name,
-            ast: &mut ast,
-        }
+        ast.module_decl_mut(ast.root).items.push(sd);
+        ast.root
+        // let mut packages = Slab::new();
+        // let std = sem::PackageId(packages.insert(sem::Package {
+        //     name: "std".into(),
+        //     ast: std_ast,
+        // }));
+        //
+        // let mut package_by_name = HashMap::new();
+        // package_by_name.insert(packages[std.0].name.clone(), std);
+        //
+        // Context {
+        //     packages,
+        //     package_by_name,
+        //     ast: &mut ast,
+        // }
     };
 
-    let mut ns = Namespace::default();
+    eprintln!("{}", ast.display());
+
+    let mut ns = Names::default();
     {
         let mut trv = AstTraverser {
             ast: &ast,
-            namespace: &mut ns,
+            names: &mut ns,
             visitor: &mut DiscoverNames,
         };
         trv.traverse();
     }
 
     ns.print(&ast);
+
+    let mut rn = ResolvedNames::default();
+    {
+        let mut trv = AstTraverser {
+            ast: &ast,
+            names: &mut ns,
+            visitor: &mut ResolveNames::new(&mut rn),
+        };
+        trv.traverse();
+    }
 
 
     // let mut cg = codegen::Codegen::new(&ast);
