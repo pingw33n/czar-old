@@ -40,15 +40,15 @@ pub enum NsKind {
 
 #[derive(Default)]
 pub struct Names {
-    scopes: EnumMap<NsKind, NodeMap<Scope>>,
+    scopes: NodeMap<EnumMap<NsKind, Scope>>,
 }
 
 impl Names {
     pub fn resolve(&self, stack: &ScopeStack, kind: NsKind, name: &Ident) -> Option<NodeId> {
-        let scopes = &self.scopes[kind];
         for scope_id in stack.iter() {
-            if let Some(r) = scopes.get(&scope_id)
+            if let Some(r) = self.scopes.get(&scope_id)
                 .and_then(|s| {
+                    let s = &s[kind];
                     let r = s.by_name.get(name).map(|&(_, n)| n);
                     if !s.wildcarded.is_empty() {
                         unimplemented!();
@@ -67,12 +67,13 @@ impl Names {
     }
 
     pub fn try_scope(&self, kind: NsKind, node: NodeId) -> Option<&Scope> {
-        self.scopes[kind].get(&node)
+        self.scopes.get(&node).map(|s| &s[kind])
     }
 
     pub fn scope_mut(&mut self, kind: NsKind, node: NodeId) -> &mut Scope {
-        self.scopes[kind].entry(node)
+        &mut self.scopes.entry(node)
             .or_insert(Default::default())
+            [kind]
     }
 
     pub fn print(&mut self, ast: &Ast) {

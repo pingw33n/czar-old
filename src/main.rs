@@ -115,6 +115,6 @@ fn main() {
     // cg.dump();
     // {
     //     measure_time::print_time!("llvm codegen");
-    //     cg.write("/tmp/out.asm", OutputFileKind::Assembly);
+    //     cg.write("/tmp/out.o", codegen::OutputFileKind::Object);
     // }
 }
