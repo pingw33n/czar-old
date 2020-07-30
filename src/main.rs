@@ -2,14 +2,13 @@
 #![deny(non_snake_case)]
 #![deny(unused_must_use)]
 
-use slab::Slab;
-use std::collections::HashMap;
-use crate::sem::{Context, DiscoverNames, Names, ResolvedNames, ResolveNames, TypeCheck, Types};
-use crate::syn::Ast;
 use crate::syn::traverse::AstTraverser;
+use crate::semantic::type_check::{Types, TypeCheck};
+use crate::semantic::discover_names::{Names, DiscoverNames};
+use crate::semantic::resolve_names::{ResolvedNames, ResolveNames};
 
 // mod codegen;
-mod sem;
+mod semantic;
 mod syn;
 mod util;
 
