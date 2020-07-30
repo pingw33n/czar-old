@@ -131,7 +131,7 @@ impl AstVisitor for MaintainNameScope<'_> {
     }
 
     fn after_node(&mut self, ctx: AstVisitorCtx) {
-        if ctx.kind != NodeKind::VarDecl {
+        if ctx.kind != NodeKind::Let {
             self.names.pop_until(ctx.node);
         }
     }
@@ -196,8 +196,9 @@ impl AstVisitor for DiscoverNames<'_> {
                     }
                 }
             },
-            NodeKind::VarDecl => {
-                let name = ctx.ast.var_decl(ctx.node).name.clone();
+            NodeKind::Let => {},
+            NodeKind::LetDecl => {
+                let name = ctx.ast.let_decl(ctx.node).name.clone();
                 self.names.names.scope_mut(NsKind::Value).insert(name, ctx.node);
             },
             NodeKind::Block => {}
@@ -268,7 +269,7 @@ impl<'a> ResolveNames<'a> {
             | Range(_)
             | StructValueValue
             | TyExpr(TyExprLink::Array(ArrayLink::Len))
-            | VarDecl(VarDeclLink::Init)
+            | Let(LetLink::Init)
             | While(_)
             => NsKind::Value,
 
@@ -284,7 +285,7 @@ impl<'a> ResolveNames<'a> {
             | TyExpr(_)
             | UsePathPath
             | UseStmtPath
-            | VarDecl(VarDeclLink::Type)
+            | Let(_)
             => NsKind::Type,
         };
         self.ns_kind_stack.push(ns_kind);

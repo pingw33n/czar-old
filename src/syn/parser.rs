@@ -1079,7 +1079,7 @@ impl<'a> Parser<'a> {
                 }
                 let start = tok.span.start;
                 self.lex.consume();
-                let muta = self.lex.maybe(Token::Keyword(Keyword::Mut))
+                let mut_ = self.lex.maybe(Token::Keyword(Keyword::Mut))
                     .map(|v| v.map(|_| {}));
                 let name = self.ident()?;
                 let ty = if self.lex.maybe(Token::Colon).is_some() {
@@ -1094,11 +1094,15 @@ impl<'a> Parser<'a> {
                 };
                 let end = init.or(ty).map(|v| self.ast.node_kind(v).span.end)
                     .unwrap_or(name.span.end);
-                self.ast.insert_var_decl(Span::new(start, end).spanned(VarDecl {
-                    muta,
+                let span = Span::new(start, end);
+                let decl = self.ast.insert_let_decl(span.spanned(LetDecl {
+                    mut_,
                     name,
                     ty,
                     init,
+                }));
+                self.ast.insert_let(span.spanned(Let {
+                    decl,
                 }))
             }
             // `while` expression

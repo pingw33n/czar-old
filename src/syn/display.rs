@@ -511,10 +511,14 @@ impl Display<'_> {
                 p.println(";")?;
             }
             NodeKind::UsePath => unimplemented!(),
-            NodeKind::VarDecl => {
-                let VarDecl { muta, name, ty, init } = self.ast.var_decl(node);
+            NodeKind::Let => {
+                let &Let { decl } = self.ast.let_(node);
+                self.node(decl, true, p)?;
+            }
+            NodeKind::LetDecl => {
+                let LetDecl { mut_, name, ty, init } = self.ast.let_decl(node);
                 p.print("let ")?;
-                if muta.is_some() {
+                if mut_.is_some() {
                     p.print("mut ")?;
                 }
                 self.ident(&name.value, p)?;

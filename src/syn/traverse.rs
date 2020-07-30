@@ -23,7 +23,7 @@ pub enum NodeLinkKind {
     TyExpr(TyExprLink),
     UsePathPath,
     UseStmtPath,
-    VarDecl(VarDeclLink),
+    Let(LetLink),
     While(WhileLink),
 }
 
@@ -96,7 +96,8 @@ pub enum ArrayLink {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum VarDeclLink {
+pub enum LetLink {
+    Decl,
     Type,
     Init,
 }
@@ -116,9 +117,9 @@ pub struct AstVisitorCtx<'a> {
 }
 
 pub trait AstVisitor {
-    fn before_node(&mut self, ctx: AstVisitorCtx) {}
-    fn node(&mut self, ctx: AstVisitorCtx) {}
-    fn after_node(&mut self, ctx: AstVisitorCtx) {}
+    fn before_node(&mut self, _ctx: AstVisitorCtx) {}
+    fn node(&mut self, _ctx: AstVisitorCtx) {}
+    fn after_node(&mut self, _ctx: AstVisitorCtx) {}
 }
 
 pub struct AstTraverser<'a, T> {
@@ -308,13 +309,17 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
                 let UseStmt { path , ..} = self.ast.use_stmt(node);
                 self.traverse0(path.value.path, NodeLinkKind::UseStmtPath);
             },
-            NodeKind::VarDecl => {
-                let &VarDecl { ty, init, .. } = self.ast.var_decl(node);
+            NodeKind::Let => {
+                let &Let { decl } = self.ast.let_(node);
+                self.traverse0(decl, NodeLinkKind::Let(LetLink::Decl));
+            }
+            NodeKind::LetDecl => {
+                let &LetDecl { ty, init, .. } = self.ast.let_decl(node);
                 if let Some(ty) = ty {
-                    self.traverse0(ty, NodeLinkKind::VarDecl(VarDeclLink::Type));
+                    self.traverse0(ty, NodeLinkKind::Let(LetLink::Type));
                 }
                 if let Some(init) = init {
-                    self.traverse0(init, NodeLinkKind::VarDecl(VarDeclLink::Init));
+                    self.traverse0(init, NodeLinkKind::Let(LetLink::Init));
                 }
             },
             NodeKind::While => {

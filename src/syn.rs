@@ -36,6 +36,8 @@ pub enum NodeKind {
     FnDeclArg,
     IfExpr,
     Impl,
+    Let,
+    LetDecl,
     Literal,
     Loop,
     ModuleDecl,
@@ -49,7 +51,6 @@ pub enum NodeKind {
     TypeArg,
     UsePath,
     UseStmt,
-    VarDecl,
     While,
 }
 
@@ -81,7 +82,8 @@ impl NodeKind {
             | Self::TypeArg
             | Self::UseStmt
             | Self::UsePath
-            | Self::VarDecl
+            | Self::Let
+            | Self::LetDecl
             | Self::StructValue
             => false,
         }
@@ -110,13 +112,14 @@ pub struct Ast {
     fn_calls: NodeMap<FnCall>,
     if_exprs: NodeMap<IfExpr>,
     impls: NodeMap<Impl>,
+    lets: NodeMap<Let>,
+    let_decls: NodeMap<LetDecl>,
     literals: NodeMap<Literal>,
     loops: NodeMap<Loop>,
     module_decls: NodeMap<ModuleDecl>,
     ops: NodeMap<Op>,
     ranges: NodeMap<Range>,
     sym_paths: NodeMap<SymPath>,
-    var_decls: NodeMap<VarDecl>,
     struct_decls: NodeMap<StructDecl>,
     struct_types: NodeMap<StructType>,
     struct_values: NodeMap<StructValue>,
@@ -172,12 +175,13 @@ impl Ast {
             fn_calls: Default::default(),
             if_exprs: Default::default(),
             impls: Default::default(),
+            lets: Default::default(),
+            let_decls: Default::default(),
             literals: Default::default(),
             loops: Default::default(),
             module_decls: Default::default(),
             ops: Default::default(),
             ranges: Default::default(),
-            var_decls: Default::default(),
             struct_decls: Default::default(),
             struct_types: Default::default(),
             struct_values: Default::default(),
@@ -214,6 +218,8 @@ impl Ast {
         insert_fn_call, fn_call, fn_call_mut, try_fn_call, try_fn_call_mut, fn_calls, FnCall;
         insert_if_expr, if_expr, if_expr_mut, try_if_expr, try_if_expr_mut, if_exprs, IfExpr;
         insert_impl, impl_, impl_mut, try_impl, try_impl_mut, impls, Impl;
+        insert_let, let_, let_mut, try_let, try_let_mut, lets, Let;
+        insert_let_decl, let_decl, let_decl_mut, try_let_decl, try_let_decl_mut, let_decls, LetDecl;
         insert_literal, literal, literal_mut, try_literal, try_literal_mut, literals, Literal;
         insert_loop, loop_, loop_mut, try_loop, try_loop_mut, loops, Loop;
         insert_module_decl, module_decl, module_decl_mut, try_module_decl, try_module_decl_mut, module_decls, ModuleDecl;
@@ -227,7 +233,6 @@ impl Ast {
         insert_type_arg, type_arg, type_arg_mut, try_type_arg, try_type_arg_mut, type_args, TypeArg;
         insert_use_stmt, use_stmt, use_stmt_mut, try_use_stmt, try_use_stmt_mut, use_stmts, UseStmt;
         insert_use_path, use_path, use_path_mut, try_use_path, try_use_path_mut, use_paths, UsePath;
-        insert_var_decl, var_decl, var_decl_mut, try_var_decl, try_var_decl_mut, var_decls, VarDecl;
         insert_while, while_, while_mut, try_while, try_while_mut, whiles, While;
     }
 }
@@ -299,8 +304,13 @@ pub struct UnaryOp {
 }
 
 #[derive(Debug)]
-pub struct VarDecl {
-    pub muta: Option<S<()>>,
+pub struct Let {
+    pub decl: NodeId,
+}
+
+#[derive(Debug)]
+pub struct LetDecl {
+    pub mut_: Option<S<()>>,
     pub name: S<Ident>,
     pub ty: Option<NodeId>,
     pub init: Option<NodeId>,

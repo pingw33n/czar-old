@@ -195,8 +195,8 @@ impl<'a> Codegen<'a> {
 
     fn expr(&self, node: NodeId, ctx: &mut ExprCtx) -> Value {
         match self.ast.node_kind(node).value {
-            NodeKind::VarDecl => {
-                let VarDecl { muta: _, name, ty, init } = self.ast.var_decl(node);
+            NodeKind::Let => {
+                let Let { muta: _, name, ty, init } = self.ast.var_decl(node);
                 unsafe {
                     let ty = self.ty(ty.expect("unimpl"));
                     let ptr = LLVMBuildAlloca(self.builder, ty, cstring(&name.value).as_ptr());
