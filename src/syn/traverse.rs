@@ -129,7 +129,11 @@ pub struct AstTraverser<'a, T> {
 
 impl<T: AstVisitor> AstTraverser<'_, T> {
     pub fn traverse(&mut self) {
-        self.traverse0(self.ast.root, NodeLinkKind::Root);
+        self.traverse_from(self.ast.root);
+    }
+
+    pub fn traverse_from(&mut self, node: NodeId) {
+        self.traverse0(node, NodeLinkKind::Root);
     }
 
     fn before_node(&mut self, node: NodeId, kind: NodeKind, link_kind: NodeLinkKind) {

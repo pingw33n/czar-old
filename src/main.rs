@@ -4,7 +4,7 @@
 
 use slab::Slab;
 use std::collections::HashMap;
-use crate::sem::{Context, DiscoverNames, Names, ResolvedNames, ResolveNames};
+use crate::sem::{Context, DiscoverNames, Names, ResolvedNames, ResolveNames, TypeCheck, Types};
 use crate::syn::Ast;
 use crate::syn::traverse::AstTraverser;
 
@@ -14,7 +14,7 @@ mod syn;
 mod util;
 
 fn main() {
-    let mut ast = syn::parse_str(r##"
+    let ast = &mut syn::parse_str(r##"
 
     fn fib(_ v: i32) -> i32 {
         if v <= 1 {
@@ -36,16 +36,25 @@ fn main() {
 
     let _ctx = {
         // let mut std_ast = Ast::new();
-        let ty = ast.insert_struct_type(syn::Span::new(0, 0).spanned(syn::StructType {
-            fields: vec![],
-        }));
-        let sd = ast.insert_struct_decl(syn::Span::new(0, 0).spanned(syn::StructDecl {
-            name: syn::Span::new(0, 0).spanned("i32".into()),
-            vis: Some(syn::Span::new(0, 0).spanned(syn::Vis { restrict: None })),
-            ty_args: vec![],
-            ty,
-        }));
-        ast.module_decl_mut(ast.root).items.push(sd);
+
+        {
+            let mut ins = |name: &str| {
+                let ty = ast.insert_struct_type(syn::Span::new(0, 0).spanned(syn::StructType {
+                    fields: vec![],
+                }));
+                let sd = ast.insert_struct_decl(syn::Span::new(0, 0).spanned(syn::StructDecl {
+                    name: syn::Span::new(0, 0).spanned(name.into()),
+                    vis: Some(syn::Span::new(0, 0).spanned(syn::Vis { restrict: None })),
+                    ty_args: vec![],
+                    ty,
+                }));
+                ast.module_decl_mut(ast.root).items.push(sd);
+            };
+            ins("__unit");
+            ins("bool");
+            ins("i32");
+        }
+
         ast.root
         // let mut packages = Slab::new();
         // let std = sem::PackageId(packages.insert(sem::Package {
@@ -76,13 +85,26 @@ fn main() {
 
     names.print(&ast);
 
-    let rn = &mut ResolvedNames::default();
+    let rnames = &mut ResolvedNames::default();
     {
         let mut trv = AstTraverser {
             ast: &ast,
-            visitor: &mut ResolveNames::new(names, rn),
+            visitor: &mut ResolveNames::new(names, rnames),
         };
         trv.traverse();
+    }
+
+    let types = &mut Types::default();
+    {
+        let tc = &mut TypeCheck {
+            names: rnames,
+            types,
+        };
+        tc.build_lang_types(names, ast);
+        AstTraverser {
+            ast,
+            visitor: tc,
+        }.traverse();
     }
 
 

@@ -288,12 +288,12 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_decl(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
-        let unsaf = self.lex.maybe(Token::Keyword(Keyword::Unsafe))
+        let unsafe_ = self.lex.maybe(Token::Keyword(Keyword::Unsafe))
             .map(|v| v.map(|_| {}));
 
         let tok = self.expect(Token::Keyword(Keyword::Fn))?;
         let start = vis.as_ref().map(|v| v.span.start)
-            .or(unsaf.as_ref().map(|v| v.span.start))
+            .or(unsafe_.as_ref().map(|v| v.span.start))
             .unwrap_or(tok.span.start);
 
         let name = self.ident()?;
@@ -403,7 +403,7 @@ impl<'a> Parser<'a> {
             ty_args,
             args,
             ret_ty,
-            unsaf,
+            unsafe_,
             variadic,
             body,
         })))

@@ -318,6 +318,7 @@ pub struct LetDecl {
 
 #[derive(Debug)]
 pub struct Block {
+    /// Always at least one item.
     pub exprs: Vec<NodeId>,
 }
 
@@ -379,6 +380,12 @@ impl std::ops::Deref for Ident {
     }
 }
 
+impl std::borrow::Borrow<str> for Ident {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
 impl fmt::Display for Ident {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(&self.0)
@@ -400,6 +407,12 @@ impl From<&str> for Ident {
 impl AsRef<str> for Ident {
     fn as_ref(&self) -> &str {
         self.as_str()
+    }
+}
+
+impl PartialEq<str> for Ident {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
     }
 }
 
@@ -434,7 +447,7 @@ pub struct FnDecl {
     pub ty_args: Vec<NodeId>,
     pub args: Vec<NodeId>,
     pub ret_ty: Option<NodeId>,
-    pub unsaf: Option<S<()>>,
+    pub unsafe_: Option<S<()>>,
     pub variadic: Option<S<()>>,
     pub body: Option<NodeId>,
 }

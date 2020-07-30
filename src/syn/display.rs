@@ -84,13 +84,13 @@ impl Display<'_> {
                     ty_args,
                     args,
                     ret_ty,
-                    unsaf,
+                    unsafe_,
                     variadic,
                     body,
                 } = self.ast.fn_decl(node);
 
                 self.vis(vis, p)?;
-                if unsaf.is_some() {
+                if unsafe_.is_some() {
                     p.print_sep("unsafe")?;
                 }
                 p.print_sep("fn")?;
