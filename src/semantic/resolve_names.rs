@@ -1,6 +1,6 @@
 use crate::syntax::*;
 use crate::syntax::traverse::*;
-use super::discover_names::{MaintainNameScope, Names, NsKind};
+use super::discover_names::{AstScopeStack, Names, NsKind};
 
 pub struct ResolvedName {
     pub ns_kind: NsKind,
@@ -26,7 +26,8 @@ impl ResolvedNames {
 }
 
 pub struct ResolveNames<'a> {
-    names: MaintainNameScope<'a>,
+    stack: AstScopeStack,
+    names: &'a mut Names,
     resolved_names: &'a mut ResolvedNames,
     ns_kind_stack: Vec<NsKind>,
 }
@@ -34,7 +35,8 @@ pub struct ResolveNames<'a> {
 impl<'a> ResolveNames<'a> {
     pub fn new(names: &'a mut Names, resolved_names: &'a mut ResolvedNames) -> Self {
         Self {
-            names: MaintainNameScope { names },
+            stack: AstScopeStack::new(),
+            names,
             resolved_names,
             ns_kind_stack: Vec::new(),
         }
@@ -80,7 +82,7 @@ impl<'a> ResolveNames<'a> {
 
 impl AstVisitor for ResolveNames<'_> {
     fn before_node(&mut self, ctx: AstVisitorCtx) {
-        self.names.before_node(ctx);
+        self.stack.before_node(ctx);
     }
 
     fn node(&mut self, ctx: AstVisitorCtx) {
@@ -94,7 +96,7 @@ impl AstVisitor for ResolveNames<'_> {
                 }
                 let first = &items[0].ident;
                 let ns_kind = *self.ns_kind_stack.last().unwrap();
-                if let Some(resolved) = self.names.names.resolve(ns_kind, &first.value) {
+                if let Some(resolved) = self.names.resolve(&self.stack, ns_kind, &first.value) {
                     if items.len() > 1 {
                         unimplemented!();
                     }
@@ -109,7 +111,7 @@ impl AstVisitor for ResolveNames<'_> {
     }
 
     fn after_node(&mut self, ctx: AstVisitorCtx) {
-        self.names.after_node(ctx);
+        self.stack.after_node(ctx);
         self.ns_kind_stack.pop().unwrap();
     }
 }

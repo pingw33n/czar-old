@@ -113,7 +113,7 @@ impl TypeCheck<'_> {
             ("bool", LangType::Bool, PrimitiveType::Bool),
             ("i32", LangType::I32, PrimitiveType::I32),
         ] {
-            let (_, node) = names.scope_for(NsKind::Type, ast.root).by_name[n];
+            let (_, node) = names.scope(NsKind::Type, ast.root).by_name[n];
             let id = self.types.insert_type(Type {
                 node,
                 data: TypeData::Primitive(ty),
