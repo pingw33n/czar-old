@@ -2,8 +2,8 @@ use enum_map::EnumMap;
 use enum_map_derive::Enum;
 use std::collections::hash_map::{Entry, HashMap};
 
-use crate::syn::*;
-use crate::syn::traverse::*;
+use crate::syntax::*;
+use crate::syntax::traverse::*;
 use crate::util::EnumExt;
 
 #[derive(Default)]

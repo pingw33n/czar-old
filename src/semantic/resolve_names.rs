@@ -1,5 +1,5 @@
-use crate::syn::*;
-use crate::syn::traverse::*;
+use crate::syntax::*;
+use crate::syntax::traverse::*;
 use super::discover_names::{MaintainNameScope, Names, NsKind};
 
 pub struct ResolvedName {

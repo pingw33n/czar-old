@@ -3,7 +3,7 @@ use std::io::prelude::*;
 use std::io::BufWriter;
 use std::path::Path;
 
-const SYN_TEST_PATH: &str = "src/syn/parser/test";
+const SYN_TEST_PATH: &str = "src/syntax/parse/test";
 
 fn generate_syn_test_input() {
     const INP_CZ: &str = "__inp.cz";

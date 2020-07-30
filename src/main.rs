@@ -2,18 +2,18 @@
 #![deny(non_snake_case)]
 #![deny(unused_must_use)]
 
-use crate::syn::traverse::AstTraverser;
+use crate::syntax::traverse::AstTraverser;
 use crate::semantic::type_check::{Types, TypeCheck};
 use crate::semantic::discover_names::{Names, DiscoverNames};
 use crate::semantic::resolve_names::{ResolvedNames, ResolveNames};
 
 // mod codegen;
 mod semantic;
-mod syn;
+mod syntax;
 mod util;
 
 fn main() {
-    let ast = &mut syn::parse_str(r##"
+    let ast = &mut syntax::parse_str(r##"
 
     fn fib(_ v: i32) -> i32 {
         if v <= 1 {
@@ -38,12 +38,12 @@ fn main() {
 
         {
             let mut ins = |name: &str| {
-                let ty = ast.insert_struct_type(syn::Span::new(0, 0).spanned(syn::StructType {
+                let ty = ast.insert_struct_type(syntax::Span::new(0, 0).spanned(syntax::StructType {
                     fields: vec![],
                 }));
-                let sd = ast.insert_struct_decl(syn::Span::new(0, 0).spanned(syn::StructDecl {
-                    name: syn::Span::new(0, 0).spanned(name.into()),
-                    vis: Some(syn::Span::new(0, 0).spanned(syn::Vis { restrict: None })),
+                let sd = ast.insert_struct_decl(syntax::Span::new(0, 0).spanned(syntax::StructDecl {
+                    name: syntax::Span::new(0, 0).spanned(name.into()),
+                    vis: Some(syntax::Span::new(0, 0).spanned(syntax::Vis { restrict: None })),
                     ty_args: vec![],
                     ty,
                 }));

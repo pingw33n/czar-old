@@ -3,8 +3,8 @@ use enum_map::EnumMap;
 use enum_map_derive::Enum;
 use slab::Slab;
 
-use crate::syn::*;
-use crate::syn::traverse::*;
+use crate::syntax::*;
+use crate::syntax::traverse::*;
 
 use super::discover_names::{Names, NsKind};
 use super::resolve_names::ResolvedNames;

@@ -1,6 +1,6 @@
 mod display;
 mod lex;
-mod parser;
+mod parse;
 pub mod traverse;
 
 use enum_as_inner::EnumAsInner;
@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use lex::{Keyword, Lexer, Token};
 
 pub use lex::{FloatLiteral, FloatTypeSuffix, IntLiteral, IntTypeSuffix, S, Span, Spanned};
-pub use parser::{Fs, parse_file, parse_file_with, parse_str};
+pub use parse::{Fs, parse_file, parse_file_with, parse_str};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(transparent)]
