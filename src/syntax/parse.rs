@@ -397,7 +397,8 @@ impl<'a> Parser<'a> {
             self.expect(Token::Semi)?.span.end
         };
 
-        Ok(self.ast.insert_fn_decl(Span::new(start, end).spanned(FnDecl {
+        let span = Span::new(start, end);
+        let decl = self.ast.insert_fn_decl(span.spanned(FnDecl {
             name,
             vis,
             ty_args,
@@ -406,7 +407,8 @@ impl<'a> Parser<'a> {
             unsafe_,
             variadic,
             body,
-        })))
+        }));
+        Ok(self.ast.insert_fn(span.spanned(Fn_ { decl })))
     }
 
     fn expect(&mut self, tok: Token) -> PResult<S<Token>> {

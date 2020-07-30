@@ -77,6 +77,10 @@ impl Display<'_> {
 
                 p.print(&field.value)?;
             }
+            NodeKind::Fn_ => {
+                let &Fn_ { decl } = self.ast.fn_(node);
+                self.node(decl, at_group_level, p)?;
+            }
             NodeKind::FnDecl => {
                 let FnDecl {
                     name,
@@ -240,6 +244,26 @@ impl Display<'_> {
                     Literal::Unit => {
                         p.print("()")?;
                     }
+                }
+            }
+            NodeKind::Let => {
+                let &Let { decl } = self.ast.let_(node);
+                self.node(decl, at_group_level, p)?;
+            }
+            NodeKind::LetDecl => {
+                let LetDecl { mut_, name, ty, init } = self.ast.let_decl(node);
+                p.print("let ")?;
+                if mut_.is_some() {
+                    p.print("mut ")?;
+                }
+                self.ident(&name.value, p)?;
+                if let &Some(ty) = ty {
+                    p.print(": ")?;
+                    self.node(ty, false, p)?;
+                }
+                if let &Some(init) = init {
+                    p.print(" = ")?;
+                    self.node(init, false, p)?;
                 }
             }
             NodeKind::Loop => {
@@ -511,26 +535,6 @@ impl Display<'_> {
                 p.println(";")?;
             }
             NodeKind::UsePath => unimplemented!(),
-            NodeKind::Let => {
-                let &Let { decl } = self.ast.let_(node);
-                self.node(decl, true, p)?;
-            }
-            NodeKind::LetDecl => {
-                let LetDecl { mut_, name, ty, init } = self.ast.let_decl(node);
-                p.print("let ")?;
-                if mut_.is_some() {
-                    p.print("mut ")?;
-                }
-                self.ident(&name.value, p)?;
-                if let &Some(ty) = ty {
-                    p.print(": ")?;
-                    self.node(ty, false, p)?;
-                }
-                if let &Some(init) = init {
-                    p.print(" = ")?;
-                    self.node(init, false, p)?;
-                }
-            }
             NodeKind::While => {
                 let While { cond, block } = self.ast.while_(node);
                 p.print("while (")?;

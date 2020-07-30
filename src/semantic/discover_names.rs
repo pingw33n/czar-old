@@ -18,7 +18,7 @@ impl Scope {
             Entry::Occupied(e) => {
                 let first = e.get().0;
                 let this = name.span;
-                eprintln!("name `{}` is defined multiple times: first at [{}:{}], redefined at [{}:{}]",
+                panic!("name `{}` is defined multiple times: first at [{}:{}], redefined at [{}:{}]",
                     e.key(), first.start, first.end, this.start, this.end);
             },
             Entry::Vacant(e) => {
@@ -72,7 +72,11 @@ impl Names {
     }
 
     pub fn scope_for(&self, kind: NsKind, node: NodeId) -> &Scope {
-        &self.scopes[kind][&node]
+        self.try_scope_for(kind, node).unwrap()
+    }
+
+    pub fn try_scope_for(&self, kind: NsKind, node: NodeId) -> Option<&Scope> {
+        self.scopes[kind].get(&node)
     }
 
     pub fn scope_mut(&mut self, kind: NsKind) -> &mut Scope {
@@ -81,17 +85,54 @@ impl Names {
             .or_insert(Default::default())
     }
 
-    pub fn print(&self, ast: &Ast) {
-        for kind in NsKind::iter() {
-            println!("{:?}", kind);
-            let scopes = &self.scopes[kind];
-            for (&n, s) in scopes {
-                println!("  {:?}", ast.node_kind(n));
-                for (ident, &(span, node)) in &s.by_name {
-                    println!("    {:?} -> {:?}", span.spanned(ident), ast.node_kind(node));
+    pub fn print(&mut self, ast: &Ast) {
+        struct Visitor<'a> {
+            names: &'a Names,
+            indent: u32,
+        }
+
+        impl AstVisitor for Visitor<'_> {
+            fn before_node(&mut self, _ctx: AstVisitorCtx) {
+                self.indent += 1;
+            }
+
+            fn node(&mut self, ctx: AstVisitorCtx) {
+                for _ in 1..self.indent {
+                    print!("  ");
+                }
+                let node = ctx.ast.node_kind(ctx.node);
+                println!("{:?} {:?} {}:{}", node.value, ctx.node, node.span.start, node.span.end);
+                for kind in NsKind::iter() {
+                    if let Some(scope) = self.names.try_scope_for(kind, ctx.node) {
+                        for _ in 1..self.indent {
+                            print!("  ");
+                        }
+                        print!("| {:?}: ", kind);
+                        for (i, (ident, &(span, node))) in scope.by_name.iter().enumerate() {
+                            if i > 0 {
+                                print!(", ");
+                            }
+                            let n = ctx.ast.node_kind(node);
+                            print!("`{}` {}:{} -> {:?} {:?} {}:{}", ident, span.start, span.end,
+                                n.value, node, n.span.start, n.span.end);
+                        }
+                        println!()
+                    }
                 }
             }
+
+            fn after_node(&mut self, _ctx: AstVisitorCtx) {
+                self.indent -= 1;
+            }
         }
+
+        AstTraverser {
+            ast,
+            visitor: &mut Visitor {
+                names: self,
+                indent: 0,
+            },
+        }.traverse();
     }
 
     fn cur_scope(&self) -> NodeId {
@@ -103,14 +144,53 @@ pub struct MaintainNameScope<'a> {
     pub names: &'a mut Names,
 }
 
+impl MaintainNameScope<'_> {
+    fn is_scoped(kind: NodeKind) -> bool {
+        use NodeKind::*;
+        match kind {
+            | Fn_
+            | Let
+            => false,
+
+            | Block
+            | BlockFlowCtl
+            | Cast
+            | FieldAccess
+            | FnCall
+            | FnDecl
+            | FnDeclArg
+            | IfExpr
+            | Impl
+            | LetDecl
+            | Literal
+            | Loop
+            | ModuleDecl
+            | Op
+            | Range
+            | StructDecl
+            | StructType
+            | StructValue
+            | SymPath
+            | TyExpr
+            | TypeArg
+            | UsePath
+            | UseStmt
+            | While
+            => true,
+        }
+    }
+}
+
 impl AstVisitor for MaintainNameScope<'_> {
     fn before_node(&mut self, ctx: AstVisitorCtx) {
-        let source_id = ctx.ast.try_module_decl(ctx.node).and_then(|m| m.source_id);
-        self.names.push(ctx.node, source_id);
+        if Self::is_scoped(ctx.kind) {
+            let source_id = ctx.ast.try_module_decl(ctx.node).and_then(|m| m.source_id);
+            self.names.push(ctx.node, source_id);
+        }
     }
 
     fn after_node(&mut self, ctx: AstVisitorCtx) {
-        if ctx.kind != NodeKind::Let {
+        if Self::is_scoped(ctx.kind) && ctx.kind != NodeKind::LetDecl {
             self.names.pop_until(ctx.node);
         }
     }
@@ -131,6 +211,7 @@ impl<'a> DiscoverNames<'a> {
 impl AstVisitor for DiscoverNames<'_> {
     fn before_node(&mut self, ctx: AstVisitorCtx) {
         match ctx.kind {
+            NodeKind::Fn_ => {}
             NodeKind::FnDecl => {
                 let name = ctx.ast.fn_decl(ctx.node).name.clone();
                 self.names.names.scope_mut(NsKind::Value).insert(name, ctx.node);

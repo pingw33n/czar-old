@@ -48,21 +48,22 @@ impl<'a> ResolveNames<'a> {
             | Cast(CastLink::Expr)
             | FieldAccessReceiver
             | FnCall(_)
-            | FnDecl(FnDeclLink::Body)
+            | Fn(FnLink::Body)
             | IfExpr(_)
+            | Let(LetLink::Init)
             | LoopBlock
             | Op(_)
             | Range(_)
             | StructValueValue
             | TyExpr(TyExprLink::Array(ArrayLink::Len))
-            | Let(LetLink::Init)
             | While(_)
             => NsKind::Value,
 
             | Cast(CastLink::Type)
-            | FnDecl(_)
+            | Fn(_)
             | FnDeclArgType
             | Impl(_)
+            | Let(_)
             | ModuleItem
             | Root
             | StructDecl(_)
@@ -71,7 +72,6 @@ impl<'a> ResolveNames<'a> {
             | TyExpr(_)
             | UsePathPath
             | UseStmtPath
-            | Let(_)
             => NsKind::Type,
         };
         self.ns_kind_stack.push(ns_kind);
@@ -100,7 +100,7 @@ impl AstVisitor for ResolveNames<'_> {
                     }
                     self.resolved_names.insert(ns_kind, ctx.node, resolved);
                 } else {
-                    eprintln!("[{}:{}] couldn't find name `{}` in the current scope",
+                    panic!("[{}:{}] couldn't find name `{}` in the current scope",
                         first.span.start, first.span.end, first.value);
                 }
             }

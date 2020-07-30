@@ -199,6 +199,7 @@ impl AstVisitor for TypeCheck<'_> {
             | NodeKind::Let
             | NodeKind::LetDecl
             | NodeKind::FnCall
+            | NodeKind::Fn_
             => return,
             _ => {
                 dbg!(ctx.ast.node_kind(ctx.node));
@@ -249,11 +250,12 @@ impl AstVisitor for TypeCheck<'_> {
 
                 fn_ty.result
             }
-            NodeKind::FnDecl => {
+            NodeKind::Fn_ => {
+                let &Fn_ { decl } = ctx.ast.fn_(ctx.node);
                 let FnDecl {
                     ret_ty,
                     body,
-                    .. } = ctx.ast.fn_decl(ctx.node);
+                    .. } = ctx.ast.fn_decl(decl);
                 let formal_ret_ty = ret_ty
                     .map(|n| self.types.typing_id(n))
                     .unwrap_or(self.types.lang(LangType::Unit));
@@ -266,6 +268,9 @@ impl AstVisitor for TypeCheck<'_> {
                     }
                 }
                 self.types.lang(LangType::Unit)
+            }
+            NodeKind::FnDecl => {
+                unreachable!()
             }
             NodeKind::FnDeclArg => {
                 self.types.typing_id(ctx.ast.fn_decl_arg(ctx.node).ty)

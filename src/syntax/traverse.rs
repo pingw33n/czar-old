@@ -7,7 +7,7 @@ pub enum NodeLinkKind {
     Cast(CastLink),
     FieldAccessReceiver,
     FnCall(FnCallLink),
-    FnDecl(FnDeclLink),
+    Fn(FnLink),
     FnDeclArgType,
     IfExpr(IfExprLink),
     Impl(ImplLink),
@@ -34,7 +34,8 @@ pub enum CastLink {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum FnDeclLink {
+pub enum FnLink {
+    Decl,
     TypeArg,
     Arg,
     RetType,
@@ -182,6 +183,10 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
                     self.traverse0(arg.value, NodeLinkKind::FnCall(FnCallLink::ArgValue));
                 }
             },
+            NodeKind::Fn_ => {
+                let &Fn_ { decl } = self.ast.fn_(node);
+                self.traverse0(decl, NodeLinkKind::Fn(FnLink::Decl));
+            }
             NodeKind::FnDecl => {
                 let FnDecl {
                     ty_args,
@@ -192,16 +197,16 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
                 } = self.ast.fn_decl(node);
 
                 for &ty_arg in ty_args {
-                    self.traverse0(ty_arg, NodeLinkKind::FnDecl(FnDeclLink::TypeArg));
+                    self.traverse0(ty_arg, NodeLinkKind::Fn(FnLink::TypeArg));
                 }
                 for &arg in args {
-                    self.traverse0(arg, NodeLinkKind::FnDecl(FnDeclLink::Arg));
+                    self.traverse0(arg, NodeLinkKind::Fn(FnLink::Arg));
                 }
                 if let &Some(ret_ty) = ret_ty {
-                    self.traverse0(ret_ty, NodeLinkKind::FnDecl(FnDeclLink::RetType));
+                    self.traverse0(ret_ty, NodeLinkKind::Fn(FnLink::RetType));
                 }
                 if let &Some(body) = body {
-                    self.traverse0(body, NodeLinkKind::FnDecl(FnDeclLink::Body));
+                    self.traverse0(body, NodeLinkKind::Fn(FnLink::Body));
                 }
             },
             NodeKind::FnDeclArg => {
@@ -224,6 +229,19 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
                 }
                 for &item in items {
                     self.traverse0(item, NodeLinkKind::Impl(ImplLink::Item));
+                }
+            },
+            NodeKind::Let => {
+                let &Let { decl } = self.ast.let_(node);
+                self.traverse0(decl, NodeLinkKind::Let(LetLink::Decl));
+            }
+            NodeKind::LetDecl => {
+                let &LetDecl { ty, init, .. } = self.ast.let_decl(node);
+                if let Some(ty) = ty {
+                    self.traverse0(ty, NodeLinkKind::Let(LetLink::Type));
+                }
+                if let Some(init) = init {
+                    self.traverse0(init, NodeLinkKind::Let(LetLink::Init));
                 }
             },
             NodeKind::Literal => {},
@@ -312,19 +330,6 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
             NodeKind::UseStmt => {
                 let UseStmt { path , ..} = self.ast.use_stmt(node);
                 self.traverse0(path.value.path, NodeLinkKind::UseStmtPath);
-            },
-            NodeKind::Let => {
-                let &Let { decl } = self.ast.let_(node);
-                self.traverse0(decl, NodeLinkKind::Let(LetLink::Decl));
-            }
-            NodeKind::LetDecl => {
-                let &LetDecl { ty, init, .. } = self.ast.let_decl(node);
-                if let Some(ty) = ty {
-                    self.traverse0(ty, NodeLinkKind::Let(LetLink::Type));
-                }
-                if let Some(init) = init {
-                    self.traverse0(init, NodeLinkKind::Let(LetLink::Init));
-                }
             },
             NodeKind::While => {
                 let &While { cond, block, .. } = self.ast.while_(node);
