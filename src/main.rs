@@ -4,7 +4,7 @@
 
 use crate::syntax::traverse::AstTraverser;
 use crate::semantic::type_check::{Types, TypeCheck};
-use crate::semantic::discover_names::{Names, DiscoverNames};
+use crate::semantic::discover_names::{Names, discover_names};
 use crate::semantic::resolve_names::{ResolvedNames, ResolveNames};
 
 // mod codegen;
@@ -14,6 +14,8 @@ mod util;
 
 fn main() {
     let ast = &mut syntax::parse_str(r##"
+
+    mod foo {}
 
     fn fib(_ v: i32) -> i32 {
         if v <= 1 {
@@ -74,13 +76,7 @@ fn main() {
     eprintln!("{}", ast.display());
 
     let names = &mut Names::default();
-    {
-        let mut trv = AstTraverser {
-            ast: &ast,
-            visitor: &mut DiscoverNames::new(names),
-        };
-        trv.traverse();
-    }
+    discover_names(names, ast);
 
     names.print(&ast);
 

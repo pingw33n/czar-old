@@ -6,29 +6,41 @@ use crate::syntax::*;
 use crate::syntax::traverse::*;
 use crate::util::EnumExt;
 
+pub struct Item {
+    pub name: S<Ident>,
+    pub node: NodeId,
+}
+
 #[derive(Default)]
 pub struct Scope {
-    pub by_name: HashMap<Ident, (Span, NodeId)>,
+    pub by_name: HashMap<Ident, Item>,
     pub wildcarded: Vec<NodeId>,
 }
 
 impl Scope {
     pub fn insert(&mut self, name: S<Ident>, node: NodeId) {
-        match self.by_name.entry(name.value) {
+        match self.by_name.entry(name.value.clone()) {
             Entry::Occupied(e) => {
-                let first = e.get().0;
+                let first = e.get().name.span;
                 let this = name.span;
                 panic!("name `{}` is defined multiple times: first at [{}:{}], redefined at [{}:{}]",
                     e.key(), first.start, first.end, this.start, this.end);
             },
             Entry::Vacant(e) => {
-                e.insert((name.span, node));
+                e.insert(Item {
+                    name,
+                    node,
+                });
             },
         }
     }
 
     pub fn insert_wildcarded(&mut self, node: NodeId) {
         self.wildcarded.push(node);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_name.is_empty() && self.wildcarded.is_empty()
     }
 }
 
@@ -49,7 +61,7 @@ impl Names {
             if let Some(r) = self.scopes.get(&scope_id)
                 .and_then(|s| {
                     let s = &s[kind];
-                    let r = s.by_name.get(name).map(|&(_, n)| n);
+                    let r = s.by_name.get(name).map(|&Item { node, .. }| node);
                     if !s.wildcarded.is_empty() {
                         unimplemented!();
                     }
@@ -82,32 +94,49 @@ impl Names {
             indent: u32,
         }
 
+        impl Visitor<'_> {
+            fn print_indent(&self) {
+                for _ in 1..self.indent {
+                    print!("  ");
+                }
+            }
+        }
+
         impl AstVisitor for Visitor<'_> {
             fn before_node(&mut self, _ctx: AstVisitorCtx) {
                 self.indent += 1;
             }
 
             fn node(&mut self, ctx: AstVisitorCtx) {
-                for _ in 1..self.indent {
-                    print!("  ");
-                }
+                self.print_indent();
                 let node = ctx.ast.node_kind(ctx.node);
-                println!("{:?} {:?} {}:{}", node.value, ctx.node, node.span.start, node.span.end);
+                if let Some(name) = ctx.ast.try_module_decl(ctx.node)
+                    .and_then(|ModuleDecl { name, .. }| name.as_ref())
+                {
+                    println!("{:?} {:?} `{}` {}:{}",
+                        node.value, ctx.node, name.name.value, node.span.start, node.span.end);
+                } else {
+                    println!("{:?} {:?} {}:{}",
+                        node.value, ctx.node, node.span.start, node.span.end);
+                }
                 for kind in NsKind::iter() {
                     if let Some(scope) = self.names.try_scope(kind, ctx.node) {
-                        for _ in 1..self.indent {
-                            print!("  ");
-                        }
-                        print!("| {:?}: ", kind);
-                        for (i, (ident, &(span, node))) in scope.by_name.iter().enumerate() {
-                            if i > 0 {
-                                print!(", ");
+                        if !scope.is_empty() {
+                            self.print_indent();
+                            print!("| {:?}: ", kind);
+                            for (i, (ident, Item { node, name })) in
+                                scope.by_name.iter().enumerate()
+                            {
+                                if i > 0 {
+                                    print!(", ");
+                                }
+                                let n = ctx.ast.node_kind(*node);
+                                print!("`{}` {}:{} -> {:?} {:?} {}:{}", ident,
+                                    name.span.start, name.span.end,
+                                    n.value, node, n.span.start, n.span.end);
                             }
-                            let n = ctx.ast.node_kind(node);
-                            print!("`{}` {}:{} -> {:?} {:?} {}:{}", ident, span.start, span.end,
-                                n.value, node, n.span.start, n.span.end);
+                            println!()
                         }
-                        println!()
                     }
                 }
             }
@@ -128,7 +157,7 @@ impl Names {
 }
 
 pub struct ScopeStack {
-    stack: Vec<(NodeId, Option<SourceId>)>,
+    stack: Vec<NodeId>,
 }
 
 impl ScopeStack {
@@ -138,20 +167,20 @@ impl ScopeStack {
         }
     }
 
-    pub fn push(&mut self, node: NodeId, source_id: Option<SourceId>) {
-        self.stack.push((node, source_id));
+    pub fn push(&mut self, node: NodeId) {
+        self.stack.push(node);
     }
 
     pub fn pop_until(&mut self, node: NodeId) {
-        while self.stack.pop().unwrap().0 != node { }
+        while self.stack.pop().unwrap() != node { }
     }
 
     pub fn top(&self) -> NodeId {
-        self.stack.last().unwrap().0
+        *self.stack.last().unwrap()
     }
 
     pub fn iter<'a>(&'a self) -> impl Iterator<Item=NodeId> + 'a {
-        self.stack.iter().map(|&(n, _)| n).rev()
+        self.stack.iter().copied().rev()
     }
 }
 
@@ -205,8 +234,7 @@ impl AstScopeStack {
 impl AstVisitor for AstScopeStack {
     fn before_node(&mut self, ctx: AstVisitorCtx) {
         if Self::is_scoped(ctx.kind) {
-            let source_id = ctx.ast.try_module_decl(ctx.node).and_then(|m| m.source_id);
-            self.stack.push(ctx.node, source_id);
+            self.stack.push(ctx.node);
         }
     }
 
@@ -225,18 +253,9 @@ impl std::ops::Deref for AstScopeStack {
     }
 }
 
-pub struct DiscoverNames<'a> {
+struct DiscoverNames<'a> {
     stack: AstScopeStack,
     names: &'a mut Names,
-}
-
-impl<'a> DiscoverNames<'a> {
-    pub fn new(names: &'a mut Names) -> Self {
-        Self {
-            stack: AstScopeStack::new(),
-            names,
-        }
-    }
 }
 
 impl DiscoverNames<'_> {
@@ -263,7 +282,7 @@ impl AstVisitor for DiscoverNames<'_> {
                 self.insert(NsKind::Value, priv_name.clone(), ctx.node);
             },
             NodeKind::ModuleDecl => {
-                let name = &ctx.ast.module_decl(ctx.node).name;
+                let ModuleDecl { name, .. } = &ctx.ast.module_decl(ctx.node);
                 if let Some(name) = name {
                     self.insert(NsKind::Type, name.name.clone(), ctx.node);
                 }
@@ -324,4 +343,14 @@ impl AstVisitor for DiscoverNames<'_> {
     fn after_node(&mut self, ctx: AstVisitorCtx) {
         self.stack.after_node(ctx);
     }
+}
+
+pub fn discover_names(names: &mut Names, ast: &Ast) {
+    AstTraverser {
+        ast,
+        visitor: &mut DiscoverNames {
+            stack: AstScopeStack::new(),
+            names,
+        },
+    }.traverse();
 }
