@@ -337,27 +337,27 @@ pub struct BlockFlowCtl {
 pub struct Ident(String);
 
 impl Ident {
-    const SELF_VALUE: &'static str = "self";
-    const SELF_TYPE: &'static str = "Self";
+    const SELF_LOWER: &'static str = "self";
+    const SELF_UPPER: &'static str = "Self";
 
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
-    pub fn self_value() -> Self {
-        Self(Ident::SELF_VALUE.into())
+    pub fn self_lower() -> Self {
+        Self(Ident::SELF_LOWER.into())
     }
 
-    pub fn self_type() -> Self {
-        Self(Ident::SELF_TYPE.into())
+    pub fn self_upper() -> Self {
+        Self(Ident::SELF_UPPER.into())
     }
 
-    pub fn is_self_value(&self) -> bool {
-        &self.0 == Ident::SELF_VALUE
+    pub fn is_self_lower(&self) -> bool {
+        &self.0 == Ident::SELF_LOWER
     }
 
-    pub fn is_self_type(&self) -> bool {
-        &self.0 == Ident::SELF_TYPE
+    pub fn is_self_upper(&self) -> bool {
+        &self.0 == Ident::SELF_UPPER
     }
 }
 
@@ -536,7 +536,7 @@ pub enum PathAnchor {
     Root,
     Super {
         count: u32,
-    }
+    },
 }
 
 // use foo::bar;

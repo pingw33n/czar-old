@@ -116,7 +116,7 @@ impl Display<'_> {
                     } else if i > 0 {
                         p.print("_ ")?;
                     }
-                    if priv_name.value.is_self_value() {
+                    if priv_name.value.is_self_lower() {
                         let s = &mut String::new();
                         self.node(*ty, false, &mut Printer::new(s))?;
                         p.print(s.to_ascii_lowercase())?;

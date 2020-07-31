@@ -329,7 +329,7 @@ impl<'a> Parser<'a> {
                         let ty = self.ast.insert_sym_path(self_.with_value(SymPath {
                             anchor: None,
                             items: vec![PathItem {
-                                ident: self_.with_value(Ident::self_type()),
+                                ident: self_.with_value(Ident::self_upper()),
                                 ty_args: Vec::new(),
                             }],
                         }));
@@ -347,7 +347,7 @@ impl<'a> Parser<'a> {
                         }
                         Some(FnDeclArg {
                             pub_name: self_.with_value(None),
-                            priv_name: self_.with_value(Ident::self_value()),
+                            priv_name: self_.with_value(Ident::self_lower()),
                             ty,
                         })
                     } else {
@@ -571,11 +571,11 @@ impl<'a> Parser<'a> {
             let ident = match tok.value {
                 Token::Keyword(Keyword::SelfLower) => {
                     self.lex.consume();
-                    tok.span.spanned(Ident::self_value())
+                    tok.span.spanned(Ident::self_lower())
                 }
                 Token::Keyword(Keyword::SelfUpper) => {
                     self.lex.consume();
-                    tok.span.spanned(Ident::self_type())
+                    tok.span.spanned(Ident::self_upper())
                 }
                 _ => {
                     if let Some(v) = self.maybe_ident()? {
@@ -681,7 +681,7 @@ impl<'a> Parser<'a> {
             let term = match tok.value {
                 Token::Keyword(Keyword::SelfLower) if list.is_some() => {
                     self.lex.consume();
-                    self.path_term_ident_inner(tok.span.spanned(Ident::self_value()))?
+                    self.path_term_ident_inner(tok.span.spanned(Ident::self_lower()))?
                 }
                 Token::Star => {
                     self.lex.consume();
