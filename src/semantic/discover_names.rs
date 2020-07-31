@@ -44,7 +44,7 @@ impl Scope {
     }
 }
 
-#[derive(Clone, Copy, Debug, Enum)]
+#[derive(Clone, Copy, Debug, Enum, Eq, PartialEq)]
 pub enum NsKind {
     Type,
     Value,
@@ -200,9 +200,10 @@ impl AstScopeStack {
         match kind {
             | Fn_
             | Let
-            | UsePath
-            | UsePathTermIdent
-            | UsePathTermStar
+            | Path
+            | PathEndIdent
+            | PathEndStar
+            | PathSegment
             | UseStmt
             => false,
 
@@ -224,7 +225,6 @@ impl AstScopeStack {
             | StructDecl
             | StructType
             | StructValue
-            | SymPath
             | TyExpr
             | TypeArg
             | While
@@ -258,6 +258,9 @@ impl std::ops::Deref for AstScopeStack {
 struct DiscoverNames<'a> {
     stack: AstScopeStack,
     names: &'a mut Names,
+
+    /// Is in `Use` subtree?
+    in_use: bool,
 }
 
 impl DiscoverNames<'_> {
@@ -293,18 +296,18 @@ impl AstVisitor for DiscoverNames<'_> {
                 let name = ctx.ast.struct_decl(ctx.node).name.clone();
                 self.insert(NsKind::Type, name.clone(), ctx.node);
             }
-            NodeKind::UsePath => {},
-            NodeKind::UsePathTermIdent => {
-                let UsePathTermIdent {
-                    ident,
+            NodeKind::PathEndIdent if self.in_use => {
+                let PathEndIdent {
+                    item: PathItem { ident, ty_args: _, .. },
                     renamed_as,
-                } = ctx.ast.use_path_term_ident(ctx.node);
+                } = ctx.ast.path_end_ident(ctx.node);
                 let name = renamed_as.as_ref().unwrap_or(ident);
                 for ns_kind in NsKind::iter() {
                     self.insert(ns_kind, name.clone(), ctx.node);
                 }
             },
-            NodeKind::UsePathTermStar => {
+            NodeKind::PathEndStar => {
+                assert!(self.in_use);
                 for ns_kind in NsKind::iter() {
                     self.names.scope_mut(ns_kind, self.stack.top())
                         .insert_wildcarded(ctx.node);
@@ -315,6 +318,10 @@ impl AstVisitor for DiscoverNames<'_> {
                 let name = ctx.ast.let_decl(ctx.node).name.clone();
                 self.insert(NsKind::Value, name, ctx.node);
             },
+            NodeKind::UseStmt => {
+                assert!(!self.in_use);
+                self.in_use = false;
+            }
             | NodeKind::Block
             | NodeKind::BlockFlowCtl
             | NodeKind::Cast
@@ -325,13 +332,14 @@ impl AstVisitor for DiscoverNames<'_> {
             | NodeKind::Literal
             | NodeKind::Loop
             | NodeKind::Op
+            | NodeKind::Path
+            | NodeKind::PathEndIdent
+            | NodeKind::PathSegment
             | NodeKind::Range
             | NodeKind::StructType
             | NodeKind::StructValue
-            | NodeKind::SymPath
             | NodeKind::TyExpr
             | NodeKind::TypeArg
-            | NodeKind::UseStmt
             | NodeKind::While
             => {},
         }
@@ -340,6 +348,10 @@ impl AstVisitor for DiscoverNames<'_> {
 
     fn after_node(&mut self, ctx: AstVisitorCtx) {
         self.stack.after_node(ctx);
+        if ctx.kind == NodeKind::UseStmt {
+            assert!(self.in_use);
+            self.in_use = false;
+        }
     }
 }
 
@@ -349,6 +361,7 @@ pub fn discover_names(names: &mut Names, ast: &Ast) {
         visitor: &mut DiscoverNames {
             stack: AstScopeStack::new(),
             names,
+            in_use: false,
         },
     }.traverse();
 }

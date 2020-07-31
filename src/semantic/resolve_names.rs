@@ -42,9 +42,9 @@ impl<'a> ResolveNames<'a> {
         }
     }
 
-    fn push_ns_kind(&mut self, link_kind: NodeLinkKind) {
+    fn ns_kind(link_kind: NodeLinkKind) -> Option<NsKind> {
         use NodeLinkKind::*;
-        let ns_kind = match link_kind {
+        Some(match link_kind {
             | BlockExpr
             | BlockFlowCtlValue
             | Cast(CastLink::Expr)
@@ -62,21 +62,33 @@ impl<'a> ResolveNames<'a> {
             => NsKind::Value,
 
             | Cast(CastLink::Type)
-            | Fn(_)
+            | Fn(FnLink::TypeArg)
+            | Fn(FnLink::RetType)
             | FnDeclArgType
+            | Impl(ImplLink::TypeArg)
+            | Let(LetLink::Type)
+            | Path(PathLink::EndIdentTyArgs)
+            | Path(PathLink::SegmentItemTyArgs)
+            | StructDecl(_)
+            | StructTypeFieldType
+            | TyExpr(_)
+            | UseStmtPath
+            => NsKind::Type,
+
+            | Fn(_)
             | Impl(_)
             | Let(_)
             | ModuleItem
+            | Path(_)
             | Root
-            | StructDecl(_)
-            | StructTypeFieldType
-            | SymPathTypeArg
-            | TyExpr(_)
-            | UsePath(_)
-            | UseStmtPath
-            => NsKind::Type,
-        };
-        self.ns_kind_stack.push(ns_kind);
+            => return None,
+        })
+    }
+
+    fn push_ns_kind(&mut self, link_kind: NodeLinkKind) {
+        if let Some(v) = Self::ns_kind(link_kind) {
+            self.ns_kind_stack.push(v);
+        }
     }
 }
 
@@ -89,21 +101,25 @@ impl AstVisitor for ResolveNames<'_> {
         self.push_ns_kind(ctx.link_kind);
 
         match ctx.kind {
-            NodeKind::SymPath => {
-                let SymPath { anchor, items } = ctx.ast.sym_path(ctx.node);
+            NodeKind::Path => {
+                let Path { anchor, segment } = ctx.ast.path(ctx.node);
                 if anchor.is_some() {
                     unimplemented!();
                 }
-                let first = &items[0].ident;
+                let PathSegment { prefix, suffix } = ctx.ast.path_segment(*segment);
+                if prefix.len() > 0 || suffix.len() > 1 || ctx.ast.node_kind(suffix[0]).value != NodeKind::PathEndIdent {
+                    unimplemented!();
+                }
+                let PathEndIdent { item, renamed_as } = ctx.ast.path_end_ident(suffix[0]);
+                if renamed_as.is_some() {
+                    unimplemented!();
+                }
                 let ns_kind = *self.ns_kind_stack.last().unwrap();
-                if let Some(resolved) = self.names.resolve(&self.stack, ns_kind, &first.value) {
-                    if items.len() > 1 {
-                        unimplemented!();
-                    }
-                    self.resolved_names.insert(ns_kind, ctx.node, resolved);
+                if let Some(resolved) = self.names.resolve(&self.stack, ns_kind, &item.ident.value) {
+                    self.resolved_names.insert(ns_kind, suffix[0], resolved);
                 } else {
                     panic!("[{}:{}] couldn't find name `{}` in the current scope",
-                        first.span.start, first.span.end, first.value);
+                        item.ident.span.start, item.ident.span.end, item.ident.value);
                 }
             }
             _ => {}
@@ -112,6 +128,8 @@ impl AstVisitor for ResolveNames<'_> {
 
     fn after_node(&mut self, ctx: AstVisitorCtx) {
         self.stack.after_node(ctx);
-        self.ns_kind_stack.pop().unwrap();
+        if let Some(v) = Self::ns_kind(ctx.link_kind) {
+            assert_eq!(self.ns_kind_stack.pop().unwrap(), v);
+        }
     }
 }

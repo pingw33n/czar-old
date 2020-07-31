@@ -405,6 +405,13 @@ impl Display<'_> {
                     }
                 }
             }
+            NodeKind::Path => {
+                self.path(node, p)?;
+            }
+            | NodeKind::PathEndIdent
+            | NodeKind::PathEndStar
+            | NodeKind::PathSegment
+            => unreachable!("{:?}", self.ast.node_kind(node)),
             NodeKind::Range => {
                 let Range { kind, start, end } = self.ast.range(node);
                 if let Some(start) = start {
@@ -466,27 +473,6 @@ impl Display<'_> {
                 }
                 p.print('}')?;
             }
-            NodeKind::SymPath => {
-                let SymPath { anchor, items } = self.ast.sym_path(node);
-                self.path_anchor(anchor.map(|v| v.value), p)?;
-                for (i, PathItem { ident, ty_args }) in items.iter().enumerate() {
-                    if i > 0 {
-                        p.print("::")?;
-                    }
-
-                    self.ident(&ident.value, p)?;
-                    if !ty_args.is_empty() {
-                        p.print("<")?;
-                        for (i, v) in ty_args.iter().enumerate() {
-                            if i > 0 {
-                                p.print(", ")?;
-                            }
-                            self.node(*v, false, p)?;
-                        }
-                        p.print(">")?;
-                    }
-                }
-            }
             NodeKind::TyExpr => {
                 let TyExpr { muta, data } = self.ast.ty_expr(node);
                 if muta.is_some() {
@@ -526,17 +512,11 @@ impl Display<'_> {
             NodeKind::TypeArg => unreachable!(),
             NodeKind::UseStmt => {
                 let UseStmt { vis, path } = self.ast.use_stmt(node);
-                let AnchoredPath { anchor, path } = path.value;
                 self.vis(vis, p)?;
                 p.print_sep("use ")?;
-                self.path_anchor(anchor, p)?;
-
-                self.use_path(path, p)?;
+                self.path(*path, p)?;
                 p.println(";")?;
             }
-            NodeKind::UsePath => unreachable!(),
-            NodeKind::UsePathTermIdent => unreachable!(),
-            NodeKind::UsePathTermStar => unreachable!(),
             NodeKind::While => {
                 let While { cond, block } = self.ast.while_(node);
                 p.print("while (")?;
@@ -563,61 +543,74 @@ impl Display<'_> {
         Ok(())
     }
 
-    fn path_anchor(&self, v: Option<PathAnchor>, p: &mut Printer) -> Result {
-        if let Some(v) = v {
-            match v {
+    fn path(&self, node: NodeId, p: &mut Printer) -> Result {
+        let Path { anchor, segment } = self.ast.path(node);
+        if let Some(anchor) = anchor {
+            match anchor.value {
                 PathAnchor::Package => p.print("package::"),
                 PathAnchor::Root => p.print("::"),
                 PathAnchor::Super { count } => p.repeat("super::", count),
             }?
         }
+        self.path_segment(*segment, p)
+    }
+
+    fn path_item(&self, item: &PathItem, p: &mut Printer) -> Result {
+        let PathItem { ident, ty_args } = item;
+        self.ident(&ident.value, p)?;
+        if !ty_args.is_empty() {
+            p.print("<")?;
+            for (i, v) in ty_args.iter().enumerate() {
+                if i > 0 {
+                    p.print(", ")?;
+                }
+                self.node(*v, false, p)?;
+            }
+            p.print(">")?;
+        }
         Ok(())
     }
 
-    fn use_path(&self, node: NodeId, p: &mut Printer) -> Result {
-        let UsePath { prefix, terms } = self.ast.use_path(node);
-        for ident in prefix.iter() {
-            p.print(&ident.value)?;
+    fn path_segment(&self, node: NodeId, p: &mut Printer) -> Result {
+        let PathSegment { prefix, suffix } = self.ast.path_segment(node);
+        for item in prefix {
+            self.path_item(item, p)?;
             p.print("::")?;
         }
-        if terms.is_empty() || terms.len() > 1 {
-            p.print("{")?;
+        if suffix.len() == 0 || suffix.len() > 1 {
+            p.print('{')?;
         }
-        if terms.len() > 1 {
+        if suffix.len() > 1 {
             p.indent()?;
         }
-        for &term in terms.iter() {
-            match self.ast.node_kind(term).value {
-                NodeKind::UsePath => {
-                    self.use_path(term, p)?;
-                }
-                NodeKind::UsePathTermIdent => {
-                    let UsePathTermIdent { ident, renamed_as } = self.ast.use_path_term_ident(term);
-                    p.print(&ident.value)?;
-                    self.path_term_as(renamed_as, p)?;
-                }
-                NodeKind::UsePathTermStar => {
-                    p.print("*")?;
-                }
-                _ => unreachable!(),
-            }
-            if terms.len() > 1 {
-                p.println(",")?;
+        for &next in suffix.iter() {
+            self.path_suffix(next, p)?;
+            if suffix.len() > 1 {
+                p.println(',')?;
             }
         }
-        if terms.len() > 1 {
+        if suffix.len() > 1 {
             p.unindent()?;
         }
-        if terms.is_empty() || terms.len() > 1 {
-            p.print("}")?;
+        if suffix.len() == 0 || suffix.len() > 1 {
+            p.print('}')?;
         }
         Ok(())
     }
 
-    fn path_term_as(&self, v: &Option<S<Ident>>, p: &mut Printer) -> Result {
-        if let Some(v) = v {
-            p.print_sep("as")?;
-            p.print_sep(&v.value)?;
+    fn path_suffix(&self, node: NodeId, p: &mut Printer) -> Result {
+        match self.ast.node_kind(node).value {
+            NodeKind::PathSegment => self.path_segment(node, p)?,
+            NodeKind::PathEndIdent => {
+                let PathEndIdent { item, renamed_as } = self.ast.path_end_ident(node);
+                self.path_item(item, p)?;
+                if let Some(renamed_as) = renamed_as {
+                    p.print_sep("as")?;
+                    p.print_sep(&renamed_as.value)?;
+                }
+            }
+            NodeKind::PathEndStar => p.print('*')?,
+            _ => unreachable!(),
         }
         Ok(())
     }
@@ -669,7 +662,7 @@ impl Display<'_> {
             | NodeKind::IfExpr
             | NodeKind::Literal
             | NodeKind::Loop
-            | NodeKind::SymPath
+            | NodeKind::Path
             | NodeKind::While
         );
         self.expr0(node, no_parens, p)

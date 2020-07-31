@@ -65,6 +65,13 @@ impl<T> Spanned<T> {
         }
     }
 
+    pub fn as_ref(&self) -> Spanned<&T> {
+        Spanned {
+            span: self.span,
+            value: &self.value,
+        }
+    }
+
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Spanned<U> {
         let value = f(self.value);
         Spanned {

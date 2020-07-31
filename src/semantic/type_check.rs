@@ -171,6 +171,7 @@ impl AstVisitor for TypeCheck<'_> {
             }
             NodeKind::Literal => {
                 match ctx.ast.literal(ctx.node) {
+                    &Literal::Bool(_) => self.types.lang(LangType::Bool),
                     &Literal::Int(IntLiteral { ty, .. }) => {
                         if let Some(ty) = ty {
                             match ty {
@@ -192,7 +193,9 @@ impl AstVisitor for TypeCheck<'_> {
             | NodeKind::StructValue
             | NodeKind::FnDeclArg
             | NodeKind::TyExpr
-            | NodeKind::SymPath
+            | NodeKind::Path
+            | NodeKind::PathSegment
+            | NodeKind::PathEndIdent
             | NodeKind::Block
             | NodeKind::IfExpr
             | NodeKind::Op
@@ -202,8 +205,7 @@ impl AstVisitor for TypeCheck<'_> {
             | NodeKind::Fn_
             => return,
             _ => {
-                dbg!(ctx.ast.node_kind(ctx.node));
-                unimplemented!();
+                unimplemented!("{:?}", ctx.ast.node_kind(ctx.node));
             },
         };
         self.types.insert_typing(ctx.node, ty);
@@ -384,9 +386,24 @@ impl AstVisitor for TypeCheck<'_> {
                 }
                 self.types.lang(LangType::Unit)
             }
-            NodeKind::SymPath => {
+            NodeKind::Path => {
+                self.types.typing_id(ctx.ast.path(ctx.node).segment)
+            }
+            NodeKind::PathEndIdent => {
                 let target = self.names.get(ctx.node).target;
-                self.build_type(target, ctx.ast)
+                // Ignore 'use'.
+                if ctx.ast.node_kind(target).value != NodeKind::ModuleDecl {
+                    self.build_type(target, ctx.ast)
+                } else {
+                    self.types.lang(LangType::Unit)
+                }
+            }
+            NodeKind::PathSegment => {
+                if let Some(&suffix) = ctx.ast.path_segment(ctx.node).suffix.first() {
+                    self.types.typing_id(suffix)
+                } else {
+                    self.types.lang(LangType::Unit)
+                }
             }
             NodeKind::TyExpr => {
                 let TyExpr { muta: _, data } = ctx.ast.ty_expr(ctx.node);

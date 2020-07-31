@@ -8,7 +8,7 @@ use slab::Slab;
 use std::collections::HashMap;
 use std::fmt;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Path as StdPath, PathBuf};
 
 use lex::{Keyword, Lexer, Token};
 
@@ -49,16 +49,16 @@ pub enum NodeKind {
     Loop,
     ModuleDecl,
     Op,
+    Path,
+    PathEndIdent,
+    PathEndStar,
+    PathSegment,
     Range,
     StructDecl,
     StructType,
     StructValue,
-    SymPath,
     TyExpr,
     TypeArg,
-    UsePath,
-    UsePathTermIdent,
-    UsePathTermStar,
     UseStmt,
     While,
 }
@@ -86,14 +86,14 @@ impl NodeKind {
             | Self::FnDeclArg
             | Self::Literal
             | Self::Op
+            | Self::Path
+            | Self::PathSegment
+            | Self::PathEndIdent
+            | Self::PathEndStar
             | Self::Range
-            | Self::SymPath
             | Self::TyExpr
             | Self::TypeArg
             | Self::UseStmt
-            | Self::UsePath
-            | Self::UsePathTermIdent
-            | Self::UsePathTermStar
             | Self::Let
             | Self::LetDecl
             | Self::StructValue
@@ -131,17 +131,17 @@ pub struct Ast {
     loops: NodeMap<Loop>,
     module_decls: NodeMap<ModuleDecl>,
     ops: NodeMap<Op>,
+    paths: NodeMap<Path>,
+    path_end_idents: NodeMap<PathEndIdent>,
+    path_end_stars: NodeMap<PathEndStar>,
+    path_segments: NodeMap<PathSegment>,
     ranges: NodeMap<Range>,
-    sym_paths: NodeMap<SymPath>,
     struct_decls: NodeMap<StructDecl>,
     struct_types: NodeMap<StructType>,
     struct_values: NodeMap<StructValue>,
     ty_exprs: NodeMap<TyExpr>,
     type_args: NodeMap<TypeArg>,
     use_stmts: NodeMap<UseStmt>,
-    use_paths: NodeMap<UsePath>,
-    use_path_term_idents: NodeMap<UsePathTermIdent>,
-    use_path_term_stars: NodeMap<UsePathTermStar>,
     whiles: NodeMap<While>,
 
     sources: Slab<Source>,
@@ -194,6 +194,57 @@ impl Ast {
         self.nodes[id.0]
     }
 
+    pub fn insert_path_from_ident(&mut self, ident: S<Ident>) -> NodeId {
+        let span = ident.span;
+        let end = self.insert_path_end_ident(ident.span.spanned(PathEndIdent {
+            item: PathItem {
+                ident,
+                ty_args: Vec::new(),
+            },
+            renamed_as: None,
+        }));
+        let segment = self.insert_path_segment(span.spanned(PathSegment {
+            prefix: Vec::new(),
+            suffix: vec![end],
+        }));
+
+        self.insert_path(span.spanned(Path {
+            anchor: None,
+            segment,
+        }))
+    }
+
+    pub fn insert_path_from_items(&mut self,
+        anchor: Option<S<PathAnchor>>,
+        mut items: Vec<PathItem>,
+    ) -> NodeId {
+        let start = anchor.map(|v| v.span.start)
+            .unwrap_or(items[0].ident.span.start);
+
+        let suffix = items.pop().unwrap();
+        let suffix_start = suffix.ident.span.start;
+        let end = suffix.ty_args.last()
+            .map(|&v| self.node_kind(v).span.end)
+            .unwrap_or(suffix.ident.span.end);
+        let suffix = self.insert_path_end_ident(Span::new(suffix_start, end).spanned(
+            PathEndIdent {
+                item: suffix,
+                renamed_as: None,
+            }));
+
+        // FIXME
+        let span = Span::new(0, 0);
+        let segment = self.insert_path_segment(span.spanned(PathSegment {
+            prefix: items,
+            suffix: vec![suffix],
+        }));
+
+        self.insert_path(Span::new(start, end).spanned(Path {
+            anchor,
+            segment,
+        }))
+    }
+
     ast_node_ops! {
         insert_block, block, block_mut, try_block, try_block_mut, blocks, Block;
         insert_block_flow_ctl, block_flow_ctl, block_flow_ctl_mut, try_block_flow_ctl, try_block_flow_ctl_mut, block_flow_ctls, BlockFlowCtl;
@@ -211,17 +262,17 @@ impl Ast {
         insert_loop, loop_, loop_mut, try_loop, try_loop_mut, loops, Loop;
         insert_module_decl, module_decl, module_decl_mut, try_module_decl, try_module_decl_mut, module_decls, ModuleDecl;
         insert_op, op, op_mut, try_op, try_op_mut, ops, Op;
+        insert_path, path, path_mut, try_path, try_path_mut, paths, Path;
+        insert_path_segment, path_segment, path_segment_mut, try_path_segment, try_path_segment_mut, path_segments, PathSegment;
+        insert_path_end_ident, path_end_ident, path_end_ident_mut, try_path_end_ident, try_path_end_ident_mut, path_end_idents, PathEndIdent;
+        insert_path_end_star, path_end_star, path_end_star_mut, try_path_end_star, try_path_end_star_mut, path_end_stars, PathEndStar;
         insert_range, range, range_mut, try_range, try_range_mut, ranges, Range;
         insert_struct_decl, struct_decl, struct_decl_mut, try_struct_decl, try_struct_decl_mut, struct_decls, StructDecl;
         insert_struct_type, struct_type, struct_type_mut, try_struct_type, try_struct_type_mut, struct_types, StructType;
         insert_struct_value, struct_value, struct_value_mut, try_struct_value, try_struct_value_mut, struct_values, StructValue;
-        insert_sym_path, sym_path, sym_path_mut, try_sym_path, try_sym_path_mut, sym_paths, SymPath;
         insert_ty_expr, ty_expr, ty_expr_mut, try_ty_expr, try_ty_expr_mut, ty_exprs, TyExpr;
         insert_type_arg, type_arg, type_arg_mut, try_type_arg, try_type_arg_mut, type_args, TypeArg;
         insert_use_stmt, use_stmt, use_stmt_mut, try_use_stmt, try_use_stmt_mut, use_stmts, UseStmt;
-        insert_use_path, use_path, use_path_mut, try_use_path, try_use_path_mut, use_paths, UsePath;
-        insert_use_path_term_ident, use_path_term_ident, use_path_term_ident_mut, try_use_path_term_ident, try_use_path_term_ident_mut, use_path_term_idents, UsePathTermIdent;
-        insert_use_path_term_star, use_path_term_star, use_path_term_star_mut, try_use_path_term_star, try_use_path_term_star_mut, use_path_term_stars, UsePathTermStar;
         insert_while, while_, while_mut, try_while, try_while_mut, whiles, While;
     }
 }
@@ -521,14 +572,47 @@ pub struct Array {
 }
 
 #[derive(Debug)]
-pub struct UsePathTermIdent {
+pub struct Path {
+    pub anchor: Option<S<PathAnchor>>,
+    pub segment: NodeId, // PathSegment
+}
+
+/// `use foo::bar`;
+/// `use super::foo::{bar::baz::*, doh::{*}, self}`;
+/// `path::to::Trait<X, Y<Z>>`
+/// `Enum::Variant`
+/// `super::super::path::to::func(42)`
+#[derive(Debug)]
+pub struct PathSegment {
+    /// ```
+    /// path::to::{self, io, another::path:to:*}
+    /// ^^^^  ^^             ^^^^^^^^^^^^^^^^
+    /// ```
+    pub prefix: Vec<PathItem>,
+
+    /// Either `PathSegment`, `PathEndIdent`, or `NodeKind::PathEndStar`
+    /// ```
+    /// path::to::{self, io, another::path:to::*}
+    ///            ^^^^  ^^  ^                 ^
+    /// ```
+    pub suffix: Vec<NodeId>,
+}
+
+#[derive(Debug)]
+pub struct PathItem {
     pub ident: S<Ident>,
+    pub ty_args: Vec<NodeId>, // TyExpr
+}
+
+#[derive(Debug)]
+pub struct PathEndIdent {
+    pub item: PathItem,
     pub renamed_as: Option<S<Ident>>,
 }
 
-// TODO remove this: it's useless but needed for the ast_node_ops! macro
+// TODO remove this: it's redundant but needed for the ast_node_ops! macro to work
 #[derive(Debug)]
-pub struct UsePathTermStar {}
+pub struct PathEndStar {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum PathAnchor {
@@ -537,55 +621,6 @@ pub enum PathAnchor {
     Super {
         count: u32,
     },
-}
-
-// use foo::bar;
-// use super::foo::{bar::baz::*, doh::{*}, self};
-#[derive(Debug)]
-pub struct UsePath {
-    /// ```
-    /// path::to::{self, io, another::path:to:*}
-    /// ^^^^  ^^             ^^^^^^^^^^^^^^^^
-    /// ```
-    pub prefix: Vec<S<Ident>>,
-
-    /// Path terminators. Either `UsePathTermIdent`, `UsePath` or `NodeKind::UsePathTermStar`
-    /// ```
-    /// path::to::{self, io, another::path:to::*}
-    ///            ^^^^  ^^                    ^
-    /// ```
-    /// Never empty.
-    pub terms: Vec<NodeId>,
-}
-
-/// Path to symbol.
-/// `path::to::Trait<X, Y<Z>>`
-/// `Enum::Variant`
-/// `super::super::path::to::func(42)`
-#[derive(Debug)]
-pub struct SymPath {
-    pub anchor: Option<S<PathAnchor>>,
-
-    /// Never empty.
-    pub items: Vec<PathItem>,
-}
-
-impl SymPath {
-    pub fn from_ident(ident: S<Ident>) -> Self {
-        Self {
-            anchor: None,
-            items: vec![PathItem {
-                ident,
-                ty_args: Vec::new(),
-            }],
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct PathItem {
-    pub ident: S<Ident>,
-    pub ty_args: Vec<NodeId>, // TyExpr
 }
 
 #[derive(Debug, EnumAsInner)]
@@ -662,13 +697,6 @@ pub struct StructDecl {
 #[derive(Debug)]
 pub struct UseStmt {
     pub vis: Option<S<Vis>>,
-    pub path: S<AnchoredPath>,
-}
-
-#[derive(Debug)]
-pub struct AnchoredPath {
-    pub anchor: Option<PathAnchor>,
-    /// `UsePath`
     pub path: NodeId,
 }
 

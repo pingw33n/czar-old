@@ -14,14 +14,13 @@ pub enum NodeLinkKind {
     LoopBlock,
     ModuleItem,
     Op(OpLink),
+    Path(PathLink),
     Range(RangeLink),
     Root,
     StructDecl(StructDeclLink),
     StructTypeFieldType,
     StructValueValue,
-    SymPathTypeArg,
     TyExpr(TyExprLink),
-    UsePath(UsePathLink),
     UseStmtPath,
     Let(LetLink),
     While(WhileLink),
@@ -110,9 +109,11 @@ pub enum WhileLink {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum UsePathLink {
-    Term,
-    PathTerm,
+pub enum PathLink {
+    Segment,
+    SegmentSuffix,
+    SegmentItemTyArgs,
+    EndIdentTyArgs,
 }
 
 #[derive(Clone, Copy)]
@@ -300,12 +301,29 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
                     self.traverse0(value, NodeLinkKind::StructValueValue);
                 }
             },
-            NodeKind::SymPath => {
-                let SymPath { items, .. } = self.ast.sym_path(node);
-                for PathItem{ ty_args, .. } in items {
-                    for &ty_arg in ty_args {
-                        self.traverse0(ty_arg, NodeLinkKind::SymPathTypeArg);
+            NodeKind::Path => {
+                let &Path { anchor: _, segment } = self.ast.path(node);
+                self.traverse0(segment, NodeLinkKind::Path(PathLink::Segment));
+            },
+            NodeKind::PathEndIdent => {
+                let PathEndIdent {
+                    item: PathItem { ident: _, ty_args },
+                    renamed_as: _,
+                } = self.ast.path_end_ident(node);
+                for &node in ty_args {
+                    self.traverse0(node, NodeLinkKind::Path(PathLink::EndIdentTyArgs));
+                }
+            },
+            NodeKind::PathEndStar => {},
+            NodeKind::PathSegment => {
+                let PathSegment { prefix, suffix } = self.ast.path_segment(node);
+                for PathItem { ident: _, ty_args } in prefix {
+                    for &node in ty_args {
+                        self.traverse0(node, NodeLinkKind::Path(PathLink::SegmentItemTyArgs));
                     }
+                }
+                for &node in suffix {
+                    self.traverse0(node, NodeLinkKind::Path(PathLink::SegmentSuffix));
                 }
             },
             NodeKind::TyExpr => {
@@ -323,22 +341,9 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
                 }
             },
             NodeKind::TypeArg => {},
-            NodeKind::UsePath => {
-                let UsePath { terms, .. } = self.ast.use_path(node);
-                for &term in terms {
-                    let link = if self.ast.node_kind(term).value == NodeKind::UsePath {
-                        UsePathLink::PathTerm
-                    } else {
-                        UsePathLink::Term
-                    };
-                    self.traverse0(term, NodeLinkKind::UsePath(link));
-                }
-            },
-            NodeKind::UsePathTermIdent => {}
-            NodeKind::UsePathTermStar => {}
             NodeKind::UseStmt => {
                 let UseStmt { path , ..} = self.ast.use_stmt(node);
-                self.traverse0(path.value.path, NodeLinkKind::UseStmtPath);
+                self.traverse0(*path, NodeLinkKind::UseStmtPath);
             },
             NodeKind::While => {
                 let &While { cond, block, .. } = self.ast.while_(node);

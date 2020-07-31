@@ -35,7 +35,7 @@ impl From<PErrorKind> for PError {
 pub type PResult<T> = Result<T, PError>;
 
 pub trait Fs {
-    fn read_file(&mut self, path: &Path) -> io::Result<String>;
+    fn read_file(&mut self, path: &StdPath) -> io::Result<String>;
 }
 
 #[derive(Clone, Copy)]
@@ -126,7 +126,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn read_file(fs: &mut dyn Fs, path: &Path) -> PResult<String> {
+    fn read_file(fs: &mut dyn Fs, path: &StdPath) -> PResult<String> {
         fs.read_file(path).map_err(|e| PErrorKind::Io(e).into())
     }
 
@@ -267,15 +267,21 @@ impl<'a> Parser<'a> {
     fn use_stmt(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
         let start = self.expect(Token::Keyword(Keyword::Use))?.span.start;
         let anchor = self.maybe_path_anchor()?;
-        let path = self.use_path()?;
-        let end = self.expect(Token::Semi)?.span.end;
-        Ok(self.ast.insert_use_stmt(Span::new(start, end).spanned(UseStmt {
-            vis,
-            path: Span::new(start, end).spanned(AnchoredPath {
-                anchor: anchor.map(|v| v.value),
+        let segment = self.use_path_segment()?;
+        self.expect(Token::Semi)?;
+        let segment_span = self.ast.node_kind(segment).span;
+        let path_start = anchor.map(|v| v.span.start)
+            .unwrap_or(segment_span.start);
+        let path = self.ast.insert_path(Span::new(path_start, segment_span.end).spanned(
+            Path {
+                anchor,
+                segment
+            }));
+        Ok(self.ast.insert_use_stmt(Span::new(start, segment_span.end).spanned(
+            UseStmt {
+                vis,
                 path,
-            }),
-        })))
+            })))
     }
 
     fn fatal<T>(&self, span: Span, msg: &str) -> PResult<T> {
@@ -326,13 +332,7 @@ impl<'a> Parser<'a> {
                         return self.fatal(tok.span, &format!("expected `self`, found `{:?}`", tok.value));
                     }
                     if let Some(self_) = self_ {
-                        let ty = self.ast.insert_sym_path(self_.with_value(SymPath {
-                            anchor: None,
-                            items: vec![PathItem {
-                                ident: self_.with_value(Ident::self_upper()),
-                                ty_args: Vec::new(),
-                            }],
-                        }));
+                        let ty = self.ast.insert_path_from_ident(self_.with_value(Ident::self_upper()));
                         let mut ty = self.ast.insert_ty_expr(
                             Span::new(mut_.map(|v| v.span.start).unwrap_or(self_.span.start), self_.span.end).spanned(TyExpr {
                                 muta: mut_.map(|v| v.with_value(())),
@@ -642,16 +642,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let start = anchor.map(|v| v.span.start)
-            .unwrap_or(items[0].ident.span.start);
-        let last = items.last().unwrap();
-        let end = last.ty_args.last()
-            .map(|&v| self.ast.node_kind(v).span.end)
-            .unwrap_or(last.ident.span.end);
-        Ok(Some(self.ast.insert_sym_path(Span::new(start, end).spanned(SymPath {
-            anchor,
-            items,
-        }))))
+        Ok(Some(self.ast.insert_path_from_items(anchor, items)))
     }
 
     fn maybe_as_ident(&mut self) -> PResult<Option<S<Ident>>> {
@@ -662,38 +653,41 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn path_term_ident_inner(&mut self, ident: S<Ident>) -> PResult<NodeId> {
+    fn path_end_ident_inner(&mut self, ident: S<Ident>) -> PResult<NodeId> {
         let renamed_as = self.maybe_as_ident()?;
         let end = renamed_as.as_ref().map(|v| v.span.end)
             .unwrap_or(ident.span.end);
-        Ok(self.ast.insert_use_path_term_ident(Span::new(ident.span.start, end).spanned(
-            UsePathTermIdent {
-                ident,
+        Ok(self.ast.insert_path_end_ident(Span::new(ident.span.start, end).spanned(
+            PathEndIdent {
+                item: PathItem {
+                    ident,
+                    ty_args: Vec::new(),
+                },
                 renamed_as,
             })))
     }
 
-    fn path_terms(&mut self) -> PResult<S<Vec<NodeId>>> {
-        let mut terms = Vec::new();
+    fn path_suffix(&mut self) -> PResult<S<Vec<NodeId>>> {
+        let mut suffix = Vec::new();
         let list = self.lex.maybe(Token::BlockOpen(lex::Block::Brace));
         let end = loop {
             let tok = self.lex.nth(0);
-            let term = match tok.value {
+            let item = match tok.value {
                 Token::Keyword(Keyword::SelfLower) if list.is_some() => {
                     self.lex.consume();
-                    self.path_term_ident_inner(tok.span.spanned(Ident::self_lower()))?
+                    self.path_end_ident_inner(tok.span.spanned(Ident::self_lower()))?
                 }
                 Token::Star => {
                     self.lex.consume();
-                    self.ast.insert_use_path_term_star(tok.span.spanned(UsePathTermStar {}))
+                    self.ast.insert_path_end_star(tok.span.spanned(PathEndStar {}))
                 }
                 Token::Ident => {
                     // Is this a leaf?
                     if list.is_none() || self.lex.nth(1).value != Token::ColonColon {
                         let ident = self.ident()?;
-                        self.path_term_ident_inner(ident)?
+                        self.path_end_ident_inner(ident)?
                     } else {
-                        self.use_path()?
+                        self.use_path_segment()?
                     }
                 }
                 Token::BlockClose(lex::Block::Brace) => {
@@ -704,7 +698,7 @@ impl<'a> Parser<'a> {
                     return self.fatal(tok.span, &format!("unexpected {:?}", tok.value));
                 }
             };
-            terms.push(term);
+            suffix.push(item);
             if list.is_none() {
                 break None;
             }
@@ -716,32 +710,35 @@ impl<'a> Parser<'a> {
             }
         };
         let start = list.map(|v| v.span.start)
-            .unwrap_or_else(|| self.ast.node_kind(*terms.first().unwrap()).span.start);
-        let end = end.unwrap_or_else(|| self.ast.node_kind(*terms.last().unwrap()).span.end);
-        Ok(Span::new(start, end).spanned(terms))
+            .unwrap_or_else(|| self.ast.node_kind(*suffix.first().unwrap()).span.start);
+        let end = end.unwrap_or_else(|| self.ast.node_kind(*suffix.last().unwrap()).span.end);
+        Ok(Span::new(start, end).spanned(suffix))
     }
 
-    fn use_path(&mut self) -> PResult<NodeId> {
+    fn use_path_segment(&mut self) -> PResult<NodeId> {
         #[derive(Clone, Copy, Debug)]
         enum State {
             Done,
-            IdentOrTerm,
+            IdentOrSuffix,
             SepOrEnd,
         }
 
-        let mut state = State::IdentOrTerm;
+        let mut state = State::IdentOrSuffix;
 
         let mut prefix = Vec::new();
 
         loop {
             match state {
-                State::IdentOrTerm => {
+                State::IdentOrSuffix => {
                     if (self.lex.nth(0).value, self.lex.nth(1).value) == (Token::Ident, Token::ColonColon) {
                         let ident = self.ident()?;
-                        prefix.push(ident);
+                        prefix.push(PathItem {
+                            ident,
+                            ty_args: Vec::new(),
+                        });
                         state = State::SepOrEnd;
                     } else {
-                        // This is a leaf, go parse terms.
+                        // This is a leaf, go parse suffix.
                         state = State::Done;
                     }
                 }
@@ -749,7 +746,7 @@ impl<'a> Parser<'a> {
                     let tok = self.lex.next();
                     match tok.value {
                         Token::ColonColon => {
-                            state = State::IdentOrTerm;
+                            state = State::IdentOrSuffix;
                         }
                         Token::Semi => {
                             state = State::Done;
@@ -764,13 +761,14 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let terms = self.path_terms()?;
-        let span_start = prefix.first().map(|v| v.span.start)
-            .unwrap_or(terms.span.start);
-        Ok(self.ast.insert_use_path(Span::new(span_start, terms.span.end).spanned(UsePath {
-            prefix,
-            terms: terms.value,
-        })))
+        let suffix = self.path_suffix()?;
+        let span_start = prefix.first().map(|v| v.ident.span.start)
+            .unwrap_or(suffix.span.start);
+        Ok(self.ast.insert_path_segment(Span::new(span_start, suffix.span.end).spanned(
+            PathSegment {
+                prefix,
+                suffix: suffix.value,
+            })))
     }
 
     fn path_ty_args(&mut self) -> PResult<Vec<NodeId>> {
@@ -1146,7 +1144,7 @@ impl<'a> Parser<'a> {
                 // Named struct value.
                 Token::BlockOpen(lex::Block::Brace)
                     if state.parse_struct_value
-                        && self.ast.node_kind(left).value == NodeKind::SymPath
+                        && self.ast.node_kind(left).value == NodeKind::Path
                 => {
                     NAMED_STRUCT_VALUE_PREC
                 }
@@ -1268,7 +1266,7 @@ impl<'a> Parser<'a> {
                 match tok.value {
                     // Named struct value.
                     Token::BlockOpen(lex::Block::Brace)
-                        if self.ast.node_kind(left).value == NodeKind::SymPath =>
+                        if self.ast.node_kind(left).value == NodeKind::Path =>
                     {
                         self.block_or_struct(Some(left), self.ast.node_kind(left).span.start)?
                     }
@@ -1340,8 +1338,7 @@ impl<'a> Parser<'a> {
             Token::Ident => {
                 let ident = self.ident()?;
                 if self.lex.maybe(Token::BlockOpen(lex::Block::Paren)).is_some() {
-                    let callee = self.ast.insert_sym_path(
-                        ident.span.spanned(SymPath::from_ident(ident)));
+                    let callee = self.ast.insert_path_from_ident(ident);
                     return self.fn_call(callee, Some(receiver));
                 }
                 ident.map(Field::Ident)
@@ -1728,7 +1725,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn parse_file_with(path: impl AsRef<Path>, fs: &mut dyn Fs) -> PResult<Ast> {
+pub fn parse_file_with(path: impl AsRef<StdPath>, fs: &mut dyn Fs) -> PResult<Ast> {
     let path = path.as_ref().to_path_buf();
     let mut ast = Ast::new();
     let content = Parser::read_file(fs, &path)?;
@@ -1740,10 +1737,10 @@ pub fn parse_file_with(path: impl AsRef<Path>, fs: &mut dyn Fs) -> PResult<Ast> 
     Ok(ast)
 }
 
-pub fn parse_file(path: impl AsRef<Path>) -> PResult<Ast> {
+pub fn parse_file(path: impl AsRef<StdPath>) -> PResult<Ast> {
     struct StdFs;
     impl Fs for StdFs {
-        fn read_file(&mut self, path: &Path) -> io::Result<String> {
+        fn read_file(&mut self, path: &StdPath) -> io::Result<String> {
             std::fs::read_to_string(path)
         }
     }
@@ -1753,7 +1750,7 @@ pub fn parse_file(path: impl AsRef<Path>) -> PResult<Ast> {
 pub fn parse_str(s: &str) -> PResult<Ast> {
     struct NotFoundFs;
     impl Fs for NotFoundFs {
-        fn read_file(&mut self, _path: &Path) -> io::Result<String> {
+        fn read_file(&mut self, _path: &StdPath) -> io::Result<String> {
             Err(io::Error::new(io::ErrorKind::NotFound, "not found"))
         }
     }
