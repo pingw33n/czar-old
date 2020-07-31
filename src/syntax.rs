@@ -57,6 +57,8 @@ pub enum NodeKind {
     TyExpr,
     TypeArg,
     UsePath,
+    UsePathTermIdent,
+    UsePathTermStar,
     UseStmt,
     While,
 }
@@ -90,6 +92,8 @@ impl NodeKind {
             | Self::TypeArg
             | Self::UseStmt
             | Self::UsePath
+            | Self::UsePathTermIdent
+            | Self::UsePathTermStar
             | Self::Let
             | Self::LetDecl
             | Self::StructValue
@@ -108,7 +112,7 @@ pub struct Source {
     pub path: PathBuf,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Ast {
     nodes: Slab<S<NodeKind>>,
     blocks: NodeMap<Block>,
@@ -136,6 +140,8 @@ pub struct Ast {
     type_args: NodeMap<TypeArg>,
     use_stmts: NodeMap<UseStmt>,
     use_paths: NodeMap<UsePath>,
+    use_path_term_idents: NodeMap<UsePathTermIdent>,
+    use_path_term_stars: NodeMap<UsePathTermStar>,
     whiles: NodeMap<While>,
 
     sources: Slab<Source>,
@@ -173,37 +179,7 @@ macro_rules! ast_node_ops {
 
 impl Ast {
     pub fn new() -> Self {
-        Self {
-            nodes: Default::default(),
-            blocks: Default::default(),
-            block_flow_ctls: Default::default(),
-            casts: Default::default(),
-            field_accesses: Default::default(),
-            fns: Default::default(),
-            fn_decls: Default::default(),
-            fn_decl_args: Default::default(),
-            fn_calls: Default::default(),
-            if_exprs: Default::default(),
-            impls: Default::default(),
-            lets: Default::default(),
-            let_decls: Default::default(),
-            literals: Default::default(),
-            loops: Default::default(),
-            module_decls: Default::default(),
-            ops: Default::default(),
-            ranges: Default::default(),
-            struct_decls: Default::default(),
-            struct_types: Default::default(),
-            struct_values: Default::default(),
-            sym_paths: Default::default(),
-            ty_exprs: Default::default(),
-            type_args: Default::default(),
-            use_stmts: Default::default(),
-            use_paths: Default::default(),
-            whiles: Default::default(),
-            sources: Default::default(),
-            root: NodeId::null(),
-        }
+        Self::default()
     }
 
     pub fn source(&self, id: SourceId) -> &Source {
@@ -244,6 +220,8 @@ impl Ast {
         insert_type_arg, type_arg, type_arg_mut, try_type_arg, try_type_arg_mut, type_args, TypeArg;
         insert_use_stmt, use_stmt, use_stmt_mut, try_use_stmt, try_use_stmt_mut, use_stmts, UseStmt;
         insert_use_path, use_path, use_path_mut, try_use_path, try_use_path_mut, use_paths, UsePath;
+        insert_use_path_term_ident, use_path_term_ident, use_path_term_ident_mut, try_use_path_term_ident, try_use_path_term_ident_mut, use_path_term_idents, UsePathTermIdent;
+        insert_use_path_term_star, use_path_term_star, use_path_term_star_mut, try_use_path_term_star, try_use_path_term_star_mut, use_path_term_stars, UsePathTermStar;
         insert_while, while_, while_mut, try_while, try_while_mut, whiles, While;
     }
 }
@@ -542,19 +520,15 @@ pub struct Array {
     pub len: NodeId,
 }
 
-/// Use path terminator.
-#[derive(Debug, EnumAsInner)]
-pub enum PathTerm {
-    Ident(PathTermIdent),
-    Path(NodeId),
-    Star,
-}
-
 #[derive(Debug)]
-pub struct PathTermIdent {
+pub struct UsePathTermIdent {
     pub ident: S<Ident>,
     pub renamed_as: Option<S<Ident>>,
 }
+
+// TODO remove this: it's useless but needed for the ast_node_ops! macro
+#[derive(Debug)]
+pub struct UsePathTermStar {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum PathAnchor {
@@ -575,12 +549,13 @@ pub struct UsePath {
     /// ```
     pub prefix: Vec<S<Ident>>,
 
+    /// Path terminators. Either `UsePathTermIdent`, `UsePath` or `NodeKind::UsePathTermStar`
     /// ```
     /// path::to::{self, io, another::path:to::*}
     ///            ^^^^  ^^                    ^
     /// ```
     /// Never empty.
-    pub terms: Vec<S<PathTerm>>,
+    pub terms: Vec<NodeId>,
 }
 
 /// Path to symbol.
@@ -693,6 +668,7 @@ pub struct UseStmt {
 #[derive(Debug)]
 pub struct AnchoredPath {
     pub anchor: Option<PathAnchor>,
+    /// `UsePath`
     pub path: NodeId,
 }
 

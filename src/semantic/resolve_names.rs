@@ -72,7 +72,7 @@ impl<'a> ResolveNames<'a> {
             | StructTypeFieldType
             | SymPathTypeArg
             | TyExpr(_)
-            | UsePathPath
+            | UsePath(_)
             | UseStmtPath
             => NsKind::Type,
         };

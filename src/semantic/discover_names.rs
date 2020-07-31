@@ -200,6 +200,10 @@ impl AstScopeStack {
         match kind {
             | Fn_
             | Let
+            | UsePath
+            | UsePathTermIdent
+            | UsePathTermStar
+            | UseStmt
             => false,
 
             | Block
@@ -223,8 +227,6 @@ impl AstScopeStack {
             | SymPath
             | TyExpr
             | TypeArg
-            | UsePath
-            | UseStmt
             | While
             => true,
         }
@@ -291,27 +293,23 @@ impl AstVisitor for DiscoverNames<'_> {
                 let name = ctx.ast.struct_decl(ctx.node).name.clone();
                 self.insert(NsKind::Type, name.clone(), ctx.node);
             }
-            NodeKind::UsePath => {
-                let UsePath { terms, .. } = ctx.ast.use_path(ctx.node);
-                for term in terms {
-                    match &term.value {
-                        PathTerm::Ident(PathTermIdent { ident, renamed_as }) => {
-                            let name = renamed_as.as_ref()
-                                .unwrap_or(ident);
-                            for ns_kind in NsKind::iter() {
-                                self.insert(ns_kind, name.clone(), ctx.node);
-                            }
-                        },
-                        &PathTerm::Path(_) => {},
-                        PathTerm::Star => {
-                            for ns_kind in NsKind::iter() {
-                                self.names.scope_mut(ns_kind, self.stack.top())
-                                    .insert_wildcarded(ctx.node);
-                            }
-                        },
-                    }
+            NodeKind::UsePath => {},
+            NodeKind::UsePathTermIdent => {
+                let UsePathTermIdent {
+                    ident,
+                    renamed_as,
+                } = ctx.ast.use_path_term_ident(ctx.node);
+                let name = renamed_as.as_ref().unwrap_or(ident);
+                for ns_kind in NsKind::iter() {
+                    self.insert(ns_kind, name.clone(), ctx.node);
                 }
             },
+            NodeKind::UsePathTermStar => {
+                for ns_kind in NsKind::iter() {
+                    self.names.scope_mut(ns_kind, self.stack.top())
+                        .insert_wildcarded(ctx.node);
+                }
+            }
             NodeKind::Let => {},
             NodeKind::LetDecl => {
                 let name = ctx.ast.let_decl(ctx.node).name.clone();

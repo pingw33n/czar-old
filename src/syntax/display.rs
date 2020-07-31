@@ -534,7 +534,9 @@ impl Display<'_> {
                 self.use_path(path, p)?;
                 p.println(";")?;
             }
-            NodeKind::UsePath => unimplemented!(),
+            NodeKind::UsePath => unreachable!(),
+            NodeKind::UsePathTermIdent => unreachable!(),
+            NodeKind::UsePathTermStar => unreachable!(),
             NodeKind::While => {
                 let While { cond, block } = self.ast.while_(node);
                 p.print("while (")?;
@@ -584,18 +586,20 @@ impl Display<'_> {
         if terms.len() > 1 {
             p.indent()?;
         }
-        for term in terms.iter() {
-            match &term.value {
-                PathTerm::Ident(PathTermIdent { ident, renamed_as }) => {
+        for &term in terms.iter() {
+            match self.ast.node_kind(term).value {
+                NodeKind::UsePath => {
+                    self.use_path(term, p)?;
+                }
+                NodeKind::UsePathTermIdent => {
+                    let UsePathTermIdent { ident, renamed_as } = self.ast.use_path_term_ident(term);
                     p.print(&ident.value)?;
                     self.path_term_as(renamed_as, p)?;
                 }
-                PathTerm::Path(path) => {
-                    self.use_path(*path, p)?;
-                }
-                PathTerm::Star => {
+                NodeKind::UsePathTermStar => {
                     p.print("*")?;
                 }
+                _ => unreachable!(),
             }
             if terms.len() > 1 {
                 p.println(",")?;

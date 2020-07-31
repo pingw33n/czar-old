@@ -662,7 +662,18 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn path_terms(&mut self) -> PResult<S<Vec<S<PathTerm>>>> {
+    fn path_term_ident_inner(&mut self, ident: S<Ident>) -> PResult<NodeId> {
+        let renamed_as = self.maybe_as_ident()?;
+        let end = renamed_as.as_ref().map(|v| v.span.end)
+            .unwrap_or(ident.span.end);
+        Ok(self.ast.insert_use_path_term_ident(Span::new(ident.span.start, end).spanned(
+            UsePathTermIdent {
+                ident,
+                renamed_as,
+            })))
+    }
+
+    fn path_terms(&mut self) -> PResult<S<Vec<NodeId>>> {
         let mut terms = Vec::new();
         let list = self.lex.maybe(Token::BlockOpen(lex::Block::Brace));
         let end = loop {
@@ -670,32 +681,19 @@ impl<'a> Parser<'a> {
             let term = match tok.value {
                 Token::Keyword(Keyword::SelfLower) if list.is_some() => {
                     self.lex.consume();
-                    let renamed_as = self.maybe_as_ident()?;
-                    let end = renamed_as.as_ref().map(|v| v.span.end)
-                        .unwrap_or(tok.span.end);
-                    Span::new(tok.span.start, end).spanned(PathTerm::Ident(PathTermIdent {
-                        ident: tok.span.spanned(Ident::self_value()),
-                        renamed_as,
-                    }))
+                    self.path_term_ident_inner(tok.span.spanned(Ident::self_value()))?
                 }
                 Token::Star => {
                     self.lex.consume();
-                    tok.with_value(PathTerm::Star)
+                    self.ast.insert_use_path_term_star(tok.span.spanned(UsePathTermStar {}))
                 }
                 Token::Ident => {
                     // Is this a leaf?
                     if list.is_none() || self.lex.nth(1).value != Token::ColonColon {
                         let ident = self.ident()?;
-                        let renamed_as = self.maybe_as_ident()?;
-                        let span_end = renamed_as.as_ref().map(|v| v.span.end)
-                            .unwrap_or(tok.span.end);
-                        Span::new(tok.span.start, span_end).spanned(PathTerm::Ident(PathTermIdent {
-                            ident,
-                            renamed_as,
-                        }))
+                        self.path_term_ident_inner(ident)?
                     } else {
-                        let path = self.use_path()?;
-                        self.ast.node_kind(path).span.spanned(PathTerm::Path(path))
+                        self.use_path()?
                     }
                 }
                 Token::BlockClose(lex::Block::Brace) => {
@@ -718,8 +716,8 @@ impl<'a> Parser<'a> {
             }
         };
         let start = list.map(|v| v.span.start)
-            .unwrap_or_else(|| terms.first().unwrap().span.start);
-        let end = end.unwrap_or_else(|| terms.last().unwrap().span.end);
+            .unwrap_or_else(|| self.ast.node_kind(*terms.first().unwrap()).span.start);
+        let end = end.unwrap_or_else(|| self.ast.node_kind(*terms.last().unwrap()).span.end);
         Ok(Span::new(start, end).spanned(terms))
     }
 

@@ -21,7 +21,7 @@ pub enum NodeLinkKind {
     StructValueValue,
     SymPathTypeArg,
     TyExpr(TyExprLink),
-    UsePathPath,
+    UsePath(UsePathLink),
     UseStmtPath,
     Let(LetLink),
     While(WhileLink),
@@ -107,6 +107,12 @@ pub enum LetLink {
 pub enum WhileLink {
     Cond,
     Block,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum UsePathLink {
+    Term,
+    PathTerm,
 }
 
 #[derive(Clone, Copy)]
@@ -319,14 +325,17 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
             NodeKind::TypeArg => {},
             NodeKind::UsePath => {
                 let UsePath { terms, .. } = self.ast.use_path(node);
-                for term in terms {
-                    match &term.value {
-                        PathTerm::Ident(..) => {},
-                        &PathTerm::Path(n) => self.traverse0(n, NodeLinkKind::UsePathPath),
-                        PathTerm::Star => {},
-                    }
+                for &term in terms {
+                    let link = if self.ast.node_kind(term).value == NodeKind::UsePath {
+                        UsePathLink::PathTerm
+                    } else {
+                        UsePathLink::Term
+                    };
+                    self.traverse0(term, NodeLinkKind::UsePath(link));
                 }
             },
+            NodeKind::UsePathTermIdent => {}
+            NodeKind::UsePathTermStar => {}
             NodeKind::UseStmt => {
                 let UseStmt { path , ..} = self.ast.use_stmt(node);
                 self.traverse0(path.value.path, NodeLinkKind::UseStmtPath);
