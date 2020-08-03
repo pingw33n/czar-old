@@ -13,7 +13,7 @@ mod syntax;
 mod util;
 
 fn main() {
-    let ast = &mut syntax::parse_str(r##"
+    let ast = &mut syntax::parse::parse_str(r##"
 
     mod foo {}
 

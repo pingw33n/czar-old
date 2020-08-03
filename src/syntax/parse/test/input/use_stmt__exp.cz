@@ -24,3 +24,8 @@ pub use foo::{
   },
   baz::X,
 };
+fn f() {
+  use one;
+  use foo::*;
+  let x = 0;
+}

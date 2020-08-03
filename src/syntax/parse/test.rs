@@ -8,11 +8,11 @@ fn test() {
 
     for &(name, inp, exp) in data {
         eprintln!("test: {}", name);
-        let ast = crate::syntax::parse_str(inp).unwrap();
+        let ast = crate::syntax::parse::parse_str(inp).unwrap();
         assert_eq!(ast.display().to_string(), exp.unwrap_or(inp), "{}", name);
 
         if let Some(exp) = exp {
-            let ast = crate::syntax::parse_str(exp).unwrap();
+            let ast = crate::syntax::parse::parse_str(exp).unwrap();
             assert_eq!(ast.display().to_string(), exp, "expected output doesn't parse into itself: {}", name);
         }
     }
@@ -30,13 +30,13 @@ fn mod_file_resolution() {
     "#.to_string());
     files.insert(Path::new("foo/bar/mod1/mod2.cz").to_path_buf(), "".to_string());
     struct Fs(HashMap<PathBuf, String>);
-    impl crate::syntax::Fs for Fs {
+    impl crate::syntax::parse::Fs for Fs {
         fn read_file(&mut self, path: &Path) -> io::Result<String> {
             self.0.get(path).cloned()
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not found"))
         }
     }
-    let ast = crate::syntax::parse_file_with("foo/bar/main.cz", &mut Fs(files)).unwrap();
+    let ast = crate::syntax::parse::parse_file_with("foo/bar/main.cz", &mut Fs(files)).unwrap();
     assert_eq!(ast.sources.len(), 3);
 
     let root_mod = ast.module_decl(ast.root);

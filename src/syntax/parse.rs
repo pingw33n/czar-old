@@ -877,7 +877,7 @@ impl<'a> Parser<'a> {
             }
 
             if semi.is_none() &&
-                expr.map(|v| !self.ast.node_kind(v).value.is_stmt()).unwrap_or(true)
+                expr.map(|v| !is_item(self.ast.node_kind(v).value)).unwrap_or(true)
             {
                 let tok = self.lex.nth(0);
                 return self.fatal(tok.span,
@@ -1762,4 +1762,42 @@ pub fn parse_str(s: &str) -> PResult<Ast> {
     });
     Parser::new(s, source_id, &mut NotFoundFs, &mut ast).parse()?;
     Ok(ast)
+}
+
+pub fn is_item(kind: NodeKind) -> bool {
+    use NodeKind::*;
+    match kind {
+        | Block
+        | Impl
+        | IfExpr
+        | Loop
+        | Fn_
+        | ModuleDecl
+        | StructDecl
+        | StructType
+        // `;` is the part of the `use` itself.
+        | UseStmt
+        | While
+        => true,
+
+        | BlockFlowCtl
+        | Cast
+        | FieldAccess
+        | FnCall
+        | FnDecl
+        | FnDeclArg
+        | Let
+        | LetDecl
+        | Literal
+        | Op
+        | Path
+        | PathSegment
+        | PathEndIdent
+        | PathEndStar
+        | Range
+        | TyExpr
+        | TypeArg
+        | StructValue
+        => false,
+    }
 }

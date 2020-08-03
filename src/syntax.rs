@@ -1,6 +1,6 @@
 mod display;
 mod lex;
-mod parse;
+pub mod parse;
 pub mod traverse;
 
 use enum_as_inner::EnumAsInner;
@@ -13,7 +13,6 @@ use std::path::{Path as StdPath, PathBuf};
 use lex::{Keyword, Lexer, Token};
 
 pub use lex::{FloatLiteral, FloatTypeSuffix, IntLiteral, IntTypeSuffix, S, Span, Spanned};
-pub use parse::{Fs, parse_file, parse_file_with, parse_str};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(transparent)]
@@ -61,45 +60,6 @@ pub enum NodeKind {
     TypeArg,
     UseStmt,
     While,
-}
-
-impl NodeKind {
-    /// Statements don't need ';' delimiter in blocks and modules.
-    pub fn is_stmt(self) -> bool {
-        match self {
-            | Self::Block
-            | Self::Impl
-            | Self::IfExpr
-            | Self::Loop
-            | Self::Fn_
-            | Self::ModuleDecl
-            | Self::StructDecl
-            | Self::StructType
-            | Self::While
-            => true,
-
-            | Self::BlockFlowCtl
-            | Self::Cast
-            | Self::FieldAccess
-            | Self::FnCall
-            | Self::FnDecl
-            | Self::FnDeclArg
-            | Self::Literal
-            | Self::Op
-            | Self::Path
-            | Self::PathSegment
-            | Self::PathEndIdent
-            | Self::PathEndStar
-            | Self::Range
-            | Self::TyExpr
-            | Self::TypeArg
-            | Self::UseStmt
-            | Self::Let
-            | Self::LetDecl
-            | Self::StructValue
-            => false,
-        }
-    }
 }
 
 pub type NodeMap<T> = HashMap<NodeId, T>;
