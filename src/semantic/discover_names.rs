@@ -4,7 +4,7 @@ use std::collections::hash_map::{Entry, HashMap};
 
 use crate::syntax::*;
 use crate::syntax::traverse::*;
-use crate::util::EnumExt;
+use crate::util::enums::EnumExt;
 
 pub struct Item {
     pub name: S<Ident>,
