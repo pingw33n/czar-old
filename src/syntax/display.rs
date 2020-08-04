@@ -408,6 +408,7 @@ impl Display<'_> {
             NodeKind::Path => {
                 self.path(node, p)?;
             }
+            | NodeKind::PathEndEmpty
             | NodeKind::PathEndIdent
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
@@ -577,7 +578,7 @@ impl Display<'_> {
             self.path_item(item, p)?;
             p.print("::")?;
         }
-        if suffix.len() == 0 || suffix.len() > 1 {
+        if suffix.len() > 1 {
             p.print('{')?;
         }
         if suffix.len() > 1 {
@@ -592,7 +593,7 @@ impl Display<'_> {
         if suffix.len() > 1 {
             p.unindent()?;
         }
-        if suffix.len() == 0 || suffix.len() > 1 {
+        if suffix.len() > 1 {
             p.print('}')?;
         }
         Ok(())
@@ -600,7 +601,6 @@ impl Display<'_> {
 
     fn path_suffix(&self, node: NodeId, p: &mut Printer) -> Result {
         match self.ast.node_kind(node).value {
-            NodeKind::PathSegment => self.path_segment(node, p)?,
             NodeKind::PathEndIdent => {
                 let PathEndIdent { item, renamed_as } = self.ast.path_end_ident(node);
                 self.path_item(item, p)?;
@@ -609,7 +609,9 @@ impl Display<'_> {
                     p.print_sep(&renamed_as.value)?;
                 }
             }
+            NodeKind::PathEndEmpty => p.print("{}")?,
             NodeKind::PathEndStar => p.print('*')?,
+            NodeKind::PathSegment => self.path_segment(node, p)?,
             _ => unreachable!(),
         }
         Ok(())

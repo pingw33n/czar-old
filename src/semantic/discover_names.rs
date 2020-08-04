@@ -201,6 +201,7 @@ impl AstScopeStack {
             | Fn_
             | Let
             | Path
+            | PathEndEmpty
             | PathEndIdent
             | PathEndStar
             | PathSegment
@@ -333,6 +334,7 @@ impl AstVisitor for DiscoverNames<'_> {
             | NodeKind::Loop
             | NodeKind::Op
             | NodeKind::Path
+            | NodeKind::PathEndEmpty
             | NodeKind::PathEndIdent
             | NodeKind::PathSegment
             | NodeKind::Range

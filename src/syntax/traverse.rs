@@ -305,6 +305,7 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
                 let &Path { anchor: _, segment } = self.ast.path(node);
                 self.traverse0(segment, NodeLinkKind::Path(PathLink::Segment));
             },
+            NodeKind::PathEndEmpty => {},
             NodeKind::PathEndIdent => {
                 let PathEndIdent {
                     item: PathItem { ident: _, ty_args },

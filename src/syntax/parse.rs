@@ -679,7 +679,7 @@ impl<'a> Parser<'a> {
                 }
                 Token::Star => {
                     self.lex.consume();
-                    self.ast.insert_path_end_star(tok.span.spanned(PathEndStar {}))
+                    self.ast.insert_path_end_star(tok.span)
                 }
                 Token::Ident => {
                     // Is this a leaf?
@@ -709,6 +709,9 @@ impl<'a> Parser<'a> {
                 return self.fatal(tok.span, &format!("unexpected {:?}", tok.value));
             }
         };
+        if suffix.is_empty() {
+            suffix.push(self.ast.insert_path_end_empty(Span::new(list.unwrap().span.start, end.unwrap())));
+        }
         let start = list.map(|v| v.span.start)
             .unwrap_or_else(|| self.ast.node_kind(*suffix.first().unwrap()).span.start);
         let end = end.unwrap_or_else(|| self.ast.node_kind(*suffix.last().unwrap()).span.end);
@@ -1792,6 +1795,7 @@ pub fn is_item(kind: NodeKind) -> bool {
         | Op
         | Path
         | PathSegment
+        | PathEndEmpty
         | PathEndIdent
         | PathEndStar
         | Range

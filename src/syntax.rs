@@ -49,6 +49,7 @@ pub enum NodeKind {
     ModuleDecl,
     Op,
     Path,
+    PathEndEmpty,
     PathEndIdent,
     PathEndStar,
     PathSegment,
@@ -93,7 +94,6 @@ pub struct Ast {
     ops: NodeMap<Op>,
     paths: NodeMap<Path>,
     path_end_idents: NodeMap<PathEndIdent>,
-    path_end_stars: NodeMap<PathEndStar>,
     path_segments: NodeMap<PathSegment>,
     ranges: NodeMap<Range>,
     struct_decls: NodeMap<StructDecl>,
@@ -132,6 +132,17 @@ macro_rules! ast_node_ops {
             let id = NodeId(self.nodes.insert(v.span.spanned(NodeKind::$ty)));
             self.$f.insert(id, v.value);
             id
+        }
+        )*
+    };
+    ($($insert:ident, $is:ident, $kind:ident;)*) => {
+        $(
+        pub fn $is(&self, id: NodeId) -> bool {
+            self.nodes.contains(id.0)
+        }
+
+        pub fn $insert(&mut self, span: Span) -> NodeId {
+            NodeId(self.nodes.insert(span.spanned(NodeKind::$kind)))
         }
         )*
     };
@@ -225,7 +236,6 @@ impl Ast {
         insert_path, path, path_mut, try_path, try_path_mut, paths, Path;
         insert_path_segment, path_segment, path_segment_mut, try_path_segment, try_path_segment_mut, path_segments, PathSegment;
         insert_path_end_ident, path_end_ident, path_end_ident_mut, try_path_end_ident, try_path_end_ident_mut, path_end_idents, PathEndIdent;
-        insert_path_end_star, path_end_star, path_end_star_mut, try_path_end_star, try_path_end_star_mut, path_end_stars, PathEndStar;
         insert_range, range, range_mut, try_range, try_range_mut, ranges, Range;
         insert_struct_decl, struct_decl, struct_decl_mut, try_struct_decl, try_struct_decl_mut, struct_decls, StructDecl;
         insert_struct_type, struct_type, struct_type_mut, try_struct_type, try_struct_type_mut, struct_types, StructType;
@@ -234,6 +244,10 @@ impl Ast {
         insert_type_arg, type_arg, type_arg_mut, try_type_arg, try_type_arg_mut, type_args, TypeArg;
         insert_use_stmt, use_stmt, use_stmt_mut, try_use_stmt, try_use_stmt_mut, use_stmts, UseStmt;
         insert_while, while_, while_mut, try_while, try_while_mut, whiles, While;
+    }
+    ast_node_ops! {
+        insert_path_end_star, is_path_end_star, PathEndStar;
+        insert_path_end_empty, is_path_end_empty, PathEndEmpty;
     }
 }
 
@@ -569,10 +583,6 @@ pub struct PathEndIdent {
     pub item: PathItem,
     pub renamed_as: Option<S<Ident>>,
 }
-
-// TODO remove this: it's redundant but needed for the ast_node_ops! macro to work
-#[derive(Debug)]
-pub struct PathEndStar {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum PathAnchor {
