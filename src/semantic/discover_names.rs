@@ -6,20 +6,20 @@ use crate::syntax::*;
 use crate::syntax::traverse::*;
 use crate::util::enums::EnumExt;
 
-pub struct Item {
+pub struct ScopeItem {
     pub name: S<Ident>,
     pub node: NodeId,
 }
 
 #[derive(Default)]
 pub struct Scope {
-    pub by_name: HashMap<Ident, Item>,
-    pub wildcarded: Vec<NodeId>,
+    items: HashMap<Ident, ScopeItem>,
+    wildcard_imports: Vec<NodeId>,
 }
 
 impl Scope {
     pub fn insert(&mut self, name: S<Ident>, node: NodeId) {
-        match self.by_name.entry(name.value.clone()) {
+        match self.items.entry(name.value.clone()) {
             Entry::Occupied(e) => {
                 let first = e.get().name.span;
                 let this = name.span;
@@ -27,7 +27,7 @@ impl Scope {
                     e.key(), first.start, first.end, this.start, this.end);
             },
             Entry::Vacant(e) => {
-                e.insert(Item {
+                e.insert(ScopeItem {
                     name,
                     node,
                 });
@@ -35,12 +35,24 @@ impl Scope {
         }
     }
 
-    pub fn insert_wildcarded(&mut self, node: NodeId) {
-        self.wildcarded.push(node);
+    pub fn try_get(&self, name: &str) -> Option<&ScopeItem> {
+        self.items.get(name)
+    }
+
+    pub fn get(&self, name: &str) -> &ScopeItem {
+        self.try_get(name).unwrap()
+    }
+
+    pub fn insert_wildcard_import(&mut self, node: NodeId) {
+        self.wildcard_imports.push(node);
+    }
+
+    pub fn wildcard_imports(&self) -> &[NodeId] {
+        &self.wildcard_imports
     }
 
     pub fn is_empty(&self) -> bool {
-        self.by_name.is_empty() && self.wildcarded.is_empty()
+        self.items.is_empty() && self.wildcard_imports.is_empty()
     }
 }
 
@@ -50,42 +62,74 @@ pub enum NsKind {
     Value,
 }
 
+impl NsKind {
+    pub fn other(self) -> Self {
+        match self {
+            Self::Type => Self::Value,
+            Self::Value => Self::Type,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Names {
     scopes: NodeMap<EnumMap<NsKind, Scope>>,
+    scope_to_parent: NodeMap<NodeId>,
+    node_to_scope: NodeMap<NodeId>,
+    child_to_parent: NodeMap<NodeId>,
+    node_to_module: NodeMap<NodeId>,
 }
 
 impl Names {
-    pub fn resolve(&self, stack: &ScopeStack, kind: NsKind, name: &Ident) -> Option<NodeId> {
-        for scope_id in stack.iter() {
-            if let Some(r) = self.scopes.get(&scope_id)
-                .and_then(|s| {
-                    let s = &s[kind];
-                    let r = s.by_name.get(name).map(|&Item { node, .. }| node);
-                    if !s.wildcarded.is_empty() {
-                        unimplemented!();
-                    }
-                    r
-                })
-            {
-                return Some(r);
-            }
-        }
-        None
+    pub fn scope(&self, scope: NodeId, kind: NsKind) -> &Scope {
+        self.try_scope(scope, kind).unwrap()
     }
 
-    pub fn scope(&self, kind: NsKind, node: NodeId) -> &Scope {
-        self.try_scope(kind, node).unwrap()
+    pub fn try_scope(&self, scope: NodeId, kind: NsKind) -> Option<&Scope> {
+        self.scopes.get(&scope).map(|s| &s[kind])
     }
 
-    pub fn try_scope(&self, kind: NsKind, node: NodeId) -> Option<&Scope> {
-        self.scopes.get(&node).map(|s| &s[kind])
-    }
-
-    pub fn scope_mut(&mut self, kind: NsKind, node: NodeId) -> &mut Scope {
-        &mut self.scopes.entry(node)
+    pub fn scope_mut(&mut self, scope: NodeId, kind: NsKind) -> &mut Scope {
+        &mut self.scopes.entry(scope)
             .or_insert(Default::default())
             [kind]
+    }
+
+    pub fn scope_of(&self, node: NodeId) -> NodeId {
+        self.node_to_scope[&node]
+    }
+
+    pub fn set_scope_of(&mut self, node: NodeId, scope: NodeId) {
+        assert!(self.node_to_scope.insert(node, scope).is_none());
+    }
+
+    pub fn try_parent_scope_of(&self, scope: NodeId) -> Option<NodeId> {
+        self.scope_to_parent.get(&scope).copied()
+    }
+
+    pub fn parent_of(&self, node: NodeId) -> NodeId {
+        self.child_to_parent[&node]
+    }
+
+    pub fn try_parent_of(&self, node: NodeId) -> Option<NodeId> {
+        self.child_to_parent.get(&node).copied()
+    }
+
+    fn set_parent_of(&mut self, child: NodeId, parent: NodeId) {
+        assert!(self.child_to_parent.insert(child, parent).is_none());
+    }
+
+    pub fn module_of(&self, node: NodeId) -> NodeId {
+        self.node_to_module[&node]
+    }
+
+    pub fn try_module_of(&self, node: NodeId) -> Option<NodeId> {
+        self.node_to_module.get(&node).copied()
+    }
+
+    fn set_module_of(&mut self, node: NodeId, module: NodeId) {
+        assert_ne!(node, module);
+        assert!(self.node_to_module.insert(node, module).is_none());
     }
 
     pub fn print(&mut self, ast: &Ast) {
@@ -120,12 +164,12 @@ impl Names {
                         node.value, ctx.node, node.span.start, node.span.end);
                 }
                 for kind in NsKind::iter() {
-                    if let Some(scope) = self.names.try_scope(kind, ctx.node) {
+                    if let Some(scope) = self.names.try_scope(ctx.node, kind) {
                         if !scope.is_empty() {
                             self.print_indent();
                             print!("| {:?}: ", kind);
-                            for (i, (ident, Item { node, name })) in
-                                scope.by_name.iter().enumerate()
+                            for (i, (ident, ScopeItem { node, name })) in
+                                scope.items.iter().enumerate()
                             {
                                 if i > 0 {
                                     print!(", ");
@@ -156,122 +200,54 @@ impl Names {
     }
 }
 
-pub struct ScopeStack {
-    stack: Vec<NodeId>,
-}
-
-impl ScopeStack {
-    pub fn new() -> Self {
-        Self {
-            stack: Vec::new(),
-        }
-    }
-
-    pub fn push(&mut self, node: NodeId) {
-        self.stack.push(node);
-    }
-
-    pub fn pop_until(&mut self, node: NodeId) {
-        while self.stack.pop().unwrap() != node { }
-    }
-
-    pub fn top(&self) -> NodeId {
-        *self.stack.last().unwrap()
-    }
-
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item=NodeId> + 'a {
-        self.stack.iter().copied().rev()
-    }
-}
-
-pub struct AstScopeStack {
-    stack: ScopeStack,
-}
-
-impl AstScopeStack {
-    pub fn new() -> Self {
-        Self {
-            stack: ScopeStack::new(),
-        }
-    }
-
-    fn is_scoped(kind: NodeKind) -> bool {
-        use NodeKind::*;
-        match kind {
-            | Fn_
-            | Let
-            | Path
-            | PathEndEmpty
-            | PathEndIdent
-            | PathEndStar
-            | PathSegment
-            | UseStmt
-            => false,
-
-            | Block
-            | BlockFlowCtl
-            | Cast
-            | FieldAccess
-            | FnCall
-            | FnDecl
-            | FnDeclArg
-            | IfExpr
-            | Impl
-            | LetDecl
-            | Literal
-            | Loop
-            | ModuleDecl
-            | Op
-            | Range
-            | StructDecl
-            | StructType
-            | StructValue
-            | TyExpr
-            | TypeArg
-            | While
-            => true,
-        }
-    }
-}
-
-impl AstVisitor for AstScopeStack {
-    fn before_node(&mut self, ctx: AstVisitorCtx) {
-        if Self::is_scoped(ctx.kind) {
-            self.stack.push(ctx.node);
-        }
-    }
-
-    fn after_node(&mut self, ctx: AstVisitorCtx) {
-        if Self::is_scoped(ctx.kind) && ctx.kind != NodeKind::LetDecl {
-            self.stack.pop_until(ctx.node);
-        }
-    }
-}
-
-impl std::ops::Deref for AstScopeStack {
-    type Target = ScopeStack;
-
-    fn deref(&self) -> &Self::Target {
-        &self.stack
-    }
-}
-
 struct DiscoverNames<'a> {
-    stack: AstScopeStack,
     names: &'a mut Names,
-
     /// Is in `Use` subtree?
     in_use: bool,
+    scope_stack: Vec<NodeId>,
+    node_stack: Vec<NodeId>,
+    module_stack: Vec<NodeId>,
 }
 
 impl DiscoverNames<'_> {
+    fn cur_scope(&self) -> NodeId {
+        *self.scope_stack.last().unwrap()
+    }
+
     fn insert(&mut self, ns: NsKind, name: S<Ident>, node: NodeId) {
-        self.names.scope_mut(ns, self.stack.top()).insert(name, node);
+        let scope = self.cur_scope();
+        self.names.scope_mut(scope, ns).insert(name, node);
+    }
+
+    fn insert_all_namespaces(&mut self, name: S<Ident>, node: NodeId) {
+        for ns in NsKind::iter() {
+            self.insert(ns, name.clone(), node);
+        }
+    }
+
+    fn insert_wildcard_import(&mut self, node: NodeId) {
+        let scope = self.cur_scope();
+        for ns in NsKind::iter() {
+            self.names.scope_mut(scope, ns)
+                .insert_wildcard_import(node);
+        }
     }
 }
 
 impl AstVisitor for DiscoverNames<'_> {
     fn before_node(&mut self, ctx: AstVisitorCtx) {
+        if let Some(&parent) = self.node_stack.last() {
+            self.names.set_parent_of(ctx.node, parent);
+        }
+        if let Some(&module) = self.module_stack.last() {
+            self.names.set_module_of(ctx.node, module);
+        }
+        self.node_stack.push(ctx.node);
+
+        if let Some(&scope) = self.scope_stack.last() {
+            self.names.set_scope_of(ctx.node, scope);
+        }
+
         match ctx.kind {
             NodeKind::Fn_ => {}
             NodeKind::FnDecl => {
@@ -288,6 +264,8 @@ impl AstVisitor for DiscoverNames<'_> {
                 self.insert(NsKind::Value, priv_name.clone(), ctx.node);
             },
             NodeKind::ModuleDecl => {
+                self.module_stack.push(ctx.node);
+
                 let ModuleDecl { name, .. } = &ctx.ast.module_decl(ctx.node);
                 if let Some(name) = name {
                     self.insert(NsKind::Type, name.name.clone(), ctx.node);
@@ -302,17 +280,17 @@ impl AstVisitor for DiscoverNames<'_> {
                     item: PathItem { ident, ty_args: _, .. },
                     renamed_as,
                 } = ctx.ast.path_end_ident(ctx.node);
-                let name = renamed_as.as_ref().unwrap_or(ident);
-                for ns_kind in NsKind::iter() {
-                    self.insert(ns_kind, name.clone(), ctx.node);
-                }
-            },
+                let name = if ident.value == Ident::self_lower() {
+                    let parent = self.names.parent_of(ctx.node);
+                    &ctx.ast.path_segment(parent).prefix.last().unwrap().ident
+                } else {
+                    renamed_as.as_ref().unwrap_or(ident)
+                };
+                self.insert_all_namespaces(name.clone(), ctx.node);
+            }
             NodeKind::PathEndStar => {
                 assert!(self.in_use);
-                for ns_kind in NsKind::iter() {
-                    self.names.scope_mut(ns_kind, self.stack.top())
-                        .insert_wildcarded(ctx.node);
-                }
+                self.insert_wildcard_import(ctx.node);
             }
             NodeKind::Let => {},
             NodeKind::LetDecl => {
@@ -321,7 +299,7 @@ impl AstVisitor for DiscoverNames<'_> {
             },
             NodeKind::UseStmt => {
                 assert!(!self.in_use);
-                self.in_use = false;
+                self.in_use = true;
             }
             | NodeKind::Block
             | NodeKind::BlockFlowCtl
@@ -345,11 +323,28 @@ impl AstVisitor for DiscoverNames<'_> {
             | NodeKind::While
             => {},
         }
-        self.stack.before_node(ctx);
+
+        if has_scope(ctx.kind) {
+            self.scope_stack.push(ctx.node);
+        }
     }
 
     fn after_node(&mut self, ctx: AstVisitorCtx) {
-        self.stack.after_node(ctx);
+        if has_scope(ctx.kind) {
+            loop {
+                let scope = self.scope_stack.pop().unwrap();
+                if let Some(parent) = self.scope_stack.last().copied() {
+                    self.names.scope_to_parent.insert(scope, parent);
+                }
+                if scope == ctx.node {
+                    break;
+                }
+            }
+        }
+        self.node_stack.pop().unwrap();
+        if *self.module_stack.last().unwrap() == ctx.node {
+            self.module_stack.pop().unwrap();
+        }
         if ctx.kind == NodeKind::UseStmt {
             assert!(self.in_use);
             self.in_use = false;
@@ -361,9 +356,49 @@ pub fn discover_names(names: &mut Names, ast: &Ast) {
     AstTraverser {
         ast,
         visitor: &mut DiscoverNames {
-            stack: AstScopeStack::new(),
             names,
             in_use: false,
+            scope_stack: Vec::new(),
+            node_stack: Vec::new(),
+            module_stack: Vec::new(),
         },
     }.traverse();
+}
+
+fn has_scope(kind: NodeKind) -> bool {
+    use NodeKind::*;
+    match kind {
+        | Fn_
+        | Let
+        | Path
+        | PathEndEmpty
+        | PathEndIdent
+        | PathEndStar
+        | PathSegment
+        | UseStmt
+        => false,
+
+        | Block
+        | BlockFlowCtl
+        | Cast
+        | FieldAccess
+        | FnCall
+        | FnDecl
+        | FnDeclArg
+        | IfExpr
+        | Impl
+        | LetDecl
+        | Literal
+        | Loop
+        | ModuleDecl
+        | Op
+        | Range
+        | StructDecl
+        | StructType
+        | StructValue
+        | TyExpr
+        | TypeArg
+        | While
+        => true,
+    }
 }

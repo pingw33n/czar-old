@@ -336,7 +336,7 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
                     },
                     &TyData::Ptr(n) => self.traverse0(n, NodeLinkKind::TyExpr(TyExprLink::Ptr)),
                     &TyData::Ref(n) => self.traverse0(n, NodeLinkKind::TyExpr(TyExprLink::Ref)),
-                    &TyData::SymPath(n) => self.traverse0(n, NodeLinkKind::TyExpr(TyExprLink::SymPath)),
+                    &TyData::Path(n) => self.traverse0(n, NodeLinkKind::TyExpr(TyExprLink::SymPath)),
                     &TyData::Struct(n)  => self.traverse0(n, NodeLinkKind::TyExpr(TyExprLink::Struct)),
                     &TyData::Slice(Slice { ty: n, .. }) => self.traverse0(n, NodeLinkKind::TyExpr(TyExprLink::Slice)),
                 }

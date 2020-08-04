@@ -534,7 +534,7 @@ pub enum TyData {
     Ref(NodeId),
     Slice(Slice),
     // path::to::Type
-    SymPath(NodeId),
+    Path(NodeId),
     Struct(NodeId),
 }
 

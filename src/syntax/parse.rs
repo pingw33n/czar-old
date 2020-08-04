@@ -336,7 +336,7 @@ impl<'a> Parser<'a> {
                         let mut ty = self.ast.insert_ty_expr(
                             Span::new(mut_.map(|v| v.span.start).unwrap_or(self_.span.start), self_.span.end).spanned(TyExpr {
                                 muta: mut_.map(|v| v.with_value(())),
-                                data: self_.with_value(TyData::SymPath(ty)),
+                                data: self_.with_value(TyData::Path(ty)),
                             }));
                         if let Some(ref_) = ref_ {
                             ty = self.ast.insert_ty_expr(
@@ -504,7 +504,7 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 let path = self.sym_path(true)?;
-                (self.ast.node_kind(path).span.end, TyData::SymPath(path))
+                (self.ast.node_kind(path).span.end, TyData::Path(path))
             }
         };
         let data = Span::new(tok.span.start, end).spanned(data);

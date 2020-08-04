@@ -7,13 +7,13 @@ fn f() {
   3.14159;
   12.34E-56;
   -456.;
-  nan; // sym path
-  NaN; // sym path
-  NAN; // sym path
-  inf; // sym path
-  Inf; // sym path
-  INF; // sym path
-  -inf; // sym path
+  nan; // path
+  NaN; // path
+  NAN; // path
+  inf; // path
+  Inf; // path
+  INF; // path
+  -inf; // path
   //err +inF;
   //err +INF;
   1.0;
@@ -28,11 +28,11 @@ fn f() {
   //err .13e2;
   //err -.13e-5;
   //err +nan;
-  infinity; // sym path
-  Infinity; // sym path
-  INFINITY; // sym path
+  infinity; // path
+  Infinity; // path
+  INFINITY; // path
   0.00000001e+8;
-  -infinity; // sym path
+  -infinity; // path
   //err 123.e-45;
   678.;
   0.000e+00;

@@ -502,7 +502,7 @@ impl Display<'_> {
                         }
                         p.print("]")?;
                     }
-                    &TyData::SymPath(v) => {
+                    &TyData::Path(v) => {
                         self.node(v, false, p)?;
                     }
                     &TyData::Struct(v) => {

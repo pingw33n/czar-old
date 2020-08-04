@@ -1,5 +1,4 @@
-use bit_set::BitSet;
-use enum_map::{Enum, EnumMap};
+use enum_map::Enum;
 use std::marker::PhantomData;
 use std::ops::RangeBounds;
 

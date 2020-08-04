@@ -51,7 +51,6 @@ pub enum LangType {
 
 pub type TypeId = usize;
 
-
 #[derive(Default)]
 pub struct Types {
     types: Slab<Type>,
@@ -113,7 +112,7 @@ impl TypeCheck<'_> {
             ("bool", LangType::Bool, PrimitiveType::Bool),
             ("i32", LangType::I32, PrimitiveType::I32),
         ] {
-            let node = names.scope(NsKind::Type, ast.root).by_name[n].node;
+            let node = names.scope(ast.root, NsKind::Type).get(n).node;
             let id = self.types.insert_type(Type {
                 node,
                 data: TypeData::Primitive(ty),
@@ -194,8 +193,10 @@ impl AstVisitor for TypeCheck<'_> {
             | NodeKind::FnDeclArg
             | NodeKind::TyExpr
             | NodeKind::Path
-            | NodeKind::PathSegment
+            | NodeKind::PathEndEmpty
             | NodeKind::PathEndIdent
+            | NodeKind::PathEndStar
+            | NodeKind::PathSegment
             | NodeKind::Block
             | NodeKind::IfExpr
             | NodeKind::Op
@@ -203,6 +204,7 @@ impl AstVisitor for TypeCheck<'_> {
             | NodeKind::LetDecl
             | NodeKind::FnCall
             | NodeKind::Fn_
+            | NodeKind::UseStmt
             => return,
             _ => {
                 unimplemented!("{:?}", ctx.ast.node_kind(ctx.node));
@@ -217,8 +219,11 @@ impl AstVisitor for TypeCheck<'_> {
         }
         let ty = match ctx.kind {
             NodeKind::Block => {
-                let expr = *ctx.ast.block(ctx.node).exprs.last().unwrap();
-                self.types.typing_id(expr)
+                if let Some(&expr) = ctx.ast.block(ctx.node).exprs.last() {
+                    self.types.typing_id(expr)
+                } else {
+                    self.types.lang(LangType::Unit)
+                }
             }
             NodeKind::FnCall => {
                 let FnCall {
@@ -360,10 +365,7 @@ impl AstVisitor for TypeCheck<'_> {
                 }
             }
             NodeKind::StructDecl => {
-                // let &StructDecl { ty, .. } = ctx.ast.struct_decl(ctx.node);
-                // self.types.typing_id(ty)
-                // -> Unit
-                unimplemented!()
+                self.types.lang(LangType::Unit)
             }
             NodeKind::StructType => {
                 let fields = &ctx.ast.struct_type(ctx.node).fields;
@@ -390,9 +392,7 @@ impl AstVisitor for TypeCheck<'_> {
                 self.types.typing_id(ctx.ast.path(ctx.node).segment)
             }
             NodeKind::PathEndIdent => {
-                let target = self.names.get(ctx.node).target;
-                // Ignore 'use'.
-                if ctx.ast.node_kind(target).value != NodeKind::ModuleDecl {
+                if let Some(target) = self.names.try_get(ctx.node) {
                     self.build_type(target, ctx.ast)
                 } else {
                     self.types.lang(LangType::Unit)
@@ -412,12 +412,18 @@ impl AstVisitor for TypeCheck<'_> {
                     TyData::Ptr(_) => unimplemented!(),
                     TyData::Ref(_) => unimplemented!(),
                     TyData::Slice(_) => unimplemented!(),
-                    &TyData::SymPath(node) => {
+                    &TyData::Path(node) => {
                         self.types.typing_id(node)
                     }
                     TyData::Struct(_) => unimplemented!(),
                 }
             }
+            | NodeKind::PathEndEmpty
+            | NodeKind::PathEndStar
+            | NodeKind::UseStmt
+            => {
+                self.types.lang(LangType::Unit)
+            },
             _ => unimplemented!("{:?}", ctx.ast.node_kind(ctx.node))
         };
         self.types.insert_typing(ctx.node, ty);

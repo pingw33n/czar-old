@@ -15,8 +15,6 @@ mod util;
 fn main() {
     let ast = &mut syntax::parse::parse_str(r##"
 
-    mod foo {}
-
     fn fib(_ v: i32) -> i32 {
         if v <= 1 {
             v
