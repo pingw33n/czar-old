@@ -1,14 +1,15 @@
 use enum_as_inner::EnumAsInner;
-use enum_map::EnumMap;
-use enum_map_derive::Enum;
 use slab::Slab;
+use std::collections::HashMap;
 
 use crate::hir::*;
 use crate::hir::traverse::*;
 
 use super::*;
 use super::discover::{DiscoverData, NsKind};
+use crate::package::{GlobalNodeId, PackageId, Packages};
 use super::resolve::ResolveData;
+use crate::semantic::resolve::{NsKindOption, Resolver};
 
 #[derive(Clone, Copy, Debug)]
 pub enum PrimitiveType {
@@ -19,7 +20,7 @@ pub enum PrimitiveType {
 
 #[derive(Debug)]
 pub struct Type {
-    pub node: NodeId,
+    pub node: GlobalNodeId,
     pub data: TypeData,
 }
 
@@ -43,36 +44,38 @@ pub struct StructType {
     pub fields: Vec<TypeId>,
 }
 
-#[derive(Clone, Copy, Debug, Enum)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LangType {
     Bool,
     I32,
     Unit,
 }
 
-pub type TypeId = usize;
+pub type LocalTypeId = usize;
+
+pub type TypeId = (PackageId, LocalTypeId);
 
 #[derive(Default)]
 pub struct Types {
     types: Slab<Type>,
     typings: NodeMap<TypeId>,
-    lang_types: EnumMap<LangType, Option<TypeId>>,
+    lang_types: HashMap<LangType, LocalTypeId>,
 }
 
 impl Types {
-    pub fn typing_id(&self, node: NodeId) -> TypeId {
+    pub fn type_(&self, id: LocalTypeId) -> &Type {
+        &self.types[id]
+    }
+
+    pub fn typing(&self, node: NodeId) -> TypeId {
         self.typings[&node]
     }
 
-    pub fn try_typing_id(&self, node: NodeId) -> Option<TypeId> {
+    pub fn try_typing(&self, node: NodeId) -> Option<TypeId> {
         self.typings.get(&node).copied()
     }
 
-    pub fn typing(&self, node: NodeId) -> &Type {
-        &self.types[self.typing_id(node)]
-    }
-
-    pub fn insert_type(&mut self, ty: Type) -> TypeId {
+    pub fn insert_type(&mut self, ty: Type) -> LocalTypeId {
         self.types.insert(ty)
     }
 
@@ -80,50 +83,95 @@ impl Types {
         assert!(self.typings.insert(node, ty).is_none());
     }
 
-    pub fn lang(&self, ty: LangType) -> TypeId {
-        self.lang_types[ty].unwrap()
+    pub fn lang(&self, ty: LangType) -> LocalTypeId {
+        self.lang_types[&ty]
     }
 
-    pub fn set_lang(&mut self, ty: LangType, id: TypeId) {
-        assert!(self.lang_types[ty].replace(id).is_none());
+    pub fn set_lang(&mut self, lang: LangType, ty: LocalTypeId) {
+        assert!(self.lang_types.insert(lang, ty).is_none());
     }
 }
 
 pub struct TypeCheck<'a> {
-    pub resolve: &'a ResolveData,
+    pub resolve_data: &'a ResolveData,
     pub types: &'a mut Types,
+    pub package_id: PackageId,
+    pub packages: &'a Packages,
 }
 
 impl TypeCheck<'_> {
-    pub fn build_lang_types(&mut self, discover: &DiscoverData, hir: &Hir) {
-        for &(n, lang, ty) in &[
-            ("__unit", LangType::Unit, PrimitiveType::Unit),
-            ("bool", LangType::Bool, PrimitiveType::Bool),
-            ("i32", LangType::I32, PrimitiveType::I32),
+    pub fn build_lang_types(&mut self, discover_data: &DiscoverData, hir: &Hir) {
+        let resolver = Resolver {
+            discover_data,
+            resolve_data: &Default::default(),
+            hir,
+            package_id: PackageId::std(),
+            packages: &Packages::default(),
+        };
+        for &(path, lang, ty) in &[
+            (&["Unit"][..], LangType::Unit, PrimitiveType::Unit),
+            (&["bool", "bool"][..], LangType::Bool, PrimitiveType::Bool),
+            (&["i32", "i32"][..], LangType::I32, PrimitiveType::I32),
         ] {
-            let node = discover.scope(hir.root, NsKind::Type).get(n).node;
+            let node = resolver.resolve_in_package(
+                NsKindOption::Require(NsKind::Type),
+                path);
+            assert!(node.0.is_std());
             let id = self.types.insert_type(Type {
                 node,
                 data: TypeData::Primitive(ty),
             });
-            self.types.insert_typing(node, id);
+            self.types.insert_typing(node.1, (node.0, id));
             self.types.set_lang(lang, id);
         }
     }
 
     fn build_type(&mut self, node: NodeId, hir: &Hir) -> TypeId {
-        if let Some(ty) = self.types.try_typing_id(node) {
+        if let Some(ty) = self.types.try_typing(node) {
             ty
         } else {
             hir.traverse_from(node, self);
-            self.types.typing_id(node)
+            self.types.typing(node)
+        }
+    }
+
+    fn types(&self, package_id: PackageId) -> &Types {
+        if package_id == self.package_id {
+            &self.types
+        } else {
+            &self.packages.get(package_id).types
+        }
+    }
+
+    fn lang_type(&self, ty: LangType) -> TypeId {
+        (PackageId::std(), self.types(PackageId::std()).lang(ty))
+    }
+
+    fn type_(&self, id: TypeId) -> &Type {
+        self.types(id.0).type_(id.1)
+    }
+
+    fn typing(&self, node: NodeId) -> &Type {
+        let (pkg, ty) = self.types.typing(node);
+        self.types(pkg).type_(ty)
+    }
+
+    fn insert_type(&mut self, ty: Type) -> TypeId {
+        (self.package_id, self.types.insert_type(ty))
+    }
+
+    fn hir<'a>(&'a self, this_hir: &'a Hir, package_id: PackageId) -> &'a Hir {
+        if package_id == self.package_id {
+            this_hir
+        } else {
+            &self.packages.get(package_id).hir
         }
     }
 }
 
 impl HirVisitor for TypeCheck<'_> {
     fn node(&mut self, ctx: HirVisitorCtx) {
-        if self.types.try_typing_id(ctx.node).is_some() {
+        if self.types.try_typing(ctx.node).is_some() {
             return;
         }
         let ty = match ctx.kind {
@@ -139,9 +187,9 @@ impl HirVisitor for TypeCheck<'_> {
                     .map(|n| self.build_type(n, ctx.hir))
                     .collect();
                 let result = ret_ty.map(|n| self.build_type(n, ctx.hir))
-                    .unwrap_or_else(|| self.types.lang(LangType::Unit));
-                self.types.insert_type(Type {
-                    node: ctx.node,
+                    .unwrap_or_else(|| self.lang_type(LangType::Unit));
+                self.insert_type(Type {
+                    node: (self.package_id, ctx.node),
                     data: TypeData::Fn(FnType {
                         args,
                         result,
@@ -152,19 +200,19 @@ impl HirVisitor for TypeCheck<'_> {
             }
             NodeKind::Literal => {
                 match ctx.hir.literal(ctx.node) {
-                    &Literal::Bool(_) => self.types.lang(LangType::Bool),
+                    &Literal::Bool(_) => self.lang_type(LangType::Bool),
                     &Literal::Int(IntLiteral { ty, .. }) => {
                         if let Some(ty) = ty {
                             match ty {
-                                IntTypeSuffix::I32 => self.types.lang(LangType::I32),
+                                IntTypeSuffix::I32 => self.lang_type(LangType::I32),
                                 _ => unimplemented!()
                             }
                         } else {
                             // FIXME
-                            self.types.lang(LangType::I32)
+                            self.lang_type(LangType::I32)
                         }
                     },
-                    &Literal::Unit => self.types.lang(LangType::Unit),
+                    &Literal::Unit => self.lang_type(LangType::Unit),
                     _ => unimplemented!()
                 }
             }
@@ -196,15 +244,15 @@ impl HirVisitor for TypeCheck<'_> {
     }
 
     fn after_node(&mut self, ctx: HirVisitorCtx) {
-        if self.types.try_typing_id(ctx.node).is_some() {
+        if self.types.try_typing(ctx.node).is_some() {
             return;
         }
         let ty = match ctx.kind {
             NodeKind::Block => {
                 if let Some(&expr) = ctx.hir.block(ctx.node).exprs.last() {
-                    self.types.typing_id(expr)
+                    self.types.typing(expr)
                 } else {
-                    self.types.lang(LangType::Unit)
+                    self.lang_type(LangType::Unit)
                 }
             }
             NodeKind::FnCall => {
@@ -213,7 +261,7 @@ impl HirVisitor for TypeCheck<'_> {
                     kind,
                     args: actual_args,
                     .. } = ctx.hir.fn_call(ctx.node);
-                let callee_ty = self.types.typing(*callee);
+                let callee_ty = self.typing(*callee);
                 if *kind != FnCallKind::Free {
                     unimplemented!();
                 }
@@ -224,13 +272,13 @@ impl HirVisitor for TypeCheck<'_> {
                     panic!("[{}:{}] expected function", span.start, span.end);
                 };
 
-                let formal_args = &ctx.hir.fn_decl(callee_ty.node).args;
+                let formal_args = &self.hir(ctx.hir, callee_ty.node.0).fn_decl(callee_ty.node.1).args;
                 assert_eq!(actual_args.len(), formal_args.len());
                 for (actual, formal) in actual_args
                     .iter()
                     .zip(formal_args.iter())
                 {
-                    if self.types.typing_id(actual.value) != self.types.typing_id(*formal) {
+                    if self.types.typing(actual.value) != self.types.typing(*formal) {
                         dbg!(self.types.typing(actual.value), self.types.typing(*formal));
                         dbg!(ctx.hir.node_kind(actual.value), ctx.hir.node_kind(*formal));
                         fatal(ctx.hir.node_kind(actual.value).span, "`fn`: incompatible actual and formal arg types");
@@ -246,33 +294,33 @@ impl HirVisitor for TypeCheck<'_> {
                     body,
                     .. } = ctx.hir.fn_decl(decl);
                 let formal_ret_ty = ret_ty
-                    .map(|n| self.types.typing_id(n))
-                    .unwrap_or(self.types.lang(LangType::Unit));
+                    .map(|n| self.types.typing(n))
+                    .unwrap_or(self.lang_type(LangType::Unit));
                 if let Some(body) = *body {
-                    let actual_ret_ty = self.types.typing_id(body);
+                    let actual_ret_ty = self.types.typing(body);
                     if actual_ret_ty != formal_ret_ty {
                         let span = ctx.hir.node_kind(ctx.node).span;
                         panic!("[{}:{}] `fn` actual and format return types are incompatible",
                             span.start, span.end);
                     }
                 }
-                self.types.lang(LangType::Unit)
+                self.lang_type(LangType::Unit)
             }
             NodeKind::FnDecl => {
                 unreachable!()
             }
             NodeKind::FnDeclArg => {
-                self.types.typing_id(ctx.hir.fn_decl_arg(ctx.node).ty)
+                self.types.typing(ctx.hir.fn_decl_arg(ctx.node).ty)
             }
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
-                if !matches!(self.types.typing(cond).data, TypeData::Primitive(PrimitiveType::Bool)) {
+                if !matches!(self.typing(cond).data, TypeData::Primitive(PrimitiveType::Bool)) {
                     let span = ctx.hir.node_kind(cond).span;
                     panic!("[{}:{}] expected bool expr", span.start, span.end);
                 }
-                let if_true_ty = self.types.typing_id(if_true);
+                let if_true_ty = self.types.typing(if_true);
                 if let Some(if_false) = if_false {
-                    if self.types.typing_id(if_false) != if_true_ty {
+                    if self.types.typing(if_false) != if_true_ty {
                         let span = ctx.hir.node_kind(cond).span;
                         panic!("[{}:{}] `if` arms have incompatible types", span.start, span.end);
                     }
@@ -280,40 +328,39 @@ impl HirVisitor for TypeCheck<'_> {
                 if_true_ty
             }
             NodeKind::Let => {
-                self.types.lang(LangType::Bool)
+                self.lang_type(LangType::Bool)
             }
             NodeKind::LetDecl => {
                 let ty = ctx.hir.let_decl(ctx.node).ty.expect("unimplemented");
                 self.build_type(ty, ctx.hir)
             }
             NodeKind::Module => {
-                self.types.lang(LangType::Unit)
+                self.lang_type(LangType::Unit)
             }
             NodeKind::Op => {
                 match ctx.hir.op(ctx.node) {
                     &Op::Binary(BinaryOp { kind, left, right }) => {
-                        let left_ty = self.types.typing_id(left);
-                        let right_ty = self.types.typing_id(right);
+                        let left_ty = self.types.typing(left);
+                        let right_ty = self.types.typing(right);
                         match kind.value {
                             BinaryOpKind::LtEq => {
                                 {
-                                    let left_ty = &self.types.types[left_ty];
-                                    let right_ty = &self.types.types[right_ty];
+                                    let left_ty = &self.type_(left_ty);
+                                    let right_ty = &self.type_(right_ty);
                                     if !matches!(left_ty.data, TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data, TypeData::Primitive(PrimitiveType::I32))
                                     {
                                         let op_span = ctx.hir.node_kind(ctx.node).span;
-                                        panic!("operation `<=` at [{}:{}] is not defined for {:?} and {:?}",
-                                            op_span.start, op_span.end,
-                                            left_ty, right_ty);
+                                        fatal(op_span, format_args!("operation `<=` at is not defined for {:?} and {:?}",
+                                            left_ty, right_ty));
                                     }
                                 }
-                                self.types.lang(LangType::Bool)
+                                self.lang_type(LangType::Bool)
                             },
                             BinaryOpKind::Add => {
                                 {
-                                    let left_ty = &self.types.types[left_ty];
-                                    let right_ty = &self.types.types[right_ty];
+                                    let left_ty = &self.type_(left_ty);
+                                    let right_ty = &self.type_(right_ty);
                                     if !matches!(left_ty.data, TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data, TypeData::Primitive(PrimitiveType::I32))
                                     {
@@ -327,8 +374,8 @@ impl HirVisitor for TypeCheck<'_> {
                             }
                             BinaryOpKind::Sub => {
                                 {
-                                    let left_ty = &self.types.types[left_ty];
-                                    let right_ty = &self.types.types[right_ty];
+                                    let left_ty = &self.type_(left_ty);
+                                    let right_ty = &self.type_(right_ty);
                                     if !matches!(left_ty.data, TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data, TypeData::Primitive(PrimitiveType::I32))
                                     {
@@ -347,7 +394,7 @@ impl HirVisitor for TypeCheck<'_> {
                 }
             }
             NodeKind::Struct => {
-                self.types.lang(LangType::Unit)
+                self.lang_type(LangType::Unit)
             }
             NodeKind::StructType => {
                 let fields = &ctx.hir.struct_type(ctx.node).fields;
@@ -355,8 +402,8 @@ impl HirVisitor for TypeCheck<'_> {
                     .iter()
                     .map(|f| self.build_type(f.ty, ctx.hir))
                     .collect();
-                self.types.insert_type(Type {
-                    node: ctx.node,
+                self.insert_type(Type {
+                    node: (self.package_id, ctx.node),
                     data: TypeData::Struct(StructType {
                         fields,
                     }),
@@ -368,23 +415,27 @@ impl HirVisitor for TypeCheck<'_> {
                 if name.is_some() || !fields.is_empty() {
                     unimplemented!();
                 }
-                self.types.lang(LangType::Unit)
+                self.lang_type(LangType::Unit)
             }
             NodeKind::Path => {
-                self.types.typing_id(ctx.hir.path(ctx.node).segment)
+                self.types.typing(ctx.hir.path(ctx.node).segment)
             }
             NodeKind::PathEndIdent => {
-                if let Some(target) = self.resolve.try_target_of(ctx.node) {
-                    self.build_type(target, ctx.hir)
+                if let Some((package, target)) = self.resolve_data.try_target_of(ctx.node) {
+                    if package == self.package_id {
+                        self.build_type(target, ctx.hir)
+                    } else {
+                        self.packages.get(package).types.typing(target)
+                    }
                 } else {
-                    self.types.lang(LangType::Unit)
+                    return;
                 }
             }
             NodeKind::PathSegment => {
                 if let Some(&suffix) = ctx.hir.path_segment(ctx.node).suffix.first() {
-                    self.types.typing_id(suffix)
+                    self.types.typing(suffix)
                 } else {
-                    self.types.lang(LangType::Unit)
+                    return;
                 }
             }
             NodeKind::TyExpr => {
@@ -395,7 +446,7 @@ impl HirVisitor for TypeCheck<'_> {
                     TyData::Ref(_) => unimplemented!(),
                     TyData::Slice(_) => unimplemented!(),
                     &TyData::Path(node) => {
-                        self.types.typing_id(node)
+                        self.types.typing(node)
                     }
                     TyData::Struct(_) => unimplemented!(),
                 }
@@ -404,7 +455,7 @@ impl HirVisitor for TypeCheck<'_> {
             | NodeKind::PathEndStar
             | NodeKind::UseStmt
             => {
-                self.types.lang(LangType::Unit)
+                self.lang_type(LangType::Unit)
             },
             _ => unimplemented!("{:?}", ctx.hir.node_kind(ctx.node))
         };
