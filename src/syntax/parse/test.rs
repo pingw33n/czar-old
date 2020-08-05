@@ -39,21 +39,21 @@ fn mod_file_resolution() {
     let ast = crate::syntax::parse::parse_file_with("foo/bar/main.cz", &mut Fs(files)).unwrap();
     assert_eq!(ast.sources.len(), 3);
 
-    let root_mod = ast.module_decl(ast.root);
+    let root_mod = ast.module(ast.root);
     let src = ast.source(root_mod.source_id.unwrap());
     assert_eq!(src.mod_name, None);
     assert_eq!(&src.path, &Path::new("foo/bar/main.cz"));
 
-    let mod1 = ast.module_decl(root_mod.items[0]);
+    let mod1 = ast.module(root_mod.items[0]);
     let src = ast.source(mod1.source_id.unwrap());
     assert_eq!(src.mod_name, Some("mod1".into()));
     assert_eq!(&src.path, &Path::new("foo/bar/mod1.cz"));
 
-    let mod2 = ast.module_decl(mod1.items[0]);
+    let mod2 = ast.module(mod1.items[0]);
     let src = ast.source(mod2.source_id.unwrap());
     assert_eq!(src.mod_name, Some("mod2".into()));
     assert_eq!(&src.path, &Path::new("foo/bar/mod1/mod2.cz"));
 
-    let mod3 = ast.module_decl(root_mod.items[1]);
+    let mod3 = ast.module(root_mod.items[1]);
     assert_eq!(mod3.source_id, None);
 }

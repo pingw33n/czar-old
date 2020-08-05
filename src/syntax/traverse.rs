@@ -256,8 +256,8 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
                 let &Loop { block, .. } = self.ast.loop_(node);
                 self.traverse0(block, NodeLinkKind::LoopBlock);
             },
-            NodeKind::ModuleDecl => {
-                let ModuleDecl { items, .. } = self.ast.module_decl(node);
+            NodeKind::Module => {
+                let Module { items, .. } = self.ast.module(node);
                 for &item in items {
                     self.traverse0(item, NodeLinkKind::ModuleItem);
                 }
@@ -282,8 +282,8 @@ impl<T: AstVisitor> AstTraverser<'_, T> {
                     self.traverse0(end, NodeLinkKind::Range(RangeLink::End));
                 }
             },
-            NodeKind::StructDecl => {
-                let StructDecl { ty_args, ty, .. } = self.ast.struct_decl(node);
+            NodeKind::Struct => {
+                let Struct { ty_args, ty, .. } = self.ast.struct_(node);
                 for &ty_arg in ty_args {
                     self.traverse0(ty_arg, NodeLinkKind::StructDecl(StructDeclLink::TypeArg));
                 }

@@ -169,8 +169,8 @@ impl DiscoverData {
             fn node(&mut self, ctx: AstVisitorCtx) {
                 self.print_indent();
                 let node = ctx.ast.node_kind(ctx.node);
-                if let Some(name) = ctx.ast.try_module_decl(ctx.node)
-                    .and_then(|ModuleDecl { name, .. }| name.as_ref())
+                if let Some(name) = ctx.ast.try_module(ctx.node)
+                    .and_then(|Module { name, .. }| name.as_ref())
                 {
                     println!("{:?} {:?} `{}` {}:{}",
                         node.value, ctx.node, name.name.value, node.span.start, node.span.end);
@@ -278,16 +278,16 @@ impl AstVisitor for Build<'_> {
 
                 self.insert(NsKind::Value, priv_name.clone(), ctx.node);
             },
-            NodeKind::ModuleDecl => {
+            NodeKind::Module => {
                 self.module_stack.push(ctx.node);
 
-                let ModuleDecl { name, .. } = &ctx.ast.module_decl(ctx.node);
+                let Module { name, .. } = &ctx.ast.module(ctx.node);
                 if let Some(name) = name {
                     self.insert(NsKind::Type, name.name.clone(), ctx.node);
                 }
             }
-            NodeKind::StructDecl => {
-                let name = ctx.ast.struct_decl(ctx.node).name.clone();
+            NodeKind::Struct => {
+                let name = ctx.ast.struct_(ctx.node).name.clone();
                 self.insert(NsKind::Type, name.clone(), ctx.node);
             }
             NodeKind::PathEndIdent if self.in_use => {
@@ -392,10 +392,10 @@ fn has_scope(kind: NodeKind) -> bool {
         | LetDecl
         | Literal
         | Loop
-        | ModuleDecl
+        | Module
         | Op
         | Range
-        | StructDecl
+        | Struct
         | StructType
         | StructValue
         | TyExpr

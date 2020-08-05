@@ -272,8 +272,8 @@ impl Display<'_> {
                 self.node(*block, false, p)?;
                 p.println("")?;
             }
-            NodeKind::ModuleDecl => {
-                let ModuleDecl{ source_id: _, name, items } = self.ast.module_decl(node);
+            NodeKind::Module => {
+                let Module { source_id: _, name, items } = self.ast.module(node);
                 if let Some(n) = name {
                     self.vis(&n.vis, p)?;
                     p.print_sep("mod")?;
@@ -426,8 +426,8 @@ impl Display<'_> {
                     self.expr(*end, p)?;
                 }
             }
-            NodeKind::StructDecl => {
-                let StructDecl { vis, name, ty_args, ty } = self.ast.struct_decl(node);
+            NodeKind::Struct => {
+                let Struct { vis, name, ty_args, ty } = self.ast.struct_(node);
                 self.vis(vis, p)?;
                 p.print_sep("struct ")?;
                 p.print(&name.value)?;

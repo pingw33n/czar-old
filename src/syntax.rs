@@ -46,7 +46,7 @@ pub enum NodeKind {
     LetDecl,
     Literal,
     Loop,
-    ModuleDecl,
+    Module,
     Op,
     Path,
     PathEndEmpty,
@@ -54,7 +54,7 @@ pub enum NodeKind {
     PathEndStar,
     PathSegment,
     Range,
-    StructDecl,
+    Struct,
     StructType,
     StructValue,
     TyExpr,
@@ -90,13 +90,13 @@ pub struct Ast {
     let_decls: NodeMap<LetDecl>,
     literals: NodeMap<Literal>,
     loops: NodeMap<Loop>,
-    module_decls: NodeMap<ModuleDecl>,
+    modules: NodeMap<Module>,
     ops: NodeMap<Op>,
     paths: NodeMap<Path>,
     path_end_idents: NodeMap<PathEndIdent>,
     path_segments: NodeMap<PathSegment>,
     ranges: NodeMap<Range>,
-    struct_decls: NodeMap<StructDecl>,
+    structs: NodeMap<Struct>,
     struct_types: NodeMap<StructType>,
     struct_values: NodeMap<StructValue>,
     ty_exprs: NodeMap<TyExpr>,
@@ -231,13 +231,13 @@ impl Ast {
         insert_let_decl, let_decl, let_decl_mut, try_let_decl, try_let_decl_mut, let_decls, LetDecl;
         insert_literal, literal, literal_mut, try_literal, try_literal_mut, literals, Literal;
         insert_loop, loop_, loop_mut, try_loop, try_loop_mut, loops, Loop;
-        insert_module_decl, module_decl, module_decl_mut, try_module_decl, try_module_decl_mut, module_decls, ModuleDecl;
+        insert_module, module, module_mut, try_module, try_module_mut, modules, Module;
         insert_op, op, op_mut, try_op, try_op_mut, ops, Op;
         insert_path, path, path_mut, try_path, try_path_mut, paths, Path;
         insert_path_segment, path_segment, path_segment_mut, try_path_segment, try_path_segment_mut, path_segments, PathSegment;
         insert_path_end_ident, path_end_ident, path_end_ident_mut, try_path_end_ident, try_path_end_ident_mut, path_end_idents, PathEndIdent;
         insert_range, range, range_mut, try_range, try_range_mut, ranges, Range;
-        insert_struct_decl, struct_decl, struct_decl_mut, try_struct_decl, try_struct_decl_mut, struct_decls, StructDecl;
+        insert_struct, struct_, struct_mut, try_struct, try_struct_mut, structs, Struct;
         insert_struct_type, struct_type, struct_type_mut, try_struct_type, try_struct_type_mut, struct_types, StructType;
         insert_struct_value, struct_value, struct_value_mut, try_struct_value, try_struct_value_mut, struct_values, StructValue;
         insert_ty_expr, ty_expr, ty_expr_mut, try_ty_expr, try_ty_expr_mut, ty_exprs, TyExpr;
@@ -437,7 +437,7 @@ pub type Label = String;
 /// [pub] mod mymod { ... }
 /// ```
 #[derive(Debug)]
-pub struct ModuleDecl {
+pub struct Module {
     pub source_id: Option<SourceId>,
     pub name: Option<ModuleName>,
     pub items: Vec<NodeId>,
@@ -657,7 +657,7 @@ pub struct StructValueField {
 }
 
 #[derive(Debug)]
-pub struct StructDecl {
+pub struct Struct {
     pub vis: Option<S<Vis>>,
     pub name: S<Ident>,
     pub ty_args: Vec<NodeId>,

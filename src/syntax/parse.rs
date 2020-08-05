@@ -131,7 +131,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse(mut self) -> PResult<()> {
-        let root = self.module_decl_inner(Some(self.source_id), 0, None)?;
+        let root = self.module_inner(Some(self.source_id), 0, None)?;
         self.ast.root = root;
         if self.lex.is_ok() {
             Ok(())
@@ -152,14 +152,14 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn maybe_decl_item(&mut self, top_level: bool) -> PResult<Option<NodeId>> {
+    fn maybe_item(&mut self, top_level: bool) -> PResult<Option<NodeId>> {
         let vis = self.maybe_vis();
         let tok0 = self.lex.nth(0);
         Ok(Some(match tok0.value {
             Token::Keyword(Keyword::Unsafe) => {
                 let tok1 = self.lex.nth(1);
                 match tok1.value {
-                    Token::Keyword(Keyword::Fn) => self.fn_decl(vis)?,
+                    Token::Keyword(Keyword::Fn) => self.fn_(vis)?,
                     Token::Keyword(Keyword::Static) => unimplemented!(),
                     _ => {
                         return self.fatal(tok1.span,
@@ -167,11 +167,11 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            Token::Keyword(Keyword::Fn) => self.fn_decl(vis)?,
-            Token::Keyword(Keyword::Mod) => self.module_decl(top_level, vis)?,
+            Token::Keyword(Keyword::Fn) => self.fn_(vis)?,
+            Token::Keyword(Keyword::Mod) => self.module(top_level, vis)?,
             Token::Keyword(Keyword::Static) => unimplemented!(),
             Token::Keyword(Keyword::Use) => self.use_stmt(vis)?,
-            Token::Keyword(Keyword::Struct) => self.struct_decl(vis)?,
+            Token::Keyword(Keyword::Struct) => self.struct_(vis)?,
             Token::Keyword(Keyword::Impl) => {
                 if let Some(vis) = vis {
                     return self.fatal(vis.span, "invalid visibility for impl block")
@@ -181,21 +181,21 @@ impl<'a> Parser<'a> {
             _ => {
                 if let Some(vis) = vis {
                     return self.fatal(vis.span,
-                        &format!("expected `<decl_item>` after visibility modifier, found `{:?}`", tok0.value));
+                        &format!("expected item after visibility modifier, found `{:?}`", tok0.value));
                 }
                 return Ok(None);
             }
         }))
     }
 
-    fn module_decl_inner(&mut self,
+    fn module_inner(&mut self,
         source_id: Option<SourceId>,
         start: usize,
         name: Option<ModuleName>,
     ) -> PResult<NodeId> {
         let mut items = Vec::new();
         let end = loop {
-            if let Some(item) = self.maybe_decl_item(source_id.is_some())? {
+            if let Some(item) = self.maybe_item(source_id.is_some())? {
                 items.push(item);
             } else {
                 let tok = self.lex.nth(0);
@@ -203,21 +203,19 @@ impl<'a> Parser<'a> {
                     || name.is_some() && tok.value != Token::BlockClose(lex::Block::Brace)
                 {
                     return self.fatal(tok.span,
-                        &format!("expected `decl_item`, found `{:?}`", tok.value));
+                        &format!("expected item, found `{:?}`", tok.value));
                 }
                 break tok.span.end;
             }
         };
-        Ok(self.ast.insert_module_decl(Span::new(start, end).spanned(ModuleDecl {
+        Ok(self.ast.insert_module(Span::new(start, end).spanned(Module {
             source_id,
             name,
             items,
         })))
     }
 
-    // [pub] mod foo { ... }
-    // [pub] mod foo;
-    fn module_decl(&mut self, top_level: bool, vis: Option<S<Vis>>) -> PResult<NodeId> {
+    fn module(&mut self, top_level: bool, vis: Option<S<Vis>>) -> PResult<NodeId> {
         let mod_ = self.expect(Token::Keyword(Keyword::Mod))?;
         let start = vis.as_ref().map(|v| v.span.start)
             .unwrap_or(mod_.span.start);
@@ -240,7 +238,7 @@ impl<'a> Parser<'a> {
                     }
                 } else {
                     return self.fatal(Span::new(start, end),
-                        "module file declaration can be top level only");
+                        "module file reference can be top level only");
                 }
                 path.push(source_file_name(&name.name.value));
                 let content = Self::read_file(self.fs, &path)?;
@@ -257,7 +255,7 @@ impl<'a> Parser<'a> {
             r
         } else {
             self.expect(Token::BlockOpen(lex::Block::Brace))?;
-            let r = self.module_decl_inner(None, start, Some(name))?;
+            let r = self.module_inner(None, start, Some(name))?;
             self.expect(Token::BlockClose(lex::Block::Brace))?;
             r
         })
@@ -293,7 +291,7 @@ impl<'a> Parser<'a> {
         Err(PErrorKind::Parse.into())
     }
 
-    fn fn_decl(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
+    fn fn_(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
         let unsafe_ = self.lex.maybe(Token::Keyword(Keyword::Unsafe))
             .map(|v| v.map(|_| {}));
 
@@ -847,7 +845,7 @@ impl<'a> Parser<'a> {
     fn block_inner(&mut self, start: usize) -> PResult<NodeId> {
         let mut exprs = Vec::new();
         let end = loop {
-            let expr = if let Some(v) = self.maybe_decl_item(false)? {
+            let expr = if let Some(v) = self.maybe_item(false)? {
                 Some(v)
             } else {
                 self.maybe_expr(ExprState {
@@ -1496,7 +1494,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn struct_decl(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
+    fn struct_(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
         self.expect(Token::Keyword(Keyword::Struct))?;
 
         let name = self.ident()?;
@@ -1506,7 +1504,7 @@ impl<'a> Parser<'a> {
         let start = vis.as_ref().map(|v| v.span.start)
             .unwrap_or(name.span.start);
         let end = self.ast.node_kind(ty).span.end;
-        Ok(self.ast.insert_struct_decl(Span::new(start, end).spanned(StructDecl {
+        Ok(self.ast.insert_struct(Span::new(start, end).spanned(Struct {
             vis,
             name,
             ty_args,
@@ -1538,8 +1536,8 @@ impl<'a> Parser<'a> {
         let mut items = Vec::new();
         while self.lex.nth(0).value != Token::BlockClose(lex::Block::Brace) {
             let vis = self.maybe_vis();
-            let fn_decl = self.fn_decl(vis)?;
-            items.push(fn_decl);
+            let fn_ = self.fn_(vis)?;
+            items.push(fn_);
         }
 
         let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap()
@@ -1775,8 +1773,8 @@ pub fn is_item(kind: NodeKind) -> bool {
         | IfExpr
         | Loop
         | Fn_
-        | ModuleDecl
-        | StructDecl
+        | Module
+        | Struct
         | StructType
         // `;` is the part of the `use` itself.
         | UseStmt

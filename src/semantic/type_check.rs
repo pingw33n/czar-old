@@ -90,8 +90,8 @@ impl Types {
 
     pub fn instantiate(&mut self, ty_node: NodeId, ast: &Ast) -> TypeId {
         match ast.node_kind(ty_node).value {
-            NodeKind::StructDecl => {
-                if &ast.struct_decl(ty_node).name.value == "i32" {
+            NodeKind::Struct => {
+                if &ast.struct_(ty_node).name.value == "i32" {
                     return self.lang(LangType::I32);
                 }
                 unimplemented!();
@@ -183,8 +183,8 @@ impl AstVisitor for TypeCheck<'_> {
                     _ => unimplemented!()
                 }
             }
-            | NodeKind::ModuleDecl
-            | NodeKind::StructDecl
+            | NodeKind::Module
+            | NodeKind::Struct
             | NodeKind::StructType
             | NodeKind::StructValue
             | NodeKind::FnDeclArg
@@ -301,7 +301,7 @@ impl AstVisitor for TypeCheck<'_> {
                 let ty = ctx.ast.let_decl(ctx.node).ty.expect("unimplemented");
                 self.build_type(ty, ctx.ast)
             }
-            NodeKind::ModuleDecl => {
+            NodeKind::Module => {
                 self.types.lang(LangType::Unit)
             }
             NodeKind::Op => {
@@ -361,7 +361,7 @@ impl AstVisitor for TypeCheck<'_> {
                     _ => unimplemented!(),
                 }
             }
-            NodeKind::StructDecl => {
+            NodeKind::Struct => {
                 self.types.lang(LangType::Unit)
             }
             NodeKind::StructType => {

@@ -41,13 +41,13 @@ fn main() {
                 let ty = ast.insert_struct_type(syntax::Span::new(0, 0).spanned(syntax::StructType {
                     fields: vec![],
                 }));
-                let sd = ast.insert_struct_decl(syntax::Span::new(0, 0).spanned(syntax::StructDecl {
+                let struct_ = ast.insert_struct(syntax::Span::new(0, 0).spanned(syntax::Struct {
                     name: syntax::Span::new(0, 0).spanned(name.into()),
                     vis: Some(syntax::Span::new(0, 0).spanned(syntax::Vis { restrict: None })),
                     ty_args: vec![],
                     ty,
                 }));
-                ast.module_decl_mut(ast.root).items.push(sd);
+                ast.module_mut(ast.root).items.push(struct_);
             };
             ins("__unit");
             ins("bool");
