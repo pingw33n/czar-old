@@ -115,10 +115,7 @@ impl TypeCheck<'_> {
         if let Some(ty) = self.types.try_typing_id(node) {
             ty
         } else {
-            HirTraverser {
-                hir,
-                visitor: self,
-            }.traverse_from(node);
+            hir.traverse_from(node, self);
             self.types.typing_id(node)
         }
     }

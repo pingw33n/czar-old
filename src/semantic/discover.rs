@@ -83,16 +83,13 @@ pub struct DiscoverData {
 impl DiscoverData {
     pub fn build(hir: &Hir) -> Self {
         let mut data = Self::default();
-        HirTraverser {
-            hir,
-            visitor: &mut Build {
-                data: &mut data,
-                in_use: false,
-                scope_stack: Vec::new(),
-                node_stack: Vec::new(),
-                module_stack: Vec::new(),
-            },
-        }.traverse();
+        hir.traverse(&mut Build {
+            data: &mut data,
+            in_use: false,
+            scope_stack: Vec::new(),
+            node_stack: Vec::new(),
+            module_stack: Vec::new(),
+        });
         data
     }
 
@@ -205,13 +202,10 @@ impl DiscoverData {
             }
         }
 
-        HirTraverser {
-            hir,
-            visitor: &mut Visitor {
-                data: self,
-                indent: 0,
-            },
-        }.traverse();
+        hir.traverse(&mut Visitor {
+            data: self,
+            indent: 0,
+        });
     }
 }
 

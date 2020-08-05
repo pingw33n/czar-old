@@ -1,5 +1,18 @@
 use super::*;
 
+impl Hir {
+    pub fn traverse(&self, visitor: &mut impl HirVisitor) {
+        self.traverse_from(self.root, visitor);
+    }
+
+    pub fn traverse_from(&self, node: NodeId, visitor: &mut impl HirVisitor) {
+        Traverser {
+            hir: self,
+            visitor,
+        }.traverse(node);
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum NodeLink {
     BlockExpr,
@@ -130,17 +143,13 @@ pub trait HirVisitor {
     fn after_node(&mut self, _ctx: HirVisitorCtx) {}
 }
 
-pub struct HirTraverser<'a, T> {
+struct Traverser<'a, T> {
     pub hir: &'a Hir,
     pub visitor: &'a mut T,
 }
 
-impl<T: HirVisitor> HirTraverser<'_, T> {
-    pub fn traverse(&mut self) {
-        self.traverse_from(self.hir.root);
-    }
-
-    pub fn traverse_from(&mut self, node: NodeId) {
+impl<T: HirVisitor> Traverser<'_, T> {
+    pub fn traverse(&mut self, node: NodeId) {
         self.traverse0(node, NodeLink::Root);
     }
 

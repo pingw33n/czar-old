@@ -2,7 +2,6 @@
 #![deny(non_snake_case)]
 #![deny(unused_must_use)]
 
-use crate::hir::traverse::HirTraverser;
 use crate::semantic::type_check::{Types, TypeCheck};
 use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
@@ -70,10 +69,7 @@ fn main() {
             types,
         };
         tc.build_lang_types(discover_data, hir);
-        HirTraverser {
-            hir,
-            visitor: tc,
-        }.traverse();
+        hir.traverse(tc);
     }
 
 

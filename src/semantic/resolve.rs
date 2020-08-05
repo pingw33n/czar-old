@@ -16,14 +16,11 @@ pub struct ResolveData {
 impl ResolveData {
     pub fn build(discover: &DiscoverData, hir: &Hir) -> Self {
         let mut resolve = ResolveData::default();
-        HirTraverser {
-            hir: &hir,
-            visitor: &mut Build {
-                discover,
-                resolve: &mut resolve,
-                ns_kind_stack: Vec::new(),
-            },
-        }.traverse();
+        hir.traverse(&mut Build {
+            discover,
+            resolve: &mut resolve,
+            ns_kind_stack: Vec::new(),
+        });
         resolve
     }
 
