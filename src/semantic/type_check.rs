@@ -6,8 +6,9 @@ use slab::Slab;
 use crate::syntax::*;
 use crate::syntax::traverse::*;
 
-use super::discover_names::{Names, NsKind};
-use super::resolve_names::ResolvedNames;
+use super::*;
+use super::discover::{DiscoverData, NsKind};
+use super::resolve::ResolveData;
 
 #[derive(Clone, Copy, Debug)]
 pub enum PrimitiveType {
@@ -101,18 +102,18 @@ impl Types {
 }
 
 pub struct TypeCheck<'a> {
-    pub names: &'a ResolvedNames,
+    pub resolve: &'a ResolveData,
     pub types: &'a mut Types,
 }
 
 impl TypeCheck<'_> {
-    pub fn build_lang_types(&mut self, names: &Names, ast: &Ast) {
+    pub fn build_lang_types(&mut self, discover: &DiscoverData, ast: &Ast) {
         for &(n, lang, ty) in &[
             ("__unit", LangType::Unit, PrimitiveType::Unit),
             ("bool", LangType::Bool, PrimitiveType::Bool),
             ("i32", LangType::I32, PrimitiveType::I32),
         ] {
-            let node = names.scope(ast.root, NsKind::Type).get(n).node;
+            let node = discover.scope(ast.root, NsKind::Type).get(n).node;
             let id = self.types.insert_type(Type {
                 node,
                 data: TypeData::Primitive(ty),
@@ -133,10 +134,6 @@ impl TypeCheck<'_> {
             self.types.typing_id(node)
         }
     }
-}
-
-fn fatal(span: Span, s: impl std::fmt::Display) -> ! {
-    panic!("[{}:{}] {}", span.start, span.end, s);
 }
 
 impl AstVisitor for TypeCheck<'_> {
@@ -392,7 +389,7 @@ impl AstVisitor for TypeCheck<'_> {
                 self.types.typing_id(ctx.ast.path(ctx.node).segment)
             }
             NodeKind::PathEndIdent => {
-                if let Some(target) = self.names.try_get(ctx.node) {
+                if let Some(target) = self.resolve.try_target_of(ctx.node) {
                     self.build_type(target, ctx.ast)
                 } else {
                     self.types.lang(LangType::Unit)

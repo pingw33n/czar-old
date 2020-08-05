@@ -1,5 +1,5 @@
-pub mod discover_names;
-pub mod resolve_names;
+pub mod discover;
+pub mod resolve;
 pub mod type_check;
 
 fn fatal(span: crate::syntax::Span, s: impl std::fmt::Display) -> ! {

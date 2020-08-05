@@ -4,8 +4,8 @@
 
 use crate::syntax::traverse::AstTraverser;
 use crate::semantic::type_check::{Types, TypeCheck};
-use crate::semantic::discover_names::{Names, discover_names};
-use crate::semantic::resolve_names::{ResolvedNames, ResolveNames};
+use crate::semantic::discover::DiscoverData;
+use crate::semantic::resolve::ResolveData;
 
 // mod codegen;
 mod semantic;
@@ -73,27 +73,18 @@ fn main() {
 
     eprintln!("{}", ast.display());
 
-    let names = &mut Names::default();
-    discover_names(names, ast);
+    let discover_data = &DiscoverData::build(ast);
+    discover_data.print_scopes(&ast);
 
-    names.print(&ast);
-
-    let rnames = &mut ResolvedNames::default();
-    {
-        let mut trv = AstTraverser {
-            ast: &ast,
-            visitor: &mut ResolveNames::new(names, rnames),
-        };
-        trv.traverse();
-    }
+    let resolve_data = &ResolveData::build(discover_data, ast);
 
     let types = &mut Types::default();
     {
         let tc = &mut TypeCheck {
-            names: rnames,
+            resolve: resolve_data,
             types,
         };
-        tc.build_lang_types(names, ast);
+        tc.build_lang_types(discover_data, ast);
         AstTraverser {
             ast,
             visitor: tc,

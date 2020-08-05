@@ -5,43 +5,48 @@ use crate::syntax::*;
 use crate::syntax::traverse::*;
 
 use super::*;
-use super::discover_names::{Names, NsKind};
+use super::discover::{DiscoverData, NsKind};
 
 
 #[derive(Debug, Default)]
-pub struct ResolvedNames {
-    names: NodeMap<NodeId>,
+pub struct ResolveData {
+    path_to_target: NodeMap<NodeId>,
 }
 
-impl ResolvedNames {
+impl ResolveData {
+    pub fn build(discover: &DiscoverData, ast: &Ast) -> Self {
+        let mut resolve = ResolveData::default();
+        AstTraverser {
+            ast: &ast,
+            visitor: &mut Build {
+                discover,
+                resolve: &mut resolve,
+                ns_kind_stack: Vec::new(),
+            },
+        }.traverse();
+        resolve
+    }
+
     pub fn insert(&mut self, node: NodeId, target: NodeId) {
-        assert!(self.names.insert(node, target).is_none());
+        assert!(self.path_to_target.insert(node, target).is_none());
     }
 
-    pub fn get(&self, node: NodeId) -> NodeId {
-        self.names[&node]
+    pub fn target_of(&self, path: NodeId) -> NodeId {
+        self.path_to_target[&path]
     }
 
-    pub fn try_get(&self, node: NodeId) -> Option<NodeId> {
-        self.names.get(&node).copied()
+    pub fn try_target_of(&self, path: NodeId) -> Option<NodeId> {
+        self.path_to_target.get(&path).copied()
     }
 }
 
-pub struct ResolveNames<'a> {
-    names: &'a Names,
-    resolved_names: &'a mut ResolvedNames,
+struct Build<'a> {
+    discover: &'a DiscoverData,
+    resolve: &'a mut ResolveData,
     ns_kind_stack: Vec<NsKindOption>,
 }
 
-impl<'a> ResolveNames<'a> {
-    pub fn new(names: &'a Names, resolved_names: &'a mut ResolvedNames) -> Self {
-        Self {
-            names,
-            resolved_names,
-            ns_kind_stack: Vec::new(),
-        }
-    }
-
+impl<'a> Build<'a> {
     fn ns_kind(link_kind: NodeLinkKind) -> Option<NsKindOption> {
         use NodeLinkKind::*;
         Some(match link_kind {
@@ -93,7 +98,7 @@ impl<'a> ResolveNames<'a> {
     }
 }
 
-impl AstVisitor for ResolveNames<'_> {
+impl AstVisitor for Build<'_> {
     fn node(&mut self, ctx: AstVisitorCtx) {
         self.push_ns_kind(ctx.link_kind);
 
@@ -101,8 +106,8 @@ impl AstVisitor for ResolveNames<'_> {
             NodeKind::PathEndIdent | NodeKind::PathEndStar => {
                 let ns_kind = *self.ns_kind_stack.last().unwrap();
                 Resolver {
-                    names: self.names,
-                    rnames: self.resolved_names,
+                    discover: self.discover,
+                    resolve: self.resolve,
                     ast: ctx.ast,
                 }.resolve(ns_kind, ctx.node);
             }
@@ -168,8 +173,8 @@ impl NsKindOption {
 }
 
 pub struct Resolver<'a> {
-    pub names: &'a Names,
-    pub rnames: &'a mut ResolvedNames,
+    pub discover: &'a DiscoverData,
+    pub resolve: &'a mut ResolveData,
     pub ast: &'a Ast,
 }
 
@@ -183,7 +188,7 @@ impl<'a> Resolver<'a> {
         paths: &mut HashSet<NodeId>,
         path: NodeId,
     ) -> NodeId {
-        if let Some(resolved) = self.rnames.try_get(path) {
+        if let Some(resolved) = self.resolve.try_target_of(path) {
             return resolved;
         }
 
@@ -197,7 +202,7 @@ impl<'a> Resolver<'a> {
                 (path, ns_kind)
             }
             NodeKind::PathEndStar | NodeKind::PathEndEmpty => {
-                let parent = self.names.parent_of(path);
+                let parent = self.discover.parent_of(path);
                 let PathSegment { prefix, suffix: _ } = self.ast.path_segment(parent);
                 path_idents.push(prefix.last().unwrap().ident.clone());
                 (parent, NsKindOption::Require(NsKind::Type))
@@ -205,7 +210,7 @@ impl<'a> Resolver<'a> {
             _ => unreachable!(),
         };
         let (anchor, path_span) = loop {
-            path_node = self.names.parent_of(path_node);
+            path_node = self.discover.parent_of(path_node);
             let S { value, span } = self.ast.node_kind(path_node);
             match value {
                 NodeKind::Path => {
@@ -224,7 +229,7 @@ impl<'a> Resolver<'a> {
 
         path_idents.reverse();
 
-        let import = self.ast.node_kind(self.names.parent_of(path_node)).value == NodeKind::UseStmt;
+        let import = self.ast.node_kind(self.discover.parent_of(path_node)).value == NodeKind::UseStmt;
 
         let mut node = if let Some(anchor) = anchor {
             match anchor {
@@ -234,7 +239,7 @@ impl<'a> Resolver<'a> {
                     assert!(count > 0);
                     let mut scope = path;
                     for _ in 0..=count {
-                        scope = if let Some(scope) = self.names.try_module_of(scope) {
+                        scope = if let Some(scope) = self.discover.try_module_of(scope) {
                             scope
                         } else {
                             fatal(path_span, "failed to resolve: too many leading `super` keywords");
@@ -244,7 +249,7 @@ impl<'a> Resolver<'a> {
                 }
             }
         } else {
-            let scope = self.names.scope_of(path);
+            let scope = self.discover.scope_of(path);
             let first = path_idents.first().unwrap();
             let first = first.as_ref().map(|v| v.as_str());
             let first_ns_kind = if path_idents.len() == 1 {
@@ -291,7 +296,7 @@ impl<'a> Resolver<'a> {
             }
         }
         if !import {
-            self.rnames.insert(path, node);
+            self.resolve.insert(path, node);
         } else {
             // TODO cache import resolution.
             if self.ast.node_kind(node).value == NodeKind::LetDecl {
@@ -312,7 +317,7 @@ impl<'a> Resolver<'a> {
             if r.is_some() {
                 return r;
             }
-            scope = self.names.try_parent_scope_of(scope)?;
+            scope = self.discover.try_parent_scope_of(scope)?;
         }
     }
 
@@ -323,7 +328,7 @@ impl<'a> Resolver<'a> {
         paths: &mut HashSet<NodeId>,
     ) -> Option<NodeId> {
         for ns_kind in ns_kind_option.iter() {
-            let scope_ = self.names.try_scope(scope, ns_kind)?;
+            let scope_ = self.discover.try_scope(scope, ns_kind)?;
             let node = scope_.try_get(name.value).map(|v| v.node);
             if let Some(node) = node {
                 if !paths.contains(&node) {
