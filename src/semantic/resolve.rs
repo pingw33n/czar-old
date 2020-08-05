@@ -1,8 +1,8 @@
 use enum_as_inner::EnumAsInner;
 use std::collections::HashSet;
 
-use crate::syntax::*;
-use crate::syntax::traverse::*;
+use crate::hir::*;
+use crate::hir::traverse::*;
 
 use super::*;
 use super::discover::{DiscoverData, NsKind};
@@ -14,10 +14,10 @@ pub struct ResolveData {
 }
 
 impl ResolveData {
-    pub fn build(discover: &DiscoverData, ast: &Ast) -> Self {
+    pub fn build(discover: &DiscoverData, hir: &Hir) -> Self {
         let mut resolve = ResolveData::default();
-        AstTraverser {
-            ast: &ast,
+        HirTraverser {
+            hir: &hir,
             visitor: &mut Build {
                 discover,
                 resolve: &mut resolve,
@@ -47,8 +47,8 @@ struct Build<'a> {
 }
 
 impl<'a> Build<'a> {
-    fn ns_kind(link_kind: NodeLinkKind) -> Option<NsKindOption> {
-        use NodeLinkKind::*;
+    fn ns_kind(link_kind: NodeLink) -> Option<NsKindOption> {
+        use NodeLink::*;
         Some(match link_kind {
             | BlockExpr
             | BlockFlowCtlValue
@@ -91,16 +91,16 @@ impl<'a> Build<'a> {
         })
     }
 
-    fn push_ns_kind(&mut self, link_kind: NodeLinkKind) {
+    fn push_ns_kind(&mut self, link_kind: NodeLink) {
         if let Some(v) = Self::ns_kind(link_kind) {
             self.ns_kind_stack.push(v);
         }
     }
 }
 
-impl AstVisitor for Build<'_> {
-    fn node(&mut self, ctx: AstVisitorCtx) {
-        self.push_ns_kind(ctx.link_kind);
+impl HirVisitor for Build<'_> {
+    fn node(&mut self, ctx: HirVisitorCtx) {
+        self.push_ns_kind(ctx.link);
 
         match ctx.kind {
             NodeKind::PathEndIdent | NodeKind::PathEndStar => {
@@ -108,15 +108,15 @@ impl AstVisitor for Build<'_> {
                 Resolver {
                     discover: self.discover,
                     resolve: self.resolve,
-                    ast: ctx.ast,
+                    hir: ctx.hir,
                 }.resolve(ns_kind, ctx.node);
             }
             _ => {}
         }
     }
 
-    fn after_node(&mut self, ctx: AstVisitorCtx) {
-        if let Some(v) = Self::ns_kind(ctx.link_kind) {
+    fn after_node(&mut self, ctx: HirVisitorCtx) {
+        if let Some(v) = Self::ns_kind(ctx.link) {
             assert_eq!(self.ns_kind_stack.pop().unwrap(), v);
         }
     }
@@ -175,7 +175,7 @@ impl NsKindOption {
 pub struct Resolver<'a> {
     pub discover: &'a DiscoverData,
     pub resolve: &'a mut ResolveData,
-    pub ast: &'a Ast,
+    pub hir: &'a Hir,
 }
 
 impl<'a> Resolver<'a> {
@@ -195,15 +195,15 @@ impl<'a> Resolver<'a> {
         assert!(paths.insert(path));
 
         let mut path_idents = Vec::new();
-        let (mut path_node, ns_kind) = match self.ast.node_kind(path).value {
+        let (mut path_node, ns_kind) = match self.hir.node_kind(path).value {
             NodeKind::PathEndIdent => {
-                let PathEndIdent { item, renamed_as: _ } = self.ast.path_end_ident(path);
+                let PathEndIdent { item, renamed_as: _ } = self.hir.path_end_ident(path);
                 path_idents.push(item.ident.clone());
                 (path, ns_kind)
             }
             NodeKind::PathEndStar | NodeKind::PathEndEmpty => {
                 let parent = self.discover.parent_of(path);
-                let PathSegment { prefix, suffix: _ } = self.ast.path_segment(parent);
+                let PathSegment { prefix, suffix: _ } = self.hir.path_segment(parent);
                 path_idents.push(prefix.last().unwrap().ident.clone());
                 (parent, NsKindOption::Require(NsKind::Type))
             }
@@ -211,14 +211,14 @@ impl<'a> Resolver<'a> {
         };
         let (anchor, path_span) = loop {
             path_node = self.discover.parent_of(path_node);
-            let S { value, span } = self.ast.node_kind(path_node);
+            let S { value, span } = self.hir.node_kind(path_node);
             match value {
                 NodeKind::Path => {
-                    let Path { anchor, segment: _ } = self.ast.path(path_node);
+                    let Path { anchor, segment: _ } = self.hir.path(path_node);
                     break (anchor.map(|v| v.value), span);
                 }
                 NodeKind::PathSegment => {
-                    let PathSegment { prefix, suffix: _ } = self.ast.path_segment(path_node);
+                    let PathSegment { prefix, suffix: _ } = self.hir.path_segment(path_node);
                     for PathItem { ident, ty_args: _ } in prefix.iter().rev() {
                         path_idents.push(ident.clone());
                     }
@@ -229,11 +229,11 @@ impl<'a> Resolver<'a> {
 
         path_idents.reverse();
 
-        let import = self.ast.node_kind(self.discover.parent_of(path_node)).value == NodeKind::UseStmt;
+        let import = self.hir.node_kind(self.discover.parent_of(path_node)).value == NodeKind::UseStmt;
 
         let mut node = if let Some(anchor) = anchor {
             match anchor {
-                PathAnchor::Package => self.ast.root,
+                PathAnchor::Package => self.hir.root,
                 PathAnchor::Root => unimplemented!(),
                 PathAnchor::Super { count } => {
                     assert!(count > 0);
@@ -299,7 +299,7 @@ impl<'a> Resolver<'a> {
             self.resolve.insert(path, node);
         } else {
             // TODO cache import resolution.
-            if self.ast.node_kind(node).value == NodeKind::LetDecl {
+            if self.hir.node_kind(node).value == NodeKind::LetDecl {
                 fatal(path_span, "can't import variable definition");
             }
         }
@@ -332,7 +332,7 @@ impl<'a> Resolver<'a> {
             let node = scope_.try_get(name.value).map(|v| v.node);
             if let Some(node) = node {
                 if !paths.contains(&node) {
-                    return Some(if self.ast.node_kind(node).value == NodeKind::PathEndIdent {
+                    return Some(if self.hir.node_kind(node).value == NodeKind::PathEndIdent {
                         self.resolve0(ns_kind_option, paths, node)
                     } else {
                         node

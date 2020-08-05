@@ -2,18 +2,19 @@
 #![deny(non_snake_case)]
 #![deny(unused_must_use)]
 
-use crate::syntax::traverse::AstTraverser;
+use crate::hir::traverse::HirTraverser;
 use crate::semantic::type_check::{Types, TypeCheck};
 use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
 
 // mod codegen;
+mod hir;
 mod semantic;
 mod syntax;
 mod util;
 
 fn main() {
-    let ast = &mut syntax::parse::parse_str(r##"
+    let hir = &mut syntax::parse::parse_str(r##"
 
     fn fib(_ v: i32) -> i32 {
         if v <= 1 {
@@ -34,49 +35,33 @@ fn main() {
     "##).unwrap();
 
     let _ctx = {
-        // let mut std_ast = Ast::new();
-
         {
             let mut ins = |name: &str| {
-                let ty = ast.insert_struct_type(syntax::Span::new(0, 0).spanned(syntax::StructType {
+                let ty = hir.insert_struct_type(syntax::Span::new(0, 0).spanned(hir::StructType {
                     fields: vec![],
                 }));
-                let struct_ = ast.insert_struct(syntax::Span::new(0, 0).spanned(syntax::Struct {
+                let struct_ = hir.insert_struct(syntax::Span::new(0, 0).spanned(hir::Struct {
                     name: syntax::Span::new(0, 0).spanned(name.into()),
-                    vis: Some(syntax::Span::new(0, 0).spanned(syntax::Vis { restrict: None })),
+                    vis: Some(syntax::Span::new(0, 0).spanned(hir::Vis { restrict: None })),
                     ty_args: vec![],
                     ty,
                 }));
-                ast.module_mut(ast.root).items.push(struct_);
+                hir.module_mut(hir.root).items.push(struct_);
             };
             ins("__unit");
             ins("bool");
             ins("i32");
         }
 
-        ast.root
-        // let mut packages = Slab::new();
-        // let std = sem::PackageId(packages.insert(sem::Package {
-        //     name: "std".into(),
-        //     ast: std_ast,
-        // }));
-        //
-        // let mut package_by_name = HashMap::new();
-        // package_by_name.insert(packages[std.0].name.clone(), std);
-        //
-        // Context {
-        //     packages,
-        //     package_by_name,
-        //     ast: &mut ast,
-        // }
+        hir.root
     };
 
-    eprintln!("{}", ast.display());
+    eprintln!("{}", hir.display());
 
-    let discover_data = &DiscoverData::build(ast);
-    discover_data.print_scopes(&ast);
+    let discover_data = &DiscoverData::build(hir);
+    discover_data.print_scopes(&hir);
 
-    let resolve_data = &ResolveData::build(discover_data, ast);
+    let resolve_data = &ResolveData::build(discover_data, hir);
 
     let types = &mut Types::default();
     {
@@ -84,9 +69,9 @@ fn main() {
             resolve: resolve_data,
             types,
         };
-        tc.build_lang_types(discover_data, ast);
-        AstTraverser {
-            ast,
+        tc.build_lang_types(discover_data, hir);
+        HirTraverser {
+            hir,
             visitor: tc,
         }.traverse();
     }

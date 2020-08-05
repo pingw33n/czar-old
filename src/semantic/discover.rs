@@ -2,8 +2,8 @@ use enum_map::EnumMap;
 use enum_map_derive::Enum;
 use std::collections::hash_map::{Entry, HashMap};
 
-use crate::syntax::*;
-use crate::syntax::traverse::*;
+use crate::hir::*;
+use crate::hir::traverse::*;
 use crate::util::enums::EnumExt;
 
 pub struct ScopeItem {
@@ -81,10 +81,10 @@ pub struct DiscoverData {
 }
 
 impl DiscoverData {
-    pub fn build(ast: &Ast) -> Self {
+    pub fn build(hir: &Hir) -> Self {
         let mut data = Self::default();
-        AstTraverser {
-            ast,
+        HirTraverser {
+            hir,
             visitor: &mut Build {
                 data: &mut data,
                 in_use: false,
@@ -147,7 +147,7 @@ impl DiscoverData {
         assert!(self.node_to_module.insert(node, module).is_none());
     }
 
-    pub fn print_scopes(&self, ast: &Ast) {
+    pub fn print_scopes(&self, hir: &Hir) {
         struct Visitor<'a> {
             data: &'a DiscoverData,
             indent: u32,
@@ -161,15 +161,15 @@ impl DiscoverData {
             }
         }
 
-        impl AstVisitor for Visitor<'_> {
-            fn before_node(&mut self, _ctx: AstVisitorCtx) {
+        impl HirVisitor for Visitor<'_> {
+            fn before_node(&mut self, _ctx: HirVisitorCtx) {
                 self.indent += 1;
             }
 
-            fn node(&mut self, ctx: AstVisitorCtx) {
+            fn node(&mut self, ctx: HirVisitorCtx) {
                 self.print_indent();
-                let node = ctx.ast.node_kind(ctx.node);
-                if let Some(name) = ctx.ast.try_module(ctx.node)
+                let node = ctx.hir.node_kind(ctx.node);
+                if let Some(name) = ctx.hir.try_module(ctx.node)
                     .and_then(|Module { name, .. }| name.as_ref())
                 {
                     println!("{:?} {:?} `{}` {}:{}",
@@ -189,7 +189,7 @@ impl DiscoverData {
                                 if i > 0 {
                                     print!(", ");
                                 }
-                                let n = ctx.ast.node_kind(*node);
+                                let n = ctx.hir.node_kind(*node);
                                 print!("`{}` {}:{} -> {:?} {:?} {}:{}", ident,
                                     name.span.start, name.span.end,
                                     n.value, node, n.span.start, n.span.end);
@@ -200,13 +200,13 @@ impl DiscoverData {
                 }
             }
 
-            fn after_node(&mut self, _ctx: AstVisitorCtx) {
+            fn after_node(&mut self, _ctx: HirVisitorCtx) {
                 self.indent -= 1;
             }
         }
 
-        AstTraverser {
-            ast,
+        HirTraverser {
+            hir,
             visitor: &mut Visitor {
                 data: self,
                 indent: 0,
@@ -249,8 +249,8 @@ impl Build<'_> {
     }
 }
 
-impl AstVisitor for Build<'_> {
-    fn before_node(&mut self, ctx: AstVisitorCtx) {
+impl HirVisitor for Build<'_> {
+    fn before_node(&mut self, ctx: HirVisitorCtx) {
         if let Some(&parent) = self.node_stack.last() {
             self.data.set_parent_of(ctx.node, parent);
         }
@@ -266,11 +266,11 @@ impl AstVisitor for Build<'_> {
         match ctx.kind {
             NodeKind::Fn_ => {}
             NodeKind::FnDecl => {
-                let name = ctx.ast.fn_decl(ctx.node).name.clone();
+                let name = ctx.hir.fn_decl(ctx.node).name.clone();
                 self.insert(NsKind::Value, name, ctx.node);
             },
             NodeKind::FnDeclArg => {
-                let FnDeclArg { pub_name, priv_name, .. } = ctx.ast.fn_decl_arg(ctx.node);
+                let FnDeclArg { pub_name, priv_name, .. } = ctx.hir.fn_decl_arg(ctx.node);
 
                 let _pub_name = pub_name.value.as_ref()
                     .map(|v| pub_name.span.spanned(v.clone()))
@@ -281,23 +281,23 @@ impl AstVisitor for Build<'_> {
             NodeKind::Module => {
                 self.module_stack.push(ctx.node);
 
-                let Module { name, .. } = &ctx.ast.module(ctx.node);
+                let Module { name, .. } = &ctx.hir.module(ctx.node);
                 if let Some(name) = name {
                     self.insert(NsKind::Type, name.name.clone(), ctx.node);
                 }
             }
             NodeKind::Struct => {
-                let name = ctx.ast.struct_(ctx.node).name.clone();
+                let name = ctx.hir.struct_(ctx.node).name.clone();
                 self.insert(NsKind::Type, name.clone(), ctx.node);
             }
             NodeKind::PathEndIdent if self.in_use => {
                 let PathEndIdent {
                     item: PathItem { ident, ty_args: _, .. },
                     renamed_as,
-                } = ctx.ast.path_end_ident(ctx.node);
+                } = ctx.hir.path_end_ident(ctx.node);
                 let name = if ident.value == Ident::self_lower() {
                     let parent = self.data.parent_of(ctx.node);
-                    &ctx.ast.path_segment(parent).prefix.last().unwrap().ident
+                    &ctx.hir.path_segment(parent).prefix.last().unwrap().ident
                 } else {
                     renamed_as.as_ref().unwrap_or(ident)
                 };
@@ -309,7 +309,7 @@ impl AstVisitor for Build<'_> {
             }
             NodeKind::Let => {},
             NodeKind::LetDecl => {
-                let name = ctx.ast.let_decl(ctx.node).name.clone();
+                let name = ctx.hir.let_decl(ctx.node).name.clone();
                 self.insert(NsKind::Value, name, ctx.node);
             },
             NodeKind::UseStmt => {
@@ -344,7 +344,7 @@ impl AstVisitor for Build<'_> {
         }
     }
 
-    fn after_node(&mut self, ctx: AstVisitorCtx) {
+    fn after_node(&mut self, ctx: HirVisitorCtx) {
         if has_scope(ctx.kind) {
             loop {
                 let scope = self.scope_stack.pop().unwrap();

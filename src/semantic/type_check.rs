@@ -3,8 +3,8 @@ use enum_map::EnumMap;
 use enum_map_derive::Enum;
 use slab::Slab;
 
-use crate::syntax::*;
-use crate::syntax::traverse::*;
+use crate::hir::*;
+use crate::hir::traverse::*;
 
 use super::*;
 use super::discover::{DiscoverData, NsKind};
@@ -87,18 +87,6 @@ impl Types {
     pub fn set_lang(&mut self, ty: LangType, id: TypeId) {
         assert!(self.lang_types[ty].replace(id).is_none());
     }
-
-    pub fn instantiate(&mut self, ty_node: NodeId, ast: &Ast) -> TypeId {
-        match ast.node_kind(ty_node).value {
-            NodeKind::Struct => {
-                if &ast.struct_(ty_node).name.value == "i32" {
-                    return self.lang(LangType::I32);
-                }
-                unimplemented!();
-            }
-            _ => unimplemented!(),
-        }
-    }
 }
 
 pub struct TypeCheck<'a> {
@@ -107,13 +95,13 @@ pub struct TypeCheck<'a> {
 }
 
 impl TypeCheck<'_> {
-    pub fn build_lang_types(&mut self, discover: &DiscoverData, ast: &Ast) {
+    pub fn build_lang_types(&mut self, discover: &DiscoverData, hir: &Hir) {
         for &(n, lang, ty) in &[
             ("__unit", LangType::Unit, PrimitiveType::Unit),
             ("bool", LangType::Bool, PrimitiveType::Bool),
             ("i32", LangType::I32, PrimitiveType::I32),
         ] {
-            let node = discover.scope(ast.root, NsKind::Type).get(n).node;
+            let node = discover.scope(hir.root, NsKind::Type).get(n).node;
             let id = self.types.insert_type(Type {
                 node,
                 data: TypeData::Primitive(ty),
@@ -123,12 +111,12 @@ impl TypeCheck<'_> {
         }
     }
 
-    fn build_type(&mut self, node: NodeId, ast: &Ast) -> TypeId {
+    fn build_type(&mut self, node: NodeId, hir: &Hir) -> TypeId {
         if let Some(ty) = self.types.try_typing_id(node) {
             ty
         } else {
-            AstTraverser {
-                ast,
+            HirTraverser {
+                hir,
                 visitor: self,
             }.traverse_from(node);
             self.types.typing_id(node)
@@ -136,8 +124,8 @@ impl TypeCheck<'_> {
     }
 }
 
-impl AstVisitor for TypeCheck<'_> {
-    fn node(&mut self, ctx: AstVisitorCtx) {
+impl HirVisitor for TypeCheck<'_> {
+    fn node(&mut self, ctx: HirVisitorCtx) {
         if self.types.try_typing_id(ctx.node).is_some() {
             return;
         }
@@ -148,12 +136,12 @@ impl AstVisitor for TypeCheck<'_> {
                     ret_ty,
                     unsafe_,
                     body,
-                    .. } = ctx.ast.fn_decl(ctx.node);
+                    .. } = ctx.hir.fn_decl(ctx.node);
                 let args: Vec<_> = args.iter()
                     .copied()
-                    .map(|n| self.build_type(n, ctx.ast))
+                    .map(|n| self.build_type(n, ctx.hir))
                     .collect();
-                let result = ret_ty.map(|n| self.build_type(n, ctx.ast))
+                let result = ret_ty.map(|n| self.build_type(n, ctx.hir))
                     .unwrap_or_else(|| self.types.lang(LangType::Unit));
                 self.types.insert_type(Type {
                     node: ctx.node,
@@ -166,7 +154,7 @@ impl AstVisitor for TypeCheck<'_> {
                 })
             }
             NodeKind::Literal => {
-                match ctx.ast.literal(ctx.node) {
+                match ctx.hir.literal(ctx.node) {
                     &Literal::Bool(_) => self.types.lang(LangType::Bool),
                     &Literal::Int(IntLiteral { ty, .. }) => {
                         if let Some(ty) = ty {
@@ -204,19 +192,19 @@ impl AstVisitor for TypeCheck<'_> {
             | NodeKind::UseStmt
             => return,
             _ => {
-                unimplemented!("{:?}", ctx.ast.node_kind(ctx.node));
+                unimplemented!("{:?}", ctx.hir.node_kind(ctx.node));
             },
         };
         self.types.insert_typing(ctx.node, ty);
     }
 
-    fn after_node(&mut self, ctx: AstVisitorCtx) {
+    fn after_node(&mut self, ctx: HirVisitorCtx) {
         if self.types.try_typing_id(ctx.node).is_some() {
             return;
         }
         let ty = match ctx.kind {
             NodeKind::Block => {
-                if let Some(&expr) = ctx.ast.block(ctx.node).exprs.last() {
+                if let Some(&expr) = ctx.hir.block(ctx.node).exprs.last() {
                     self.types.typing_id(expr)
                 } else {
                     self.types.lang(LangType::Unit)
@@ -227,7 +215,7 @@ impl AstVisitor for TypeCheck<'_> {
                     callee,
                     kind,
                     args: actual_args,
-                    .. } = ctx.ast.fn_call(ctx.node);
+                    .. } = ctx.hir.fn_call(ctx.node);
                 let callee_ty = self.types.typing(*callee);
                 if *kind != FnCallKind::Free {
                     unimplemented!();
@@ -235,11 +223,11 @@ impl AstVisitor for TypeCheck<'_> {
                 let fn_ty = if let Some(v) = callee_ty.data.as_fn() {
                     v
                 } else {
-                    let span = ctx.ast.node_kind(*callee).span;
+                    let span = ctx.hir.node_kind(*callee).span;
                     panic!("[{}:{}] expected function", span.start, span.end);
                 };
 
-                let formal_args = &ctx.ast.fn_decl(callee_ty.node).args;
+                let formal_args = &ctx.hir.fn_decl(callee_ty.node).args;
                 assert_eq!(actual_args.len(), formal_args.len());
                 for (actual, formal) in actual_args
                     .iter()
@@ -247,26 +235,26 @@ impl AstVisitor for TypeCheck<'_> {
                 {
                     if self.types.typing_id(actual.value) != self.types.typing_id(*formal) {
                         dbg!(self.types.typing(actual.value), self.types.typing(*formal));
-                        dbg!(ctx.ast.node_kind(actual.value), ctx.ast.node_kind(*formal));
-                        fatal(ctx.ast.node_kind(actual.value).span, "`fn`: incompatible actual and formal arg types");
+                        dbg!(ctx.hir.node_kind(actual.value), ctx.hir.node_kind(*formal));
+                        fatal(ctx.hir.node_kind(actual.value).span, "`fn`: incompatible actual and formal arg types");
                     }
                 }
 
                 fn_ty.result
             }
             NodeKind::Fn_ => {
-                let &Fn_ { decl } = ctx.ast.fn_(ctx.node);
+                let &Fn_ { decl } = ctx.hir.fn_(ctx.node);
                 let FnDecl {
                     ret_ty,
                     body,
-                    .. } = ctx.ast.fn_decl(decl);
+                    .. } = ctx.hir.fn_decl(decl);
                 let formal_ret_ty = ret_ty
                     .map(|n| self.types.typing_id(n))
                     .unwrap_or(self.types.lang(LangType::Unit));
                 if let Some(body) = *body {
                     let actual_ret_ty = self.types.typing_id(body);
                     if actual_ret_ty != formal_ret_ty {
-                        let span = ctx.ast.node_kind(ctx.node).span;
+                        let span = ctx.hir.node_kind(ctx.node).span;
                         panic!("[{}:{}] `fn` actual and format return types are incompatible",
                             span.start, span.end);
                     }
@@ -277,18 +265,18 @@ impl AstVisitor for TypeCheck<'_> {
                 unreachable!()
             }
             NodeKind::FnDeclArg => {
-                self.types.typing_id(ctx.ast.fn_decl_arg(ctx.node).ty)
+                self.types.typing_id(ctx.hir.fn_decl_arg(ctx.node).ty)
             }
             NodeKind::IfExpr => {
-                let &IfExpr { cond, if_true, if_false } = ctx.ast.if_expr(ctx.node);
+                let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
                 if !matches!(self.types.typing(cond).data, TypeData::Primitive(PrimitiveType::Bool)) {
-                    let span = ctx.ast.node_kind(cond).span;
+                    let span = ctx.hir.node_kind(cond).span;
                     panic!("[{}:{}] expected bool expr", span.start, span.end);
                 }
                 let if_true_ty = self.types.typing_id(if_true);
                 if let Some(if_false) = if_false {
                     if self.types.typing_id(if_false) != if_true_ty {
-                        let span = ctx.ast.node_kind(cond).span;
+                        let span = ctx.hir.node_kind(cond).span;
                         panic!("[{}:{}] `if` arms have incompatible types", span.start, span.end);
                     }
                 }
@@ -298,14 +286,14 @@ impl AstVisitor for TypeCheck<'_> {
                 self.types.lang(LangType::Bool)
             }
             NodeKind::LetDecl => {
-                let ty = ctx.ast.let_decl(ctx.node).ty.expect("unimplemented");
-                self.build_type(ty, ctx.ast)
+                let ty = ctx.hir.let_decl(ctx.node).ty.expect("unimplemented");
+                self.build_type(ty, ctx.hir)
             }
             NodeKind::Module => {
                 self.types.lang(LangType::Unit)
             }
             NodeKind::Op => {
-                match ctx.ast.op(ctx.node) {
+                match ctx.hir.op(ctx.node) {
                     &Op::Binary(BinaryOp { kind, left, right }) => {
                         let left_ty = self.types.typing_id(left);
                         let right_ty = self.types.typing_id(right);
@@ -317,7 +305,7 @@ impl AstVisitor for TypeCheck<'_> {
                                     if !matches!(left_ty.data, TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data, TypeData::Primitive(PrimitiveType::I32))
                                     {
-                                        let op_span = ctx.ast.node_kind(ctx.node).span;
+                                        let op_span = ctx.hir.node_kind(ctx.node).span;
                                         panic!("operation `<=` at [{}:{}] is not defined for {:?} and {:?}",
                                             op_span.start, op_span.end,
                                             left_ty, right_ty);
@@ -332,7 +320,7 @@ impl AstVisitor for TypeCheck<'_> {
                                     if !matches!(left_ty.data, TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data, TypeData::Primitive(PrimitiveType::I32))
                                     {
-                                        let op_span = ctx.ast.node_kind(ctx.node).span;
+                                        let op_span = ctx.hir.node_kind(ctx.node).span;
                                         panic!("operation `+` at [{}:{}] is not defined for {:?} and {:?}",
                                             op_span.start, op_span.end,
                                             left_ty, right_ty);
@@ -347,7 +335,7 @@ impl AstVisitor for TypeCheck<'_> {
                                     if !matches!(left_ty.data, TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data, TypeData::Primitive(PrimitiveType::I32))
                                     {
-                                        let op_span = ctx.ast.node_kind(ctx.node).span;
+                                        let op_span = ctx.hir.node_kind(ctx.node).span;
                                         panic!("operation `-` at [{}:{}] is not defined for {:?} and {:?}",
                                             op_span.start, op_span.end,
                                             left_ty, right_ty);
@@ -365,10 +353,10 @@ impl AstVisitor for TypeCheck<'_> {
                 self.types.lang(LangType::Unit)
             }
             NodeKind::StructType => {
-                let fields = &ctx.ast.struct_type(ctx.node).fields;
+                let fields = &ctx.hir.struct_type(ctx.node).fields;
                 let fields: Vec<_> = fields
                     .iter()
-                    .map(|f| self.build_type(f.ty, ctx.ast))
+                    .map(|f| self.build_type(f.ty, ctx.hir))
                     .collect();
                 self.types.insert_type(Type {
                     node: ctx.node,
@@ -378,7 +366,7 @@ impl AstVisitor for TypeCheck<'_> {
                 })
             }
             NodeKind::StructValue => {
-                let StructValue { name, anonymous_fields, fields } = ctx.ast.struct_value(ctx.node);
+                let StructValue { name, anonymous_fields, fields } = ctx.hir.struct_value(ctx.node);
                 assert!(anonymous_fields.is_none() || !fields.is_empty());
                 if name.is_some() || !fields.is_empty() {
                     unimplemented!();
@@ -386,24 +374,24 @@ impl AstVisitor for TypeCheck<'_> {
                 self.types.lang(LangType::Unit)
             }
             NodeKind::Path => {
-                self.types.typing_id(ctx.ast.path(ctx.node).segment)
+                self.types.typing_id(ctx.hir.path(ctx.node).segment)
             }
             NodeKind::PathEndIdent => {
                 if let Some(target) = self.resolve.try_target_of(ctx.node) {
-                    self.build_type(target, ctx.ast)
+                    self.build_type(target, ctx.hir)
                 } else {
                     self.types.lang(LangType::Unit)
                 }
             }
             NodeKind::PathSegment => {
-                if let Some(&suffix) = ctx.ast.path_segment(ctx.node).suffix.first() {
+                if let Some(&suffix) = ctx.hir.path_segment(ctx.node).suffix.first() {
                     self.types.typing_id(suffix)
                 } else {
                     self.types.lang(LangType::Unit)
                 }
             }
             NodeKind::TyExpr => {
-                let TyExpr { muta: _, data } = ctx.ast.ty_expr(ctx.node);
+                let TyExpr { muta: _, data } = ctx.hir.ty_expr(ctx.node);
                 match &data.value {
                     TyData::Array(_) => unimplemented!(),
                     TyData::Ptr(_) => unimplemented!(),
@@ -421,7 +409,7 @@ impl AstVisitor for TypeCheck<'_> {
             => {
                 self.types.lang(LangType::Unit)
             },
-            _ => unimplemented!("{:?}", ctx.ast.node_kind(ctx.node))
+            _ => unimplemented!("{:?}", ctx.hir.node_kind(ctx.node))
         };
         self.types.insert_typing(ctx.node, ty);
     }

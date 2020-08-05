@@ -2,37 +2,37 @@ use std::fmt::{self, Result, Write};
 
 use super::*;
 
-impl Ast {
+impl Hir {
     pub fn display(&self) -> Display {
         Display {
-            ast: self,
+            hir: self,
             node: self.root,
         }
     }
 }
 
 pub struct Display<'a> {
-    ast: &'a Ast,
+    hir: &'a Hir,
     node: NodeId,
 }
 
 impl Display<'_> {
     fn node(&self, node: NodeId, at_group_level: bool, p: &mut Printer) -> Result {
-        match self.ast.node_kind(node).value {
+        match self.hir.node_kind(node).value {
             NodeKind::Block => {
-                let Block { exprs } = self.ast.block(node);
+                let Block { exprs } = self.hir.block(node);
                 p.print("{")?;
                 if exprs.len() > 0 {
                     p.indent()?;
 
                     let no_result = exprs.last()
-                        .and_then(|&v| self.ast.try_struct_value(v))
+                        .and_then(|&v| self.hir.try_struct_value(v))
                         .map(|v| v.fields.is_empty()) == Some(true);
                     let it = exprs.iter().enumerate()
                         .take(if no_result { exprs.len() - 1 } else { exprs.len() });
                     for (i, &expr) in it {
                         self.node(expr, true, p)?;
-                        if !crate::syntax::parse::is_item(self.ast.node_kind(expr).value)
+                        if !crate::syntax::parse::is_item(self.hir.node_kind(expr).value)
                             && (no_result || i < exprs.len() - 1)
                         {
                             p.println(";")?;
@@ -43,7 +43,7 @@ impl Display<'_> {
                 p.print("}")?;
             }
             NodeKind::BlockFlowCtl => {
-                let BlockFlowCtl { kind, label, value } = self.ast.block_flow_ctl(node);
+                let BlockFlowCtl { kind, label, value } = self.hir.block_flow_ctl(node);
                 match kind {
                     BlockFlowCtlKind::Break => p.print("break")?,
                     BlockFlowCtlKind::Continue => p.print("continue")?,
@@ -59,17 +59,17 @@ impl Display<'_> {
                 }
             }
             NodeKind::Cast => {
-                let Cast { expr, ty } = self.ast.cast(node);
+                let Cast { expr, ty } = self.hir.cast(node);
                 self.expr(*expr, p)?;
                 p.print(" as ")?;
                 self.node(*ty, false, p)?;
             }
             NodeKind::FieldAccess => {
-                let FieldAccess { receiver, field } = self.ast.field_access(node);
-                let excl = self.ast.try_literal(*receiver)
+                let FieldAccess { receiver, field } = self.hir.field_access(node);
+                let excl = self.hir.try_literal(*receiver)
                     .map(|l| l.as_int().is_some() || l.as_float().is_some())
                     == Some(true) ||
-                    self.ast.try_field_access(*receiver)
+                    self.hir.try_field_access(*receiver)
                         .map(|f| f.field.value.as_index().is_some())
                         == Some(true);
                 self.expr_excl(*receiver, excl, p)?;
@@ -78,7 +78,7 @@ impl Display<'_> {
                 p.print(&field.value)?;
             }
             NodeKind::Fn_ => {
-                let &Fn_ { decl } = self.ast.fn_(node);
+                let &Fn_ { decl } = self.hir.fn_(node);
                 self.node(decl, at_group_level, p)?;
             }
             NodeKind::FnDecl => {
@@ -91,7 +91,7 @@ impl Display<'_> {
                     unsafe_,
                     variadic,
                     body,
-                } = self.ast.fn_decl(node);
+                } = self.hir.fn_decl(node);
 
                 self.vis(vis, p)?;
                 if unsafe_.is_some() {
@@ -104,7 +104,7 @@ impl Display<'_> {
 
                 p.print("(")?;
                 for (i, &arg) in args.iter().enumerate() {
-                    let FnDeclArg { pub_name, priv_name, ty } = self.ast.fn_decl_arg(arg);
+                    let FnDeclArg { pub_name, priv_name, ty } = self.hir.fn_decl_arg(arg);
                     if i > 0 {
                         p.print(", ")?;
                     }
@@ -147,7 +147,7 @@ impl Display<'_> {
             }
             NodeKind::FnDeclArg => unreachable!(),
             NodeKind::FnCall => {
-                let FnCall { callee, kind, args } = self.ast.fn_call(node);
+                let FnCall { callee, kind, args } = self.hir.fn_call(node);
                 let mut args = args.iter();
                 if *kind == FnCallKind::Method {
                     let FnCallArg { name, value } = args.next().unwrap();
@@ -171,7 +171,7 @@ impl Display<'_> {
                 p.print(')')?;
             }
             NodeKind::IfExpr => {
-                let IfExpr { cond, if_true, if_false } = self.ast.if_expr(node);
+                let IfExpr { cond, if_true, if_false } = self.hir.if_expr(node);
                 p.print("if (")?;
                 self.node(*cond, true, p)?;
                 p.print(") ")?;
@@ -188,7 +188,7 @@ impl Display<'_> {
                     trait_,
                     for_,
                     items,
-                } = self.ast.impl_(node);
+                } = self.hir.impl_(node);
                 p.print("impl")?;
                 self.formal_ty_args(ty_args, p)?;
 
@@ -211,7 +211,7 @@ impl Display<'_> {
                 p.println('}')?;
             }
             NodeKind::Literal => {
-                let node = self.ast.literal(node);
+                let node = self.hir.literal(node);
                 match node {
                     &Literal::Bool(v) => p.print(if v { "true" } else { "false" })?,
                     &Literal::Char(v) => {
@@ -247,11 +247,11 @@ impl Display<'_> {
                 }
             }
             NodeKind::Let => {
-                let &Let { decl } = self.ast.let_(node);
+                let &Let { decl } = self.hir.let_(node);
                 self.node(decl, at_group_level, p)?;
             }
             NodeKind::LetDecl => {
-                let LetDecl { mut_, name, ty, init } = self.ast.let_decl(node);
+                let LetDecl { mut_, name, ty, init } = self.hir.let_decl(node);
                 p.print("let ")?;
                 if mut_.is_some() {
                     p.print("mut ")?;
@@ -267,13 +267,13 @@ impl Display<'_> {
                 }
             }
             NodeKind::Loop => {
-                let Loop { block } = self.ast.loop_(node);
+                let Loop { block } = self.hir.loop_(node);
                 p.print("loop ")?;
                 self.node(*block, false, p)?;
                 p.println("")?;
             }
             NodeKind::Module => {
-                let Module { source_id: _, name, items } = self.ast.module(node);
+                let Module { source_id: _, name, items } = self.hir.module(node);
                 if let Some(n) = name {
                     self.vis(&n.vis, p)?;
                     p.print_sep("mod")?;
@@ -290,7 +290,7 @@ impl Display<'_> {
                 }
             }
             NodeKind::Op => {
-                let node= self.ast.op(node);
+                let node= self.hir.op(node);
                 match node {
                     Op::Binary(BinaryOp { kind, left, right }) => {
                         use BinaryOpKind::*;
@@ -412,9 +412,9 @@ impl Display<'_> {
             | NodeKind::PathEndIdent
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
-            => unreachable!("{:?}", self.ast.node_kind(node)),
+            => unreachable!("{:?}", self.hir.node_kind(node)),
             NodeKind::Range => {
-                let Range { kind, start, end } = self.ast.range(node);
+                let Range { kind, start, end } = self.hir.range(node);
                 if let Some(start) = start {
                     self.expr(*start, p)?;
                 }
@@ -427,7 +427,7 @@ impl Display<'_> {
                 }
             }
             NodeKind::Struct => {
-                let Struct { vis, name, ty_args, ty } = self.ast.struct_(node);
+                let Struct { vis, name, ty_args, ty } = self.hir.struct_(node);
                 self.vis(vis, p)?;
                 p.print_sep("struct ")?;
                 p.print(&name.value)?;
@@ -443,7 +443,7 @@ impl Display<'_> {
                 let StructValue {
                     name,
                     anonymous_fields,
-                    fields } = self.ast.struct_value(node);
+                    fields } = self.hir.struct_value(node);
                 if let &Some(name) = name {
                     self.node(name, false, p)?;
                     p.print(' ')?;
@@ -475,7 +475,7 @@ impl Display<'_> {
                 p.print('}')?;
             }
             NodeKind::TyExpr => {
-                let TyExpr { muta, data } = self.ast.ty_expr(node);
+                let TyExpr { muta, data } = self.hir.ty_expr(node);
                 if muta.is_some() {
                     p.print("mut ")?;
                 }
@@ -512,14 +512,14 @@ impl Display<'_> {
             }
             NodeKind::TypeArg => unreachable!(),
             NodeKind::UseStmt => {
-                let UseStmt { vis, path } = self.ast.use_stmt(node);
+                let UseStmt { vis, path } = self.hir.use_stmt(node);
                 self.vis(vis, p)?;
                 p.print_sep("use ")?;
                 self.path(*path, p)?;
                 p.println(";")?;
             }
             NodeKind::While => {
-                let While { cond, block } = self.ast.while_(node);
+                let While { cond, block } = self.hir.while_(node);
                 p.print("while (")?;
                 self.node(*cond, true, p)?;
                 p.print(") ")?;
@@ -545,7 +545,7 @@ impl Display<'_> {
     }
 
     fn path(&self, node: NodeId, p: &mut Printer) -> Result {
-        let Path { anchor, segment } = self.ast.path(node);
+        let Path { anchor, segment } = self.hir.path(node);
         if let Some(anchor) = anchor {
             match anchor.value {
                 PathAnchor::Package => p.print("package::"),
@@ -573,7 +573,7 @@ impl Display<'_> {
     }
 
     fn path_segment(&self, node: NodeId, p: &mut Printer) -> Result {
-        let PathSegment { prefix, suffix } = self.ast.path_segment(node);
+        let PathSegment { prefix, suffix } = self.hir.path_segment(node);
         for item in prefix {
             self.path_item(item, p)?;
             p.print("::")?;
@@ -600,9 +600,9 @@ impl Display<'_> {
     }
 
     fn path_suffix(&self, node: NodeId, p: &mut Printer) -> Result {
-        match self.ast.node_kind(node).value {
+        match self.hir.node_kind(node).value {
             NodeKind::PathEndIdent => {
-                let PathEndIdent { item, renamed_as } = self.ast.path_end_ident(node);
+                let PathEndIdent { item, renamed_as } = self.hir.path_end_ident(node);
                 self.path_item(item, p)?;
                 if let Some(renamed_as) = renamed_as {
                     p.print_sep("as")?;
@@ -657,7 +657,7 @@ impl Display<'_> {
     }
 
     fn expr_excl(&self, node: NodeId, excl: bool, p: &mut Printer) -> Result {
-        let no_parens = !excl && matches!(self.ast.node_kind(node).value,
+        let no_parens = !excl && matches!(self.hir.node_kind(node).value,
             NodeKind::Block
             | NodeKind::FieldAccess
             | NodeKind::FnCall
@@ -684,14 +684,14 @@ impl Display<'_> {
     fn formal_ty_args(&self, ty_args: &[NodeId], p: &mut Printer) -> Result {
         if !ty_args.is_empty() {
             p.print("<")?;
-            p.print_sep_seq(ty_args.iter().map(|&v| &self.ast.type_arg(v).name.value), ", ")?;
+            p.print_sep_seq(ty_args.iter().map(|&v| &self.hir.type_arg(v).name.value), ", ")?;
             p.print(">")?;
         }
         Ok(())
     }
 
     fn struct_type(&self, node: NodeId, inline: bool, p: &mut Printer) -> Result {
-        let StructType { fields } = self.ast.struct_type(node);
+        let StructType { fields } = self.hir.struct_type(node);
         p.print('{')?;
         if !inline {
             p.indent()?;

@@ -3,6 +3,8 @@ mod test;
 
 use std::convert::TryFrom;
 
+use crate::hir::*;
+
 use super::*;
 
 #[derive(Debug)]
@@ -105,7 +107,7 @@ impl Default for ExprState {
 pub struct Parser<'a> {
     s: &'a str,
     lex: Lexer<'a>,
-    ast: &'a mut Ast,
+    hir: &'a mut Hir,
     source_id: SourceId,
     fs: &'a mut dyn Fs,
 }
@@ -115,12 +117,12 @@ impl<'a> Parser<'a> {
         s: &'a str,
         source_id: SourceId,
         fs: &'a mut dyn Fs,
-        ast: &'a mut Ast,
+        hir: &'a mut Hir,
     ) -> Self {
         Self {
             s,
             lex: Lexer::new(s),
-            ast,
+            hir,
             source_id,
             fs,
         }
@@ -132,7 +134,7 @@ impl<'a> Parser<'a> {
 
     fn parse(mut self) -> PResult<()> {
         let root = self.module_inner(Some(self.source_id), 0, None)?;
-        self.ast.root = root;
+        self.hir.root = root;
         if self.lex.is_ok() {
             Ok(())
         } else {
@@ -208,7 +210,7 @@ impl<'a> Parser<'a> {
                 break tok.span.end;
             }
         };
-        Ok(self.ast.insert_module(Span::new(start, end).spanned(Module {
+        Ok(self.hir.insert_module(Span::new(start, end).spanned(Module {
             source_id,
             name,
             items,
@@ -229,7 +231,7 @@ impl<'a> Parser<'a> {
             let end = self.lex.next().span.end;
 
             let (path, content) = {
-                let source = self.ast.source(self.source_id);
+                let source = self.hir.source(self.source_id);
                 let mut path = source.path.to_path_buf();
                 assert!(path.pop());
                 if top_level {
@@ -244,13 +246,13 @@ impl<'a> Parser<'a> {
                 let content = Self::read_file(self.fs, &path)?;
                 (path, content)
             };
-            let source_id = self.ast.insert_source(Source {
+            let source_id = self.hir.insert_source(Source {
                 mod_name: Some(name.name.value.clone()),
                 path,
             });
 
-            Parser::new(&content, source_id, self.fs, &mut self.ast).parse()?;
-            let r = std::mem::replace(&mut self.ast.root, NodeId::null());
+            Parser::new(&content, source_id, self.fs, &mut self.hir).parse()?;
+            let r = std::mem::replace(&mut self.hir.root, NodeId::null());
             assert_ne!(r, NodeId::null());
             r
         } else {
@@ -267,15 +269,15 @@ impl<'a> Parser<'a> {
         let anchor = self.maybe_path_anchor()?;
         let segment = self.use_path_segment()?;
         self.expect(Token::Semi)?;
-        let segment_span = self.ast.node_kind(segment).span;
+        let segment_span = self.hir.node_kind(segment).span;
         let path_start = anchor.map(|v| v.span.start)
             .unwrap_or(segment_span.start);
-        let path = self.ast.insert_path(Span::new(path_start, segment_span.end).spanned(
+        let path = self.hir.insert_path(Span::new(path_start, segment_span.end).spanned(
             Path {
                 anchor,
                 segment
             }));
-        Ok(self.ast.insert_use_stmt(Span::new(start, segment_span.end).spanned(
+        Ok(self.hir.insert_use_stmt(Span::new(start, segment_span.end).spanned(
             UseStmt {
                 vis,
                 path,
@@ -330,14 +332,14 @@ impl<'a> Parser<'a> {
                         return self.fatal(tok.span, &format!("expected `self`, found `{:?}`", tok.value));
                     }
                     if let Some(self_) = self_ {
-                        let ty = self.ast.insert_path_from_ident(self_.with_value(Ident::self_upper()));
-                        let mut ty = self.ast.insert_ty_expr(
+                        let ty = self.hir.insert_path_from_ident(self_.with_value(Ident::self_upper()));
+                        let mut ty = self.hir.insert_ty_expr(
                             Span::new(mut_.map(|v| v.span.start).unwrap_or(self_.span.start), self_.span.end).spanned(TyExpr {
                                 muta: mut_.map(|v| v.with_value(())),
                                 data: self_.with_value(TyData::Path(ty)),
                             }));
                         if let Some(ref_) = ref_ {
-                            ty = self.ast.insert_ty_expr(
+                            ty = self.hir.insert_ty_expr(
                                 Span::new(ref_.span.start, self_.span.end).spanned(TyExpr {
                                     muta: None,
                                     data: ref_.with_value(TyData::Ref(ty))
@@ -370,8 +372,8 @@ impl<'a> Parser<'a> {
                     FnDeclArg { pub_name, priv_name, ty }
                 };
                 let start = arg.pub_name.span.start;
-                let end = self.ast.node_kind(arg.ty).span.end;
-                args.push(self.ast.insert_fn_decl_arg(Span::new(start, end).spanned(arg)));
+                let end = self.hir.node_kind(arg.ty).span.end;
+                args.push(self.hir.insert_fn_decl_arg(Span::new(start, end).spanned(arg)));
             }
 
             delimited = self.lex.maybe(Token::Comma).is_some();
@@ -390,13 +392,13 @@ impl<'a> Parser<'a> {
             None
         };
         let end = if let Some(body) = body {
-            self.ast.node_kind(body).span.end
+            self.hir.node_kind(body).span.end
         } else {
             self.expect(Token::Semi)?.span.end
         };
 
         let span = Span::new(start, end);
-        let decl = self.ast.insert_fn_decl(span.spanned(FnDecl {
+        let decl = self.hir.insert_fn_decl(span.spanned(FnDecl {
             name,
             vis,
             ty_args,
@@ -406,7 +408,7 @@ impl<'a> Parser<'a> {
             variadic,
             body,
         }));
-        Ok(self.ast.insert_fn(span.spanned(Fn_ { decl })))
+        Ok(self.hir.insert_fn(span.spanned(Fn_ { decl })))
     }
 
     fn expect(&mut self, tok: Token) -> PResult<S<Token>> {
@@ -459,10 +461,10 @@ impl<'a> Parser<'a> {
             Token::Amp | Token::AmpAmp => {
                 self.lex.consume();
                 let ty = self.ty_expr()?;
-                let end = self.ast.node_kind(ty).span.end;
+                let end = self.hir.node_kind(ty).span.end;
                 let span = Span::new(tok.span.start + 1, end);
                 let data = if tok.value == Token::AmpAmp {
-                    TyData::Ref(self.ast.insert_ty_expr(span.spanned(TyExpr {
+                    TyData::Ref(self.hir.insert_ty_expr(span.spanned(TyExpr {
                         muta: None,
                         data: span.spanned(TyData::Ref(ty)),
                     })))
@@ -474,7 +476,7 @@ impl<'a> Parser<'a> {
             Token::Star => {
                 self.lex.consume();
                 let ty = self.ty_expr()?;
-                (self.ast.node_kind(ty).span.end, TyData::Ptr(ty))
+                (self.hir.node_kind(ty).span.end, TyData::Ptr(ty))
             },
             Token::BlockOpen(lex::Block::Bracket) => {
                 self.lex.consume();
@@ -498,15 +500,15 @@ impl<'a> Parser<'a> {
             }
             Token::BlockOpen(lex::Block::Brace) => {
                 let struct_ = self.struct_type(false)?;
-                (self.ast.node_kind(struct_).span.end, TyData::Struct(struct_))
+                (self.hir.node_kind(struct_).span.end, TyData::Struct(struct_))
             }
             _ => {
                 let path = self.sym_path(true)?;
-                (self.ast.node_kind(path).span.end, TyData::Path(path))
+                (self.hir.node_kind(path).span.end, TyData::Path(path))
             }
         };
         let data = Span::new(tok.span.start, end).spanned(data);
-        Ok(self.ast.insert_ty_expr(Span::new(start, end).spanned(TyExpr { muta, data })))
+        Ok(self.hir.insert_ty_expr(Span::new(start, end).spanned(TyExpr { muta, data })))
     }
 
     fn maybe_path_anchor(&mut self) -> PResult<Option<S<PathAnchor>>> {
@@ -588,7 +590,7 @@ impl<'a> Parser<'a> {
             };
 
             let ty_args = if self.lex.nth(0).value == Token::Lt {
-                // FIXME remove added AST nodes when restoring state
+                // FIXME remove added HIR nodes when restoring state
                 let save = self.lex.save_state();
                 match self.path_ty_args() {
                     Ok(ty_args) => {
@@ -640,7 +642,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(Some(self.ast.insert_path_from_items(anchor, items)))
+        Ok(Some(self.hir.insert_path_from_items(anchor, items)))
     }
 
     fn maybe_as_ident(&mut self) -> PResult<Option<S<Ident>>> {
@@ -655,7 +657,7 @@ impl<'a> Parser<'a> {
         let renamed_as = self.maybe_as_ident()?;
         let end = renamed_as.as_ref().map(|v| v.span.end)
             .unwrap_or(ident.span.end);
-        Ok(self.ast.insert_path_end_ident(Span::new(ident.span.start, end).spanned(
+        Ok(self.hir.insert_path_end_ident(Span::new(ident.span.start, end).spanned(
             PathEndIdent {
                 item: PathItem {
                     ident,
@@ -677,7 +679,7 @@ impl<'a> Parser<'a> {
                 }
                 Token::Star => {
                     self.lex.consume();
-                    self.ast.insert_path_end_star(tok.span)
+                    self.hir.insert_path_end_star(tok.span)
                 }
                 Token::Ident => {
                     // Is this a leaf?
@@ -708,11 +710,11 @@ impl<'a> Parser<'a> {
             }
         };
         if suffix.is_empty() {
-            suffix.push(self.ast.insert_path_end_empty(Span::new(list.unwrap().span.start, end.unwrap())));
+            suffix.push(self.hir.insert_path_end_empty(Span::new(list.unwrap().span.start, end.unwrap())));
         }
         let start = list.map(|v| v.span.start)
-            .unwrap_or_else(|| self.ast.node_kind(*suffix.first().unwrap()).span.start);
-        let end = end.unwrap_or_else(|| self.ast.node_kind(*suffix.last().unwrap()).span.end);
+            .unwrap_or_else(|| self.hir.node_kind(*suffix.first().unwrap()).span.start);
+        let end = end.unwrap_or_else(|| self.hir.node_kind(*suffix.last().unwrap()).span.end);
         Ok(Span::new(start, end).spanned(suffix))
     }
 
@@ -765,7 +767,7 @@ impl<'a> Parser<'a> {
         let suffix = self.path_suffix()?;
         let span_start = prefix.first().map(|v| v.ident.span.start)
             .unwrap_or(suffix.span.start);
-        Ok(self.ast.insert_path_segment(Span::new(span_start, suffix.span.end).spanned(
+        Ok(self.hir.insert_path_segment(Span::new(span_start, suffix.span.end).spanned(
             PathSegment {
                 prefix,
                 suffix: suffix.value,
@@ -814,7 +816,7 @@ impl<'a> Parser<'a> {
 
         loop {
             let name = self.ident()?;
-            ty_args.push(self.ast.insert_type_arg(name.span.spanned(TypeArg {
+            ty_args.push(self.hir.insert_type_arg(name.span.spanned(TypeArg {
                 name,
             })));
 
@@ -865,7 +867,7 @@ impl<'a> Parser<'a> {
                 // If we have empty expression in the middle of block or
                 // semicolon at the end of the block, add an empty unnamed struct.
                 if expr.is_none() || end.is_some() {
-                    exprs.push(self.ast.insert_struct_value(semi.span.spanned(StructValue {
+                    exprs.push(self.hir.insert_struct_value(semi.span.spanned(StructValue {
                         name: None,
                         anonymous_fields: None,
                         fields: Vec::new(),
@@ -878,7 +880,7 @@ impl<'a> Parser<'a> {
             }
 
             if semi.is_none() &&
-                expr.map(|v| !is_item(self.ast.node_kind(v).value)).unwrap_or(true)
+                expr.map(|v| !is_item(self.hir.node_kind(v).value)).unwrap_or(true)
             {
                 let tok = self.lex.nth(0);
                 return self.fatal(tok.span,
@@ -886,14 +888,14 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Ok(self.ast.insert_block(Span::new(start, end).spanned(Block {
+        Ok(self.hir.insert_block(Span::new(start, end).spanned(Block {
             exprs,
         })))
     }
 
     fn unary_op(&mut self, span: Span, kind: UnaryOpKind, state: ExprState) -> PResult<NodeId> {
         let arg = self.expr(state.with_min_prec(UNARY_PREC.prec))?;
-        Ok(self.ast.insert_op(Span::new(span.start, self.ast.node_kind(arg).span.end).spanned(
+        Ok(self.hir.insert_op(Span::new(span.start, self.hir.node_kind(arg).span.end).spanned(
             Op::Unary(UnaryOp {
                 kind: span.spanned(kind),
                 arg,
@@ -907,9 +909,9 @@ impl<'a> Parser<'a> {
         state: ExprState,
     ) -> PResult<NodeId> {
         let right = self.expr(state)?;
-        let start = self.ast.node_kind(left).span.start;
-        let end = self.ast.node_kind(right).span.end;
-        Ok(self.ast.insert_op(Span::new(start, end).spanned(
+        let start = self.hir.node_kind(left).span.start;
+        let end = self.hir.node_kind(right).span.end;
+        Ok(self.hir.insert_op(Span::new(start, end).spanned(
             Op::Binary(BinaryOp {
                 kind: span.spanned(kind),
                 left,
@@ -920,7 +922,7 @@ impl<'a> Parser<'a> {
     fn check_assoc_defined(&self, left: NodeId, op: S<Token>, f: impl Fn(BinaryOpKind) -> bool)
         -> PResult<()>
     {
-        if self.ast.try_op(left)
+        if self.hir.try_op(left)
             .and_then(|n| n.as_binary())
             .filter(|b| f(b.kind.value))
             .is_some()
@@ -975,9 +977,9 @@ impl<'a> Parser<'a> {
                     .map(|t| t.span.spanned(lex::label(&self.s[t.span.range()])));
                 let value = self.maybe_expr(Default::default())?;
                 let span_end = label.as_ref().map(|t| t.span.end)
-                    .or(value.map(|v| self.ast.node_kind(v).span.end))
+                    .or(value.map(|v| self.hir.node_kind(v).span.end))
                     .unwrap_or(tok.span.end);
-                self.ast.insert_block_flow_ctl(tok.span.extended(span_end).spanned(BlockFlowCtl {
+                self.hir.insert_block_flow_ctl(tok.span.extended(span_end).spanned(BlockFlowCtl {
                     kind: BlockFlowCtlKind::Break,
                     label,
                     value,
@@ -985,7 +987,7 @@ impl<'a> Parser<'a> {
             }
             Token::Keyword(Keyword::Continue) => {
                 self.lex.consume();
-               self.ast.insert_block_flow_ctl(tok.span.spanned(BlockFlowCtl {
+               self.hir.insert_block_flow_ctl(tok.span.spanned(BlockFlowCtl {
                     kind: BlockFlowCtlKind::Continue,
                     label: None,
                     value: None,
@@ -994,10 +996,10 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::Return) => {
                 self.lex.consume();
                 let value = self.maybe_expr(Default::default())?;
-                let span_end = value.map(|v| self.ast.node_kind(v).span.end)
+                let span_end = value.map(|v| self.hir.node_kind(v).span.end)
                     .unwrap_or(tok.span.end);
 
-                self.ast.insert_block_flow_ctl(tok.span.extended(span_end).spanned(BlockFlowCtl {
+                self.hir.insert_block_flow_ctl(tok.span.extended(span_end).spanned(BlockFlowCtl {
                     kind: BlockFlowCtlKind::Return,
                     label: None,
                     value,
@@ -1006,7 +1008,7 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::False) | Token::Keyword(Keyword::True) => {
                 self.lex.consume();
                 let v = tok.value == Token::Keyword(Keyword::True);
-                self.ast.insert_literal(tok.span.spanned(Literal::Bool(v)))
+                self.hir.insert_literal(tok.span.spanned(Literal::Bool(v)))
             }
             Token::Literal(_) => {
                 self.literal()?
@@ -1039,9 +1041,9 @@ impl<'a> Parser<'a> {
                     RangeKind::Inclusive
                 };
                 let end = self.maybe_expr(Default::default())?;
-                let span_end = end.map(|v| self.ast.node_kind(v).span.end)
+                let span_end = end.map(|v| self.hir.node_kind(v).span.end)
                     .unwrap_or(tok.span.end);
-                self.ast.insert_range(tok.span.extended(span_end).spanned(Range {
+                self.hir.insert_range(tok.span.extended(span_end).spanned(Range {
                     kind,
                     start: None,
                     end,
@@ -1056,7 +1058,7 @@ impl<'a> Parser<'a> {
                     ..Default::default()
                 })?;
                 if needs_parens {
-                    return self.fatal(self.ast.node_kind(cond).span,
+                    return self.fatal(self.hir.node_kind(cond).span,
                         "parenthesis are required here");
                 }
                 let if_true = self.block()?;
@@ -1065,8 +1067,8 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
-                let end = self.ast.node_kind(if_false.unwrap_or(if_true)).span.end;
-                self.ast.insert_if_expr(tok.span.extended(end).spanned(IfExpr {
+                let end = self.hir.node_kind(if_false.unwrap_or(if_true)).span.end;
+                self.hir.insert_if_expr(tok.span.extended(end).spanned(IfExpr {
                     cond,
                     if_true,
                     if_false,
@@ -1091,16 +1093,16 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
-                let end = init.or(ty).map(|v| self.ast.node_kind(v).span.end)
+                let end = init.or(ty).map(|v| self.hir.node_kind(v).span.end)
                     .unwrap_or(name.span.end);
                 let span = Span::new(start, end);
-                let decl = self.ast.insert_let_decl(span.spanned(LetDecl {
+                let decl = self.hir.insert_let_decl(span.spanned(LetDecl {
                     mut_,
                     name,
                     ty,
                     init,
                 }));
-                self.ast.insert_let(span.spanned(Let {
+                self.hir.insert_let(span.spanned(Let {
                     decl,
                 }))
             }
@@ -1113,11 +1115,11 @@ impl<'a> Parser<'a> {
                     ..Default::default()
                 })?;
                 if needs_parens {
-                    return self.fatal(self.ast.node_kind(cond).span,
+                    return self.fatal(self.hir.node_kind(cond).span,
                         "parenthesis are required here");
                 }
                 let block = self.block()?;
-                self.ast.insert_while(tok.span.extended(self.ast.node_kind(block).span.end).spanned(While {
+                self.hir.insert_while(tok.span.extended(self.hir.node_kind(block).span.end).spanned(While {
                     cond,
                     block,
                 }))
@@ -1126,7 +1128,7 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::Loop) => {
                 self.lex.consume();
                 let block = self.block()?;
-                self.ast.insert_loop(tok.span.extended(self.ast.node_kind(block).span.end).spanned(Loop {
+                self.hir.insert_loop(tok.span.extended(self.hir.node_kind(block).span.end).spanned(Loop {
                     block,
                 }))
             }
@@ -1145,7 +1147,7 @@ impl<'a> Parser<'a> {
                 // Named struct value.
                 Token::BlockOpen(lex::Block::Brace)
                     if state.parse_struct_value
-                        && self.ast.node_kind(left).value == NodeKind::Path
+                        && self.hir.node_kind(left).value == NodeKind::Path
                 => {
                     NAMED_STRUCT_VALUE_PREC
                 }
@@ -1212,7 +1214,7 @@ impl<'a> Parser<'a> {
                 | Token::AmpEq
                 => {
                     if !state.at_group_start {
-                        let start = self.ast.node_kind(left).span.start;
+                        let start = self.hir.node_kind(left).span.start;
                         return self.fatal(Span::new(start, tok.span.end),
                             "this assignment operator usage requires parenthesis");
                     }
@@ -1267,9 +1269,9 @@ impl<'a> Parser<'a> {
                 match tok.value {
                     // Named struct value.
                     Token::BlockOpen(lex::Block::Brace)
-                        if self.ast.node_kind(left).value == NodeKind::Path =>
+                        if self.hir.node_kind(left).value == NodeKind::Path =>
                     {
-                        self.block_or_struct(Some(left), self.ast.node_kind(left).span.start)?
+                        self.block_or_struct(Some(left), self.hir.node_kind(left).span.start)?
                     }
 
                     Token::Dot => {
@@ -1287,14 +1289,14 @@ impl<'a> Parser<'a> {
                         r
                     }
                     Token::Quest => {
-                        self.ast.insert_op(self.ast.node_kind(left).span.extended(tok.span.end).spanned(
+                        self.hir.insert_op(self.hir.node_kind(left).span.extended(tok.span.end).spanned(
                             Op::Unary(UnaryOp {
                                 kind: tok.span.spanned(UnaryOpKind::PropagatingUnwrap),
                                 arg: left,
                             })))
                     }
                     Token::Excl => {
-                        self.ast.insert_op(self.ast.node_kind(left).span.extended(tok.span.end).spanned(
+                        self.hir.insert_op(self.hir.node_kind(left).span.extended(tok.span.end).spanned(
                             Op::Unary(UnaryOp {
                                 kind: tok.span.spanned(UnaryOpKind::PanickingUnwrap),
                                 arg: left,
@@ -1302,9 +1304,9 @@ impl<'a> Parser<'a> {
                     }
                     Token::Keyword(Keyword::As) => {
                         let ty = self.ty_expr()?;
-                        let span = self.ast.node_kind(left).span
-                            .extended(self.ast.node_kind(ty).span.end);
-                        self.ast.insert_cast(span.spanned(
+                        let span = self.hir.node_kind(left).span
+                            .extended(self.hir.node_kind(ty).span.end);
+                        self.hir.insert_cast(span.spanned(
                             Cast {
                                 expr: left,
                                 ty,
@@ -1318,9 +1320,9 @@ impl<'a> Parser<'a> {
                             RangeKind::Inclusive
                         };
                         let end = self.maybe_expr(Default::default())?;
-                        let span_end = end.map(|v| self.ast.node_kind(v).span.end)
+                        let span_end = end.map(|v| self.hir.node_kind(v).span.end)
                             .unwrap_or(tok.span.end);
-                        self.ast.insert_range(tok.span.extended(span_end).spanned(Range {
+                        self.hir.insert_range(tok.span.extended(span_end).spanned(Range {
                             kind,
                             start: Some(left),
                             end,
@@ -1339,7 +1341,7 @@ impl<'a> Parser<'a> {
             Token::Ident => {
                 let ident = self.ident()?;
                 if self.lex.maybe(Token::BlockOpen(lex::Block::Paren)).is_some() {
-                    let callee = self.ast.insert_path_from_ident(ident);
+                    let callee = self.hir.insert_path_from_ident(ident);
                     return self.fn_call(callee, Some(receiver));
                 }
                 ident.map(Field::Ident)
@@ -1361,8 +1363,8 @@ impl<'a> Parser<'a> {
                     &format!("expected field identifier or tuple field index, found `{:?}`", field.value));
             }
         };
-        let span = self.ast.node_kind(receiver).span.extended(field.span.end);
-        Ok(self.ast.insert_field_access(span.spanned(
+        let span = self.hir.node_kind(receiver).span.extended(field.span.end);
+        Ok(self.hir.insert_field_access(span.spanned(
             FieldAccess {
                 receiver,
                 field,
@@ -1418,8 +1420,8 @@ impl<'a> Parser<'a> {
                 break tok.span.end;
             }
         };
-        let span = self.ast.node_kind(callee).span.extended(end);
-        Ok(self.ast.insert_fn_call(span.spanned(FnCall {
+        let span = self.hir.node_kind(callee).span.extended(end);
+        Ok(self.hir.insert_fn_call(span.spanned(FnCall {
             callee,
             kind,
             args,
@@ -1450,7 +1452,7 @@ impl<'a> Parser<'a> {
                 self.char_literal(tok.span)?
             }
         };
-        Ok(self.ast.insert_literal(tok.with_value(lit)))
+        Ok(self.hir.insert_literal(tok.with_value(lit)))
     }
 
     fn int_literal(&mut self) -> PResult<S<IntLiteral>> {
@@ -1503,8 +1505,8 @@ impl<'a> Parser<'a> {
 
         let start = vis.as_ref().map(|v| v.span.start)
             .unwrap_or(name.span.start);
-        let end = self.ast.node_kind(ty).span.end;
-        Ok(self.ast.insert_struct(Span::new(start, end).spanned(Struct {
+        let end = self.hir.node_kind(ty).span.end;
+        Ok(self.hir.insert_struct(Span::new(start, end).spanned(Struct {
             vis,
             name,
             ty_args,
@@ -1543,7 +1545,7 @@ impl<'a> Parser<'a> {
         let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap()
             .span.end;
 
-        Ok(self.ast.insert_impl(Span::new(start, end).spanned(Impl {
+        Ok(self.hir.insert_impl(Span::new(start, end).spanned(Impl {
             ty_args,
             trait_,
             for_,
@@ -1589,7 +1591,7 @@ impl<'a> Parser<'a> {
             return self.fatal(end, "expected `,`");
         }
 
-        Ok(self.ast.insert_struct_type(Span::new(start, end.end).spanned(StructType {
+        Ok(self.hir.insert_struct_type(Span::new(start, end.end).spanned(StructType {
             fields,
         })))
     }
@@ -1662,7 +1664,7 @@ impl<'a> Parser<'a> {
                 _ => {
                     assert!(!is_struct);
                     if let Some(save) = save {
-                        // FIXME remove added AST nodes
+                        // FIXME remove added HIR nodes
                         self.lex.restore_state(save);
                     }
                     Probe::Block
@@ -1706,14 +1708,14 @@ impl<'a> Parser<'a> {
                 }
                 let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
 
-                self.ast.insert_struct_value(Span::new(start, end).spanned(StructValue {
+                self.hir.insert_struct_value(Span::new(start, end).spanned(StructValue {
                     name: struct_name,
                     anonymous_fields,
                     fields,
                 }))
             }
             Probe::EmptyStruct { end } => {
-                self.ast.insert_struct_value(Span::new(start, end).spanned(StructValue {
+                self.hir.insert_struct_value(Span::new(start, end).spanned(StructValue {
                     name: struct_name,
                     anonymous_fields: None,
                     fields: Vec::new(),
@@ -1726,19 +1728,19 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn parse_file_with(path: impl AsRef<StdPath>, fs: &mut dyn Fs) -> PResult<Ast> {
+pub fn parse_file_with(path: impl AsRef<StdPath>, fs: &mut dyn Fs) -> PResult<Hir> {
     let path = path.as_ref().to_path_buf();
-    let mut ast = Ast::new();
+    let mut hir = Hir::new();
     let content = Parser::read_file(fs, &path)?;
-    let source_id = ast.insert_source(Source {
+    let source_id = hir.insert_source(Source {
         mod_name: None,
         path,
     });
-    Parser::new(&content, source_id, fs, &mut ast).parse()?;
-    Ok(ast)
+    Parser::new(&content, source_id, fs, &mut hir).parse()?;
+    Ok(hir)
 }
 
-pub fn parse_file(path: impl AsRef<StdPath>) -> PResult<Ast> {
+pub fn parse_file(path: impl AsRef<StdPath>) -> PResult<Hir> {
     struct StdFs;
     impl Fs for StdFs {
         fn read_file(&mut self, path: &StdPath) -> io::Result<String> {
@@ -1748,7 +1750,7 @@ pub fn parse_file(path: impl AsRef<StdPath>) -> PResult<Ast> {
     parse_file_with(path, &mut StdFs)
 }
 
-pub fn parse_str(s: &str) -> PResult<Ast> {
+pub fn parse_str(s: &str) -> PResult<Hir> {
     struct NotFoundFs;
     impl Fs for NotFoundFs {
         fn read_file(&mut self, _path: &StdPath) -> io::Result<String> {
@@ -1756,13 +1758,13 @@ pub fn parse_str(s: &str) -> PResult<Ast> {
         }
     }
 
-    let mut ast = Ast::new();
-    let source_id = ast.insert_source(Source {
+    let mut hir = Hir::new();
+    let source_id = hir.insert_source(Source {
         mod_name: None,
         path: source_file_name("unnamed"),
     });
-    Parser::new(s, source_id, &mut NotFoundFs, &mut ast).parse()?;
-    Ok(ast)
+    Parser::new(s, source_id, &mut NotFoundFs, &mut hir).parse()?;
+    Ok(hir)
 }
 
 pub fn is_item(kind: NodeKind) -> bool {

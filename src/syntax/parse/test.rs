@@ -8,12 +8,12 @@ fn test() {
 
     for &(name, inp, exp) in data {
         eprintln!("test: {}", name);
-        let ast = crate::syntax::parse::parse_str(inp).unwrap();
-        assert_eq!(ast.display().to_string(), exp.unwrap_or(inp), "{}", name);
+        let hir = crate::syntax::parse::parse_str(inp).unwrap();
+        assert_eq!(hir.display().to_string(), exp.unwrap_or(inp), "{}", name);
 
         if let Some(exp) = exp {
-            let ast = crate::syntax::parse::parse_str(exp).unwrap();
-            assert_eq!(ast.display().to_string(), exp, "expected output doesn't parse into itself: {}", name);
+            let hir = crate::syntax::parse::parse_str(exp).unwrap();
+            assert_eq!(hir.display().to_string(), exp, "expected output doesn't parse into itself: {}", name);
         }
     }
 }
@@ -36,24 +36,24 @@ fn mod_file_resolution() {
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not found"))
         }
     }
-    let ast = crate::syntax::parse::parse_file_with("foo/bar/main.cz", &mut Fs(files)).unwrap();
-    assert_eq!(ast.sources.len(), 3);
+    let hir = crate::syntax::parse::parse_file_with("foo/bar/main.cz", &mut Fs(files)).unwrap();
+    assert_eq!(hir.sources().count(), 3);
 
-    let root_mod = ast.module(ast.root);
-    let src = ast.source(root_mod.source_id.unwrap());
+    let root_mod = hir.module(hir.root);
+    let src = hir.source(root_mod.source_id.unwrap());
     assert_eq!(src.mod_name, None);
     assert_eq!(&src.path, &Path::new("foo/bar/main.cz"));
 
-    let mod1 = ast.module(root_mod.items[0]);
-    let src = ast.source(mod1.source_id.unwrap());
+    let mod1 = hir.module(root_mod.items[0]);
+    let src = hir.source(mod1.source_id.unwrap());
     assert_eq!(src.mod_name, Some("mod1".into()));
     assert_eq!(&src.path, &Path::new("foo/bar/mod1.cz"));
 
-    let mod2 = ast.module(mod1.items[0]);
-    let src = ast.source(mod2.source_id.unwrap());
+    let mod2 = hir.module(mod1.items[0]);
+    let src = hir.source(mod2.source_id.unwrap());
     assert_eq!(src.mod_name, Some("mod2".into()));
     assert_eq!(&src.path, &Path::new("foo/bar/mod1/mod2.cz"));
 
-    let mod3 = ast.module(root_mod.items[1]);
+    let mod3 = hir.module(root_mod.items[1]);
     assert_eq!(mod3.source_id, None);
 }
