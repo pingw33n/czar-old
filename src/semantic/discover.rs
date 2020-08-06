@@ -333,13 +333,13 @@ impl HirVisitor for Build<'_> {
             => {},
         }
 
-        if has_scope(ctx.kind) {
+        if scope_kind(ctx.kind).is_some() {
             self.scope_stack.push(ctx.node);
         }
     }
 
     fn after_node(&mut self, ctx: HirVisitorCtx) {
-        if has_scope(ctx.kind) {
+        if scope_kind(ctx.kind) == Some(ScopeKind::Strong) {
             loop {
                 let scope = self.scope_stack.pop().unwrap();
                 if let Some(parent) = self.scope_stack.last().copied() {
@@ -361,7 +361,15 @@ impl HirVisitor for Build<'_> {
     }
 }
 
-fn has_scope(kind: NodeKind) -> bool {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ScopeKind {
+    Strong,
+
+    /// Weak scope ends when the parent strong scope ends.
+    Weak,
+}
+
+fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
     use NodeKind::*;
     match kind {
         | Fn_
@@ -372,7 +380,7 @@ fn has_scope(kind: NodeKind) -> bool {
         | PathEndStar
         | PathSegment
         | UseStmt
-        => false,
+        => None,
 
         | Block
         | BlockFlowCtl
@@ -383,7 +391,6 @@ fn has_scope(kind: NodeKind) -> bool {
         | FnDeclArg
         | IfExpr
         | Impl
-        | LetDecl
         | Literal
         | Loop
         | Module
@@ -395,6 +402,8 @@ fn has_scope(kind: NodeKind) -> bool {
         | TyExpr
         | TypeArg
         | While
-        => true,
+        => Some(ScopeKind::Strong),
+
+        LetDecl => Some(ScopeKind::Weak),
     }
 }
