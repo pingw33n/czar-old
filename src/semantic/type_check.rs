@@ -1,4 +1,5 @@
 use enum_as_inner::EnumAsInner;
+use if_chain::if_chain;
 use slab::Slab;
 use std::collections::HashMap;
 
@@ -9,7 +10,7 @@ use super::*;
 use super::discover::{DiscoverData, NsKind};
 use crate::package::{GlobalNodeId, PackageId, Packages};
 use super::resolve::ResolveData;
-use crate::semantic::resolve::{NsKindOption, Resolver};
+use crate::semantic::resolve::Resolver;
 
 #[derive(Clone, Copy, Debug)]
 pub enum PrimitiveType {
@@ -92,11 +93,19 @@ impl Types {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResoCtx {
+    Import,
+    Type,
+    Value,
+}
+
 pub struct TypeCheck<'a> {
     pub resolve_data: &'a ResolveData,
     pub types: &'a mut Types,
     pub package_id: PackageId,
     pub packages: &'a Packages,
+    pub reso_ctxs: Vec<ResoCtx>,
 }
 
 impl TypeCheck<'_> {
@@ -113,9 +122,9 @@ impl TypeCheck<'_> {
             (&["bool", "bool"][..], LangType::Bool, PrimitiveType::Bool),
             (&["i32", "i32"][..], LangType::I32, PrimitiveType::I32),
         ] {
-            let node = resolver.resolve_in_package(
-                NsKindOption::Require(NsKind::Type),
-                path);
+            let node = resolver.resolve_in_package(path)
+                .nodes()[NsKind::Type]
+                .unwrap();
             assert!(node.0.is_std());
             let id = self.types.insert_type(Type {
                 node,
@@ -167,83 +176,24 @@ impl TypeCheck<'_> {
             &self.packages.get(package_id).hir
         }
     }
-}
 
-impl HirVisitor for TypeCheck<'_> {
-    fn node(&mut self, ctx: HirVisitorCtx) {
-        if self.types.try_typing(ctx.node).is_some() {
-            return;
+    fn push_reso_ctx(&mut self, link: NodeLink) {
+        if let Some(v) = reso_req(link) {
+            self.reso_ctxs.push(v);
         }
-        let ty = match ctx.kind {
-            NodeKind::FnDecl => {
-                let FnDecl {
-                    args,
-                    ret_ty,
-                    unsafe_,
-                    body,
-                    .. } = ctx.hir.fn_decl(ctx.node);
-                let args: Vec<_> = args.iter()
-                    .copied()
-                    .map(|n| self.build_type(n, ctx.hir))
-                    .collect();
-                let result = ret_ty.map(|n| self.build_type(n, ctx.hir))
-                    .unwrap_or_else(|| self.lang_type(LangType::Unit));
-                self.insert_type(Type {
-                    node: (self.package_id, ctx.node),
-                    data: TypeData::Fn(FnType {
-                        args,
-                        result,
-                        unsafe_: unsafe_.is_some(),
-                        extern_: body.is_none(),
-                    }),
-                })
-            }
-            NodeKind::Literal => {
-                match ctx.hir.literal(ctx.node) {
-                    &Literal::Bool(_) => self.lang_type(LangType::Bool),
-                    &Literal::Int(IntLiteral { ty, .. }) => {
-                        if let Some(ty) = ty {
-                            match ty {
-                                IntTypeSuffix::I32 => self.lang_type(LangType::I32),
-                                _ => unimplemented!()
-                            }
-                        } else {
-                            // FIXME
-                            self.lang_type(LangType::I32)
-                        }
-                    },
-                    &Literal::Unit => self.lang_type(LangType::Unit),
-                    _ => unimplemented!()
-                }
-            }
-            | NodeKind::Module
-            | NodeKind::Struct
-            | NodeKind::StructType
-            | NodeKind::StructValue
-            | NodeKind::FnDeclArg
-            | NodeKind::TyExpr
-            | NodeKind::Path
-            | NodeKind::PathEndEmpty
-            | NodeKind::PathEndIdent
-            | NodeKind::PathEndStar
-            | NodeKind::PathSegment
-            | NodeKind::Block
-            | NodeKind::IfExpr
-            | NodeKind::Op
-            | NodeKind::Let
-            | NodeKind::LetDecl
-            | NodeKind::FnCall
-            | NodeKind::Fn_
-            | NodeKind::UseStmt
-            => return,
-            _ => {
-                unimplemented!("{:?}", ctx.hir.node_kind(ctx.node));
-            },
-        };
-        self.types.insert_typing(ctx.node, ty);
     }
 
-    fn after_node(&mut self, ctx: HirVisitorCtx) {
+    fn pop_reso_ctx(&mut self, link: NodeLink) {
+        if let Some(v) = reso_req(link) {
+            assert_eq!(self.reso_ctxs.pop().unwrap(), v);
+        }
+    }
+
+    fn reso_ctx(&self) -> ResoCtx {
+        *self.reso_ctxs.last().unwrap()
+    }
+
+    fn after_node0(&mut self, ctx: HirVisitorCtx) {
         if self.types.try_typing(ctx.node).is_some() {
             return;
         }
@@ -418,24 +368,57 @@ impl HirVisitor for TypeCheck<'_> {
                 self.lang_type(LangType::Unit)
             }
             NodeKind::Path => {
-                self.types.typing(ctx.hir.path(ctx.node).segment)
+                if self.reso_ctx() == ResoCtx::Import {
+                    return;
+                } else {
+                    self.types.typing(ctx.hir.path(ctx.node).segment)
+                }
             }
             NodeKind::PathEndIdent => {
-                if let Some((package, target)) = self.resolve_data.try_target_of(ctx.node) {
-                    if package == self.package_id {
-                        self.build_type(target, ctx.hir)
+                let reso = self.resolve_data.resolution_of(ctx.node);
+                assert!(!reso.is_empty());
+                let reso_ctx = self.reso_ctx();
+                let expected_ns_kind = match reso_ctx {
+                    ResoCtx::Import => None,
+                    ResoCtx::Type => Some(NsKind::Type),
+                    ResoCtx::Value => Some(NsKind::Value),
+                };
+                let (pkg, node) = if_chain! {
+                    if let Some(node) = reso.nodes()[expected_ns_kind.unwrap_or(reso.type_or_other_kind().unwrap())];
+                    let kind = self.hir(ctx.hir, node.0).node_kind(node.1).value;
+                    if is_valid_in_reso_ctx(kind, reso_ctx);
+                    then {
+                        node
                     } else {
-                        self.packages.get(package).types.typing(target)
+                        let found = reso.type_or_other().unwrap();
+                        let found_kind = self.hir(ctx.hir, found.0).node_kind(found.1).value;
+                        if let Some(expected_ns_kind) = expected_ns_kind {
+                            fatal(ctx.hir.node_kind(ctx.node).span,
+                                format_args!("expected {:?}, found {:?}", expected_ns_kind, found_kind));
+                        } else {
+                            fatal(ctx.hir.node_kind(ctx.node).span,
+                                format_args!("{:?} can't be imported", found_kind));
+                        }
                     }
-                } else {
+                };
+                if reso_ctx == ResoCtx::Import {
                     return;
+                }
+                if pkg == self.package_id {
+                    self.build_type(node, ctx.hir)
+                } else {
+                    self.packages.get(pkg).types.typing(node)
                 }
             }
             NodeKind::PathSegment => {
-                if let Some(&suffix) = ctx.hir.path_segment(ctx.node).suffix.first() {
-                    self.types.typing(suffix)
-                } else {
-                    return;
+                if_chain! {
+                    if self.reso_ctx() != ResoCtx::Import;
+                    if let Some(&suffix) = ctx.hir.path_segment(ctx.node).suffix.first();
+                    then {
+                        self.types.typing(suffix)
+                    } else {
+                        return;
+                    }
                 }
             }
             NodeKind::TyExpr => {
@@ -460,5 +443,152 @@ impl HirVisitor for TypeCheck<'_> {
             _ => unimplemented!("{:?}", ctx.hir.node_kind(ctx.node))
         };
         self.types.insert_typing(ctx.node, ty);
+    }
+}
+
+impl HirVisitor for TypeCheck<'_> {
+    fn node(&mut self, ctx: HirVisitorCtx) {
+        self.push_reso_ctx(ctx.link);
+
+        if self.types.try_typing(ctx.node).is_some() {
+            return;
+        }
+        let ty = match ctx.kind {
+            NodeKind::FnDecl => {
+                let FnDecl {
+                    args,
+                    ret_ty,
+                    unsafe_,
+                    body,
+                    .. } = ctx.hir.fn_decl(ctx.node);
+                let args: Vec<_> = args.iter()
+                    .copied()
+                    .map(|n| self.build_type(n, ctx.hir))
+                    .collect();
+                let result = ret_ty.map(|n| self.build_type(n, ctx.hir))
+                    .unwrap_or_else(|| self.lang_type(LangType::Unit));
+                self.insert_type(Type {
+                    node: (self.package_id, ctx.node),
+                    data: TypeData::Fn(FnType {
+                        args,
+                        result,
+                        unsafe_: unsafe_.is_some(),
+                        extern_: body.is_none(),
+                    }),
+                })
+            }
+            NodeKind::Literal => {
+                match ctx.hir.literal(ctx.node) {
+                    &Literal::Bool(_) => self.lang_type(LangType::Bool),
+                    &Literal::Int(IntLiteral { ty, .. }) => {
+                        if let Some(ty) = ty {
+                            match ty {
+                                IntTypeSuffix::I32 => self.lang_type(LangType::I32),
+                                _ => unimplemented!()
+                            }
+                        } else {
+                            // FIXME
+                            self.lang_type(LangType::I32)
+                        }
+                    },
+                    &Literal::Unit => self.lang_type(LangType::Unit),
+                    _ => unimplemented!()
+                }
+            }
+            | NodeKind::Module
+            | NodeKind::Struct
+            | NodeKind::StructType
+            | NodeKind::StructValue
+            | NodeKind::FnDeclArg
+            | NodeKind::TyExpr
+            | NodeKind::Path
+            | NodeKind::PathEndEmpty
+            | NodeKind::PathEndIdent
+            | NodeKind::PathEndStar
+            | NodeKind::PathSegment
+            | NodeKind::Block
+            | NodeKind::IfExpr
+            | NodeKind::Op
+            | NodeKind::Let
+            | NodeKind::LetDecl
+            | NodeKind::FnCall
+            | NodeKind::Fn_
+            | NodeKind::UseStmt
+            => return,
+            _ => {
+                unimplemented!("{:?}", ctx.hir.node_kind(ctx.node));
+            },
+        };
+        self.types.insert_typing(ctx.node, ty);
+    }
+
+    fn after_node(&mut self, ctx: HirVisitorCtx) {
+        self.after_node0(ctx);
+        self.pop_reso_ctx(ctx.link);
+    }
+}
+
+fn reso_req(link: NodeLink) -> Option<ResoCtx> {
+    use NodeLink::*;
+    Some(match link {
+        | BlockExpr
+        | BlockFlowCtlValue
+        | Cast(CastLink::Expr)
+        | FieldAccessReceiver
+        | FnCall(_)
+        | Fn(FnLink::Body)
+        | IfExpr(_)
+        | Let(LetLink::Init)
+        | LoopBlock
+        | Op(_)
+        | Range(_)
+        | StructValueValue
+        | TyExpr(TyExprLink::Array(ArrayLink::Len))
+        | While(_)
+        => ResoCtx::Value,
+
+        | Cast(CastLink::Type)
+        | Fn(FnLink::TypeArg)
+        | Fn(FnLink::RetType)
+        | FnDeclArgType
+        | Impl(ImplLink::TypeArg)
+        | Let(LetLink::Type)
+        | Path(PathLink::EndIdentTyArgs)
+        | Path(PathLink::SegmentItemTyArgs)
+        | StructDecl(_)
+        | StructTypeFieldType
+        | TyExpr(_)
+        => ResoCtx::Type,
+
+        UseStmtPath => ResoCtx::Import,
+
+        | Fn(_)
+        | Impl(_)
+        | Let(_)
+        | ModuleItem
+        | Path(_)
+        | Root
+        => return None,
+    })
+}
+
+fn is_valid_in_reso_ctx(kind: NodeKind, reso_ctx: ResoCtx) -> bool {
+    use NodeKind::*;
+    match reso_ctx {
+        ResoCtx::Import => {
+            kind != LetDecl && (
+                is_valid_in_reso_ctx(kind, ResoCtx::Type)
+                || is_valid_in_reso_ctx(kind, ResoCtx::Value))
+        },
+        ResoCtx::Type => kind == Struct,
+        ResoCtx::Value => {
+            match kind {
+                | FnDecl
+                | FnDeclArg
+                | LetDecl
+                => true,
+                _ => false,
+            }
+        },
     }
 }

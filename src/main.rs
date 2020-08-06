@@ -33,6 +33,7 @@ fn compile_package(s: &str, name: Ident, packages: &mut Packages) -> PackageId {
             types: &mut types,
             package_id,
             packages,
+            reso_ctxs: Default::default(),
         };
         if package_id.is_std() {
             tc.build_lang_types(&discover_data, &hir);
@@ -82,6 +83,13 @@ fn main() {
         }
 
         fn main() {
+            mod bar {
+                fn f() -> i32 {
+                    let x: i32 = 0;
+                    use f as Z;
+                    42
+                }
+            }
             print_i32(fib(10));
         }
 
