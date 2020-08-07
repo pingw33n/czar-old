@@ -67,7 +67,7 @@ pub type TypeId = (PackageId, LocalTypeId);
 pub struct Types {
     types: Slab<Type>,
     typings: NodeMap<TypeId>,
-    lang_types: HashMap<LangType, LocalTypeId>,
+    lang_types: Option<Box<HashMap<LangType, LocalTypeId>>>,
 }
 
 impl Types {
@@ -96,11 +96,14 @@ impl Types {
     }
 
     pub fn lang(&self, ty: LangType) -> LocalTypeId {
-        self.lang_types[&ty]
+        self.lang_types.as_ref().unwrap()[&ty]
     }
 
-    pub fn set_lang(&mut self, lang: LangType, ty: LocalTypeId) {
-        assert!(self.lang_types.insert(lang, ty).is_none());
+    pub fn insert_lang_type(&mut self, lang_ty: LangType, ty: LocalTypeId) {
+        if self.lang_types.is_none() {
+            self.lang_types = Some(Box::new(HashMap::new()));
+        }
+        assert!(self.lang_types.as_mut().unwrap().insert(lang_ty, ty).is_none());
     }
 }
 
@@ -138,7 +141,7 @@ impl TypeCheck<'_> {
                 .unwrap();
             assert!(node.0.is_std());
             let ty = self.insert_typing(node.1, TypeData::Primitive(ty));
-            self.types.set_lang(lang, ty.1);
+            self.types.insert_lang_type(lang, ty.1);
         }
     }
 
@@ -341,7 +344,7 @@ impl TypeCheck<'_> {
                     v
                 } else {
                     let span = ctx.hir.node_kind(*callee).span;
-                    panic!("[{}:{}] expected function", span.start, span.end);
+                    fatal(span, "expected function");
                 };
 
                 let formal_args = &self.hir(ctx.hir, callee_ty.node.0).fn_decl(callee_ty.node.1).args;
@@ -369,13 +372,13 @@ impl TypeCheck<'_> {
                 let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
                 if !matches!(self.typing(cond).data(), TypeData::Primitive(PrimitiveType::Bool)) {
                     let span = ctx.hir.node_kind(cond).span;
-                    panic!("[{}:{}] expected bool expr", span.start, span.end);
+                    fatal(span, "expected bool expr");
                 }
                 let if_true_ty = self.types.typing(if_true);
                 if let Some(if_false) = if_false {
                     if self.types.typing(if_false) != if_true_ty {
                         let span = ctx.hir.node_kind(cond).span;
-                        panic!("[{}:{}] `if` arms have incompatible types", span.start, span.end);
+                        fatal(span, "`if` arms have incompatible types");
                     }
                 }
                 if_true_ty
@@ -433,9 +436,8 @@ impl TypeCheck<'_> {
                                         !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
                                         let op_span = ctx.hir.node_kind(ctx.node).span;
-                                        panic!("operation `+` at [{}:{}] is not defined for {:?} and {:?}",
-                                            op_span.start, op_span.end,
-                                            left_ty, right_ty);
+                                        fatal(op_span, format_args!("operation `+` is not defined for {:?} and {:?}",
+                                            left_ty, right_ty));
                                     }
                                 }
                                 left_ty
@@ -448,9 +450,8 @@ impl TypeCheck<'_> {
                                         !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
                                         let op_span = ctx.hir.node_kind(ctx.node).span;
-                                        panic!("operation `-` at [{}:{}] is not defined for {:?} and {:?}",
-                                            op_span.start, op_span.end,
-                                            left_ty, right_ty);
+                                        fatal(op_span, format_args!("operation `-` is not defined for {:?} and {:?}",
+                                            left_ty, right_ty));
                                     }
                                 }
                                 left_ty
