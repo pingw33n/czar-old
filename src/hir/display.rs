@@ -32,7 +32,7 @@ impl Display<'_> {
                         .take(if no_result { exprs.len() - 1 } else { exprs.len() });
                     for (i, &expr) in it {
                         self.node(expr, true, p)?;
-                        if !crate::syntax::parse::is_item(self.hir.node_kind(expr).value)
+                        if crate::syntax::parse::needs_trailing_semi(self.hir.node_kind(expr).value)
                             && (no_result || i < exprs.len() - 1)
                         {
                             p.println(";")?;

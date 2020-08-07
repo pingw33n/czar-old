@@ -880,7 +880,7 @@ impl<'a> Parser<'a> {
             }
 
             if semi.is_none() &&
-                expr.map(|v| !is_item(self.hir.node_kind(v).value)).unwrap_or(true)
+                expr.map(|v| needs_trailing_semi(self.hir.node_kind(v).value)).unwrap_or(true)
             {
                 let tok = self.lex.nth(0);
                 return self.fatal(tok.span,
@@ -1767,7 +1767,7 @@ pub fn parse_str(s: &str) -> PResult<Hir> {
     Ok(hir)
 }
 
-pub fn is_item(kind: NodeKind) -> bool {
+pub fn needs_trailing_semi(kind: NodeKind) -> bool {
     use NodeKind::*;
     match kind {
         | Block
@@ -1781,7 +1781,7 @@ pub fn is_item(kind: NodeKind) -> bool {
         // `;` is the part of the `use` itself.
         | UseStmt
         | While
-        => true,
+        => false,
 
         | BlockFlowCtl
         | Cast
@@ -1802,6 +1802,6 @@ pub fn is_item(kind: NodeKind) -> bool {
         | TyExpr
         | TypeArg
         | StructValue
-        => false,
+        => true,
     }
 }
