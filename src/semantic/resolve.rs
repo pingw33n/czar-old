@@ -48,7 +48,7 @@ struct Build<'a> {
 }
 
 impl HirVisitor for Build<'_> {
-    fn node(&mut self, ctx: HirVisitorCtx) {
+    fn before_node(&mut self, ctx: HirVisitorCtx) {
         match ctx.kind {
             NodeKind::PathEndIdent | NodeKind::PathEndStar => {
                 let target = Resolver {

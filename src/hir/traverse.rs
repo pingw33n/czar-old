@@ -139,7 +139,6 @@ pub struct HirVisitorCtx<'a> {
 
 pub trait HirVisitor {
     fn before_node(&mut self, _ctx: HirVisitorCtx) {}
-    fn node(&mut self, _ctx: HirVisitorCtx) {}
     fn after_node(&mut self, _ctx: HirVisitorCtx) {}
 }
 
@@ -157,10 +156,6 @@ impl<T: HirVisitor> Traverser<'_, T> {
         self.visitor.before_node(HirVisitorCtx { node, kind, link: link_kind, hir: self.hir });
     }
 
-    fn node(&mut self, node: NodeId, kind: NodeKind, link_kind: NodeLink) {
-        self.visitor.node(HirVisitorCtx { node, kind, link: link_kind, hir: self.hir });
-    }
-
     fn after_node(&mut self, node: NodeId, kind: NodeKind, link_kind: NodeLink) {
         self.visitor.after_node(HirVisitorCtx { node, kind, link: link_kind, hir: self.hir });
     }
@@ -168,7 +163,6 @@ impl<T: HirVisitor> Traverser<'_, T> {
     fn traverse0(&mut self, node: NodeId, link_kind: NodeLink) {
         let kind = self.hir.node_kind(node).value;
         self.before_node(node, kind, link_kind);
-        self.node(node, kind, link_kind);
 
         match kind {
             NodeKind::Block => {

@@ -159,11 +159,8 @@ impl DiscoverData {
         }
 
         impl HirVisitor for Visitor<'_> {
-            fn before_node(&mut self, _ctx: HirVisitorCtx) {
+            fn before_node(&mut self, ctx: HirVisitorCtx) {
                 self.indent += 1;
-            }
-
-            fn node(&mut self, ctx: HirVisitorCtx) {
                 self.print_indent();
                 let node = ctx.hir.node_kind(ctx.node);
                 if let Some(name) = ctx.hir.try_module(ctx.node)

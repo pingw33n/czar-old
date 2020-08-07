@@ -566,7 +566,7 @@ impl TypeCheck<'_> {
 }
 
 impl HirVisitor for TypeCheck<'_> {
-    fn node(&mut self, ctx: HirVisitorCtx) {
+    fn before_node(&mut self, ctx: HirVisitorCtx) {
         if let Some(v) = reso_req(ctx.link) {
             self.reso_ctxs.push(v);
         }
