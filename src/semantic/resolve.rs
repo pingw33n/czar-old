@@ -58,6 +58,12 @@ impl HirVisitor for Build<'_> {
                     package_id: self.package_id,
                     packages: self.packages,
                 }.resolve_node(ctx.node);
+                if ctx.kind == NodeKind::PathEndStar
+                    && target.package_id().map(|v| v != self.package_id).unwrap_or(false)
+                {
+                    fatal(ctx.hir.node_kind(ctx.node).span,
+                        "wildcard imports can only reference symbols from the same package")
+                }
                 self.resolve_data.insert(ctx.node, target);
             }
             _ => {}
@@ -67,38 +73,40 @@ impl HirVisitor for Build<'_> {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Resolution {
-    nodes: EnumMap<NsKind, Option<GlobalNodeId>>,
+    package_id: Option<PackageId>,
+    nodes: EnumMap<NsKind, Option<NodeId>>,
 }
 
 impl Resolution {
-    pub fn new(nodes: EnumMap<NsKind, Option<GlobalNodeId>>) -> Self {
-        let mut pkg = None;
-        for kind in NsKind::iter() {
-            if let Some((p, _)) = nodes[kind] {
-                assert_eq!(pkg.replace(p).unwrap_or(p), p);
-            }
-        }
-        Self { nodes }
-    }
-
     pub fn single(kind: NsKind, target: GlobalNodeId) -> Self {
         let mut r = Self::default();
-        r.nodes[kind] = Some(target);
+        r.package_id = Some(target.0);
+        r.nodes[kind] = Some(target.1);
         r
     }
 
-    pub fn nodes(self) -> EnumMap<NsKind, Option<GlobalNodeId>> {
-        self.nodes
+    pub fn package_id(self) -> Option<PackageId> {
+        self.package_id
+    }
+
+    pub fn local_node(self, kind: NsKind) -> Option<NodeId> {
+        self.nodes[kind]
+    }
+
+    pub fn node(self, kind: NsKind) -> Option<GlobalNodeId> {
+        self.nodes[kind].map(|n| (self.package_id.unwrap(), n))
+    }
+
+    pub fn set_node(&mut self, kind: NsKind, node: GlobalNodeId) {
+        assert_eq!(self.package_id.replace(node.0).unwrap_or(node.0), node.0);
+        self.nodes[kind] = Some(node.1);
     }
 
     pub fn type_or_other(self) -> Option<GlobalNodeId> {
-        self.type_or_other_kind().map(|k| self.nodes[k].unwrap())
+        self.type_or_other_kind().map(|k| self.node(k).unwrap())
     }
 
     pub fn type_or_other_kind(self) -> Option<NsKind> {
-        if cfg!(debug_assertions) {
-
-        }
         if self.nodes[NsKind::Type].is_some() {
             return Some(NsKind::Type);
         }
@@ -111,7 +119,7 @@ impl Resolution {
     }
 
     pub fn is_empty(self) -> bool {
-        self.type_or_other_kind().is_none()
+        self.package_id.is_none()
     }
 
     pub fn non_empty(self) -> Option<Self> {
@@ -251,7 +259,7 @@ impl<'a> Resolver<'a> {
                 // TODO cache this
                 let std_prelude = std_resolver
                     .resolve_in_package(&["prelude", "v1"])
-                    .nodes[NsKind::Type]
+                    .node(NsKind::Type)
                     .unwrap();
                 if_chain! {
                     if !paths.contains(&std_prelude);
@@ -351,7 +359,7 @@ impl<'a> Resolver<'a> {
                     if self.hir.node_kind(node).value == NodeKind::PathEndIdent {
                         return self.resolve(node, paths);
                     } else {
-                        r.nodes[ns_kind] = Some((self.package_id, node));
+                        r.set_node(ns_kind, (self.package_id, node));
                     }
                 }
             } else {

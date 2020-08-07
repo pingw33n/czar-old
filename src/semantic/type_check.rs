@@ -186,7 +186,7 @@ impl Impl<'_> {
             (&["i32", "i32"][..], LangType::I32, PrimitiveType::I32),
         ] {
             let node = resolver.resolve_in_package(path)
-                .nodes()[NsKind::Type]
+                .node(NsKind::Type)
                 .unwrap();
             assert!(node.0.is_std());
             let ty = self.insert_typing(node.1, TypeData::Primitive(ty));
@@ -548,7 +548,7 @@ impl Impl<'_> {
                     ResoCtx::Value => Some(NsKind::Value),
                 };
                 let (pkg, node) = if_chain! {
-                    if let Some(node) = reso.nodes()[expected_ns_kind.unwrap_or(reso.type_or_other_kind().unwrap())];
+                    if let Some(node) = reso.node(expected_ns_kind.unwrap_or(reso.type_or_other_kind().unwrap()));
                     let kind = self.hir(ctx.hir, node.0).node_kind(node.1).value;
                     if is_valid_in_reso_ctx(kind, reso_ctx);
                     then {
