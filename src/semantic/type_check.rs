@@ -262,7 +262,6 @@ impl TypeCheck<'_> {
             | NodeKind::Block
             | NodeKind::FnCall
             | NodeKind::FnDeclArg
-            | NodeKind::Fn_
             | NodeKind::IfExpr
             | NodeKind::Let
             | NodeKind::LetDecl
@@ -316,7 +315,7 @@ impl TypeCheck<'_> {
                     match ctx.hir.node_kind(expr).value {
                         | Impl
                         | Loop
-                        | Fn_
+                        | FnDecl
                         | Module
                         | Struct
                         | UseStmt
@@ -327,9 +326,6 @@ impl TypeCheck<'_> {
                 } else {
                     self.lang_type(LangType::Unit)
                 }
-            }
-            NodeKind::Fn_ => {
-                self.types.typing(ctx.hir.fn_(ctx.node).decl)
             }
             NodeKind::FnCall => {
                 let FnCall {

@@ -398,7 +398,7 @@ impl<'a> Parser<'a> {
         };
 
         let span = Span::new(start, end);
-        let decl = self.hir.insert_fn_decl(span.spanned(FnDecl {
+        Ok(self.hir.insert_fn_decl(span.spanned(FnDecl {
             name,
             vis,
             ty_args,
@@ -407,8 +407,7 @@ impl<'a> Parser<'a> {
             unsafe_,
             variadic,
             body,
-        }));
-        Ok(self.hir.insert_fn(span.spanned(Fn_ { decl })))
+        })))
     }
 
     fn expect(&mut self, tok: Token) -> PResult<S<Token>> {
@@ -1774,7 +1773,7 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | Impl
         | IfExpr
         | Loop
-        | Fn_
+        | FnDecl
         | Module
         | Struct
         | StructType
@@ -1787,7 +1786,6 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | Cast
         | FieldAccess
         | FnCall
-        | FnDecl
         | FnDeclArg
         | Let
         | LetDecl

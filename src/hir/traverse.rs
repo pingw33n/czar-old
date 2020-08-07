@@ -193,10 +193,6 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     self.traverse0(arg.value, NodeLink::FnCall(FnCallLink::ArgValue));
                 }
             },
-            NodeKind::Fn_ => {
-                let &Fn_ { decl } = self.hir.fn_(node);
-                self.traverse0(decl, NodeLink::Fn(FnLink::Decl));
-            }
             NodeKind::FnDecl => {
                 let FnDecl {
                     ty_args,

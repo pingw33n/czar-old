@@ -32,7 +32,6 @@ pub enum NodeKind {
     Cast,
     FieldAccess,
     FnCall,
-    Fn_,
     FnDecl,
     FnDeclArg,
     IfExpr,
@@ -75,7 +74,6 @@ pub struct Hir {
     block_flow_ctls: NodeMap<BlockFlowCtl>,
     casts: NodeMap<Cast>,
     field_accesses: NodeMap<FieldAccess>,
-    fns: NodeMap<Fn_>,
     fn_decls: NodeMap<FnDecl>,
     fn_decl_args: NodeMap<FnDeclArg>,
     fn_calls: NodeMap<FnCall>,
@@ -220,7 +218,6 @@ impl Hir {
         insert_block_flow_ctl, block_flow_ctl, block_flow_ctl_mut, try_block_flow_ctl, try_block_flow_ctl_mut, block_flow_ctls, BlockFlowCtl;
         insert_cast, cast, cast_mut, try_cast, try_cast_mut, casts, Cast;
         insert_field_access, field_access, field_access_mut, try_field_access, try_field_access_mut, field_accesses, FieldAccess;
-        insert_fn, fn_, fn_mut, try_fn, try_fn_mut, fns, Fn_;
         insert_fn_decl, fn_decl, fn_decl_mut, try_fn_decl, try_fn_decl_mut, fn_decls, FnDecl;
         insert_fn_decl_arg, fn_decl_arg, fn_decl_arg_mut, try_fn_decl_arg, try_fn_decl_arg_mut, fn_decl_args, FnDeclArg;
         insert_fn_call, fn_call, fn_call_mut, try_fn_call, try_fn_call_mut, fn_calls, FnCall;
@@ -451,11 +448,6 @@ pub struct ModuleName {
 #[derive(Debug)]
 pub struct TypeArg {
     pub name: S<Ident>,
-}
-
-#[derive(Debug)]
-pub struct Fn_ {
-    pub decl: NodeId,
 }
 
 #[derive(Debug)]

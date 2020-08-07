@@ -77,10 +77,6 @@ impl Display<'_> {
 
                 p.print(&field.value)?;
             }
-            NodeKind::Fn_ => {
-                let &Fn_ { decl } = self.hir.fn_(node);
-                self.node(decl, at_group_level, p)?;
-            }
             NodeKind::FnDecl => {
                 let FnDecl {
                     name,

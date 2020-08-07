@@ -255,7 +255,6 @@ impl HirVisitor for Build<'_> {
         }
 
         match ctx.kind {
-            NodeKind::Fn_ => {}
             NodeKind::FnDecl => {
                 let name = ctx.hir.fn_decl(ctx.node).name.clone();
                 self.insert(NsKind::Value, name, ctx.node);
@@ -369,7 +368,6 @@ enum ScopeKind {
 fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
     use NodeKind::*;
     match kind {
-        | Fn_
         | Let
         | Path
         | PathEndEmpty
