@@ -53,7 +53,7 @@ pub enum NodeKind {
     StructValue,
     TyExpr,
     TypeArg,
-    UseStmt,
+    Use,
     While,
 }
 
@@ -94,7 +94,7 @@ pub struct Hir {
     struct_values: NodeMap<StructValue>,
     ty_exprs: NodeMap<TyExpr>,
     type_args: NodeMap<TypeArg>,
-    use_stmts: NodeMap<UseStmt>,
+    uses: NodeMap<Use>,
     whiles: NodeMap<While>,
 
     sources: Slab<Source>,
@@ -238,7 +238,7 @@ impl Hir {
         insert_struct_value, struct_value, struct_value_mut, try_struct_value, try_struct_value_mut, struct_values, StructValue;
         insert_ty_expr, ty_expr, ty_expr_mut, try_ty_expr, try_ty_expr_mut, ty_exprs, TyExpr;
         insert_type_arg, type_arg, type_arg_mut, try_type_arg, try_type_arg_mut, type_args, TypeArg;
-        insert_use_stmt, use_stmt, use_stmt_mut, try_use_stmt, try_use_stmt_mut, use_stmts, UseStmt;
+        insert_use, use_, use_mut, try_use, try_use_mut, uses, Use;
         insert_while, while_, while_mut, try_while, try_while_mut, whiles, While;
     }
     node_ops! {
@@ -656,7 +656,7 @@ pub struct Struct {
 }
 
 #[derive(Debug)]
-pub struct UseStmt {
+pub struct Use {
     pub vis: Option<S<Vis>>,
     pub path: NodeId,
 }

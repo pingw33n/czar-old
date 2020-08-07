@@ -34,7 +34,7 @@ pub enum NodeLink {
     StructTypeFieldType,
     StructValueValue,
     TyExpr(TyExprLink),
-    UseStmtPath,
+    UsePath,
     Let(LetLink),
     While(WhileLink),
 }
@@ -341,9 +341,9 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 }
             },
             NodeKind::TypeArg => {},
-            NodeKind::UseStmt => {
-                let UseStmt { path , ..} = self.hir.use_stmt(node);
-                self.traverse0(*path, NodeLink::UseStmtPath);
+            NodeKind::Use => {
+                let Use { path , ..} = self.hir.use_(node);
+                self.traverse0(*path, NodeLink::UsePath);
             },
             NodeKind::While => {
                 let &While { cond, block, .. } = self.hir.while_(node);

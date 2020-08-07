@@ -172,7 +172,7 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::Fn) => self.fn_(vis)?,
             Token::Keyword(Keyword::Mod) => self.module(top_level, vis)?,
             Token::Keyword(Keyword::Static) => unimplemented!(),
-            Token::Keyword(Keyword::Use) => self.use_stmt(vis)?,
+            Token::Keyword(Keyword::Use) => self.use_(vis)?,
             Token::Keyword(Keyword::Struct) => self.struct_(vis)?,
             Token::Keyword(Keyword::Impl) => {
                 if let Some(vis) = vis {
@@ -264,7 +264,7 @@ impl<'a> Parser<'a> {
     }
 
     // use <path>;
-    fn use_stmt(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
+    fn use_(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
         let start = self.expect(Token::Keyword(Keyword::Use))?.span.start;
         let anchor = self.maybe_path_anchor()?;
         let segment = self.use_path_segment()?;
@@ -277,8 +277,8 @@ impl<'a> Parser<'a> {
                 anchor,
                 segment
             }));
-        Ok(self.hir.insert_use_stmt(Span::new(start, segment_span.end).spanned(
-            UseStmt {
+        Ok(self.hir.insert_use(Span::new(start, segment_span.end).spanned(
+            Use {
                 vis,
                 path,
             })))
@@ -1778,7 +1778,7 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | Struct
         | StructType
         // `;` is the part of the `use` itself.
-        | UseStmt
+        | Use
         | While
         => false,
 

@@ -276,7 +276,7 @@ impl TypeCheck<'_> {
             | NodeKind::StructType
             | NodeKind::StructValue
             | NodeKind::TyExpr
-            | NodeKind::UseStmt
+            | NodeKind::Use
             => {},
             _ => {
                 unimplemented!("{:?}", ctx.hir.node_kind(ctx.node));
@@ -318,7 +318,7 @@ impl TypeCheck<'_> {
                         | FnDecl
                         | Module
                         | Struct
-                        | UseStmt
+                        | Use
                         | While
                         => self.lang_type(LangType::Unit),
                         _ => self.types.typing(expr)
@@ -551,7 +551,7 @@ impl TypeCheck<'_> {
             }
             | NodeKind::PathEndEmpty
             | NodeKind::PathEndStar
-            | NodeKind::UseStmt
+            | NodeKind::Use
             => {
                 self.lang_type(LangType::Unit)
             },
@@ -616,7 +616,7 @@ fn reso_req(link: NodeLink) -> Option<ResoCtx> {
         | TyExpr(_)
         => ResoCtx::Type,
 
-        UseStmtPath => ResoCtx::Import,
+        UsePath => ResoCtx::Import,
 
         | Fn(_)
         | Impl(_)

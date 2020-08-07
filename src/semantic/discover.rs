@@ -302,7 +302,7 @@ impl HirVisitor for Build<'_> {
                 assert!(self.in_use);
                 self.insert_wildcard_import(ctx.node);
             }
-            NodeKind::UseStmt => {
+            NodeKind::Use => {
                 assert!(!self.in_use);
                 self.in_use = true;
             }
@@ -350,7 +350,7 @@ impl HirVisitor for Build<'_> {
         if *self.module_stack.last().unwrap() == ctx.node {
             self.module_stack.pop().unwrap();
         }
-        if ctx.kind == NodeKind::UseStmt {
+        if ctx.kind == NodeKind::Use {
             assert!(self.in_use);
             self.in_use = false;
         }
@@ -374,7 +374,7 @@ fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
         | PathEndIdent
         | PathEndStar
         | PathSegment
-        | UseStmt
+        | Use
         => None,
 
         | Block

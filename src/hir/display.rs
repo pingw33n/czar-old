@@ -507,8 +507,8 @@ impl Display<'_> {
                 }
             }
             NodeKind::TypeArg => unreachable!(),
-            NodeKind::UseStmt => {
-                let UseStmt { vis, path } = self.hir.use_stmt(node);
+            NodeKind::Use => {
+                let Use { vis, path } = self.hir.use_(node);
                 self.vis(vis, p)?;
                 p.print_sep("use ")?;
                 self.path(*path, p)?;
