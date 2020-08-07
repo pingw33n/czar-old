@@ -84,6 +84,9 @@ fn main() {
 
         fn main() {
             mod bar {
+                struct S {
+                    f: S
+                }
                 fn f() -> i32 {
                     let x: i32 = 0;
                     use f as Z;

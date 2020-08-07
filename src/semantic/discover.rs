@@ -272,6 +272,11 @@ impl HirVisitor for Build<'_> {
 
                 self.insert(NsKind::Value, priv_name.clone(), ctx.node);
             },
+            NodeKind::Let => {},
+            NodeKind::LetDecl => {
+                let name = ctx.hir.let_decl(ctx.node).name.clone();
+                self.insert(NsKind::Value, name, ctx.node);
+            },
             NodeKind::Module => {
                 self.module_stack.push(ctx.node);
 
@@ -301,11 +306,6 @@ impl HirVisitor for Build<'_> {
                 assert!(self.in_use);
                 self.insert_wildcard_import(ctx.node);
             }
-            NodeKind::Let => {},
-            NodeKind::LetDecl => {
-                let name = ctx.hir.let_decl(ctx.node).name.clone();
-                self.insert(NsKind::Value, name, ctx.node);
-            },
             NodeKind::UseStmt => {
                 assert!(!self.in_use);
                 self.in_use = true;

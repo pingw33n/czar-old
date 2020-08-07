@@ -22,7 +22,13 @@ pub enum PrimitiveType {
 #[derive(Debug)]
 pub struct Type {
     pub node: GlobalNodeId,
-    pub data: TypeData,
+    pub data: Option<TypeData>,
+}
+
+impl Type {
+    pub fn data(&self) -> &TypeData {
+        self.data.as_ref().unwrap()
+    }
 }
 
 #[derive(Debug, EnumAsInner)]
@@ -30,6 +36,7 @@ pub enum TypeData {
     Fn(FnType),
     Primitive(PrimitiveType),
     Struct(StructType),
+    Type(LocalTypeId),
 }
 
 #[derive(Debug)]
@@ -68,16 +75,20 @@ impl Types {
         &self.types[id]
     }
 
+    pub fn type_mut(&mut self, id: LocalTypeId) -> &mut Type {
+        &mut self.types[id]
+    }
+
+    pub fn insert_type(&mut self, ty: Type) -> LocalTypeId {
+        self.types.insert(ty)
+    }
+
     pub fn typing(&self, node: NodeId) -> TypeId {
         self.typings[&node]
     }
 
     pub fn try_typing(&self, node: NodeId) -> Option<TypeId> {
         self.typings.get(&node).copied()
-    }
-
-    pub fn insert_type(&mut self, ty: Type) -> LocalTypeId {
-        self.types.insert(ty)
     }
 
     pub fn insert_typing(&mut self, node: NodeId, ty: TypeId) {
@@ -126,12 +137,8 @@ impl TypeCheck<'_> {
                 .nodes()[NsKind::Type]
                 .unwrap();
             assert!(node.0.is_std());
-            let id = self.types.insert_type(Type {
-                node,
-                data: TypeData::Primitive(ty),
-            });
-            self.types.insert_typing(node.1, (node.0, id));
-            self.types.set_lang(lang, id);
+            let ty = self.insert_typing(node.1, TypeData::Primitive(ty));
+            self.types.set_lang(lang, ty.1);
         }
     }
 
@@ -152,21 +159,66 @@ impl TypeCheck<'_> {
         }
     }
 
-    fn lang_type(&self, ty: LangType) -> TypeId {
-        (PackageId::std(), self.types(PackageId::std()).lang(ty))
-    }
-
     fn type_(&self, id: TypeId) -> &Type {
         self.types(id.0).type_(id.1)
     }
 
-    fn typing(&self, node: NodeId) -> &Type {
-        let (pkg, ty) = self.types.typing(node);
-        self.types(pkg).type_(ty)
+    fn direct_type(&self, id: TypeId) -> &Type {
+        let ty = self.type_(id);
+        if let Some(&next_id) = ty.data().as_type() {
+            let ty = self.type_((id.0, next_id));
+            assert!(ty.data().as_type().is_none());
+            ty
+        } else {
+            ty
+        }
     }
 
-    fn insert_type(&mut self, ty: Type) -> TypeId {
-        (self.package_id, self.types.insert_type(ty))
+    fn insert_type(&mut self, node: NodeId, data: TypeData) -> TypeId {
+        (self.package_id, self.types.insert_type(Type {
+            node: (self.package_id, node),
+            data: Some(data),
+        }))
+    }
+
+    fn insert_typing(&mut self, node: NodeId, data: TypeData) -> TypeId {
+        let ty = self.insert_type(node, data);
+        self.types.insert_typing(node, ty);
+        ty
+    }
+
+    fn lang_type(&self, ty: LangType) -> TypeId {
+        (PackageId::std(), self.types(PackageId::std()).lang(ty))
+    }
+
+    fn typing(&self, node: NodeId) -> &Type {
+        self.try_typing(node).unwrap()
+    }
+
+    fn try_typing(&self, node: NodeId) -> Option<&Type> {
+        let (pkg, ty) = self.types.try_typing(node)?;
+        Some(self.types(pkg).type_(ty))
+    }
+
+    pub fn begin_typing(&mut self, node: NodeId) -> TypeId {
+        let ty = (self.package_id, self.types.insert_type(Type {
+            node: (self.package_id, node),
+            data: None
+        }));
+        self.types.insert_typing(node, ty);
+        ty
+    }
+
+    pub fn finish_typing(&mut self, node: NodeId, ty: TypeId) {
+        if let Some(id) = self.types.try_typing(node) {
+            assert_eq!(id.0, self.package_id);
+            let typ = self.types.type_mut(id.1);
+            assert_eq!(typ.node, (self.package_id, node));
+            assert_eq!(ty.0, self.package_id);
+            assert!(typ.data.replace(TypeData::Type(ty.1)).is_none());
+        } else {
+            self.types.insert_typing(node, ty)
+        }
     }
 
     fn hir<'a>(&'a self, this_hir: &'a Hir, package_id: PackageId) -> &'a Hir {
@@ -177,33 +229,107 @@ impl TypeCheck<'_> {
         }
     }
 
-    fn push_reso_ctx(&mut self, link: NodeLink) {
-        if let Some(v) = reso_req(link) {
-            self.reso_ctxs.push(v);
-        }
-    }
-
-    fn pop_reso_ctx(&mut self, link: NodeLink) {
-        if let Some(v) = reso_req(link) {
-            assert_eq!(self.reso_ctxs.pop().unwrap(), v);
-        }
-    }
 
     fn reso_ctx(&self) -> ResoCtx {
         *self.reso_ctxs.last().unwrap()
     }
 
-    fn after_node0(&mut self, ctx: HirVisitorCtx) {
-        if self.types.try_typing(ctx.node).is_some() {
-            return;
+    fn do_pre_typing(&mut self, ctx: HirVisitorCtx) {
+        match ctx.kind {
+            NodeKind::FnDecl => {
+                let FnDecl {
+                    args,
+                    ret_ty,
+                    unsafe_,
+                    body,
+                    .. } = ctx.hir.fn_decl(ctx.node);
+                let args: Vec<_> = args.iter()
+                    .copied()
+                    .map(|n| self.build_type(n, ctx.hir))
+                    .collect();
+                let result = ret_ty.map(|n| self.build_type(n, ctx.hir))
+                    .unwrap_or_else(|| self.lang_type(LangType::Unit));
+                self.insert_typing(ctx.node, TypeData::Fn(FnType {
+                    args,
+                    result,
+                    unsafe_: unsafe_.is_some(),
+                    extern_: body.is_none(),
+                }));
+            }
+            NodeKind::Struct => {
+                self.begin_typing(ctx.node);
+            }
+            | NodeKind::Block
+            | NodeKind::FnCall
+            | NodeKind::FnDeclArg
+            | NodeKind::Fn_
+            | NodeKind::IfExpr
+            | NodeKind::Let
+            | NodeKind::LetDecl
+            | NodeKind::Literal
+            | NodeKind::Module
+            | NodeKind::Op
+            | NodeKind::Path
+            | NodeKind::PathEndEmpty
+            | NodeKind::PathEndIdent
+            | NodeKind::PathEndStar
+            | NodeKind::PathSegment
+            | NodeKind::StructType
+            | NodeKind::StructValue
+            | NodeKind::TyExpr
+            | NodeKind::UseStmt
+            => {},
+            _ => {
+                unimplemented!("{:?}", ctx.hir.node_kind(ctx.node));
+            },
         }
+    }
+
+    fn check(&mut self, ctx: HirVisitorCtx) {
+        match ctx.kind {
+            NodeKind::FnDecl => {
+                let FnDecl {
+                    ret_ty,
+                    body,
+                    .. } = ctx.hir.fn_decl(ctx.node);
+                let formal_ret_ty = ret_ty
+                    .map(|n| self.types.typing(n))
+                    .unwrap_or(self.lang_type(LangType::Unit));
+                if let Some(body) = *body {
+                    let actual_ret_ty = self.types.typing(body);
+                    if actual_ret_ty != formal_ret_ty {
+                        let span = ctx.hir.node_kind(ctx.node).span;
+                        fatal(span, format_args!("`fn` actual type {:?} is incompatible with formal return type {:?}",
+                            self.direct_type(actual_ret_ty), self.direct_type(formal_ret_ty)));
+                    }
+                }
+            },
+            _ => {},
+        }
+    }
+
+    fn do_typing(&mut self, ctx: HirVisitorCtx) {
         let ty = match ctx.kind {
             NodeKind::Block => {
                 if let Some(&expr) = ctx.hir.block(ctx.node).exprs.last() {
-                    self.types.typing(expr)
+                    use NodeKind::*;
+                    match ctx.hir.node_kind(expr).value {
+                        | Impl
+                        | Loop
+                        | Fn_
+                        | Module
+                        | Struct
+                        | UseStmt
+                        | While
+                        => self.lang_type(LangType::Unit),
+                        _ => self.types.typing(expr)
+                    }
                 } else {
                     self.lang_type(LangType::Unit)
                 }
+            }
+            NodeKind::Fn_ => {
+                self.types.typing(ctx.hir.fn_(ctx.node).decl)
             }
             NodeKind::FnCall => {
                 let FnCall {
@@ -215,7 +341,7 @@ impl TypeCheck<'_> {
                 if *kind != FnCallKind::Free {
                     unimplemented!();
                 }
-                let fn_ty = if let Some(v) = callee_ty.data.as_fn() {
+                let fn_ty = if let Some(v) = callee_ty.data().as_fn() {
                     v
                 } else {
                     let span = ctx.hir.node_kind(*callee).span;
@@ -237,25 +363,6 @@ impl TypeCheck<'_> {
 
                 fn_ty.result
             }
-            NodeKind::Fn_ => {
-                let &Fn_ { decl } = ctx.hir.fn_(ctx.node);
-                let FnDecl {
-                    ret_ty,
-                    body,
-                    .. } = ctx.hir.fn_decl(decl);
-                let formal_ret_ty = ret_ty
-                    .map(|n| self.types.typing(n))
-                    .unwrap_or(self.lang_type(LangType::Unit));
-                if let Some(body) = *body {
-                    let actual_ret_ty = self.types.typing(body);
-                    if actual_ret_ty != formal_ret_ty {
-                        let span = ctx.hir.node_kind(ctx.node).span;
-                        panic!("[{}:{}] `fn` actual and format return types are incompatible",
-                            span.start, span.end);
-                    }
-                }
-                self.lang_type(LangType::Unit)
-            }
             NodeKind::FnDecl => {
                 unreachable!()
             }
@@ -264,7 +371,7 @@ impl TypeCheck<'_> {
             }
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
-                if !matches!(self.typing(cond).data, TypeData::Primitive(PrimitiveType::Bool)) {
+                if !matches!(self.typing(cond).data(), TypeData::Primitive(PrimitiveType::Bool)) {
                     let span = ctx.hir.node_kind(cond).span;
                     panic!("[{}:{}] expected bool expr", span.start, span.end);
                 }
@@ -281,12 +388,27 @@ impl TypeCheck<'_> {
                 self.lang_type(LangType::Bool)
             }
             NodeKind::LetDecl => {
-                let ty = ctx.hir.let_decl(ctx.node).ty.expect("unimplemented");
-                self.build_type(ty, ctx.hir)
+                self.types.typing(ctx.hir.let_decl(ctx.node).ty.expect("unimplemented"))
             }
-            NodeKind::Module => {
-                self.lang_type(LangType::Unit)
+            NodeKind::Literal => {
+                match ctx.hir.literal(ctx.node) {
+                    &Literal::Bool(_) => self.lang_type(LangType::Bool),
+                    &Literal::Int(IntLiteral { ty, .. }) => {
+                        if let Some(ty) = ty {
+                            match ty {
+                                IntTypeSuffix::I32 => self.lang_type(LangType::I32),
+                                _ => unimplemented!()
+                            }
+                        } else {
+                            // FIXME
+                            self.lang_type(LangType::I32)
+                        }
+                    },
+                    &Literal::Unit => self.lang_type(LangType::Unit),
+                    _ => unimplemented!()
+                }
             }
+            NodeKind::Module => return,
             NodeKind::Op => {
                 match ctx.hir.op(ctx.node) {
                     &Op::Binary(BinaryOp { kind, left, right }) => {
@@ -295,10 +417,10 @@ impl TypeCheck<'_> {
                         match kind.value {
                             BinaryOpKind::LtEq => {
                                 {
-                                    let left_ty = &self.type_(left_ty);
-                                    let right_ty = &self.type_(right_ty);
-                                    if !matches!(left_ty.data, TypeData::Primitive(PrimitiveType::I32)) ||
-                                        !matches!(right_ty.data, TypeData::Primitive(PrimitiveType::I32))
+                                    let left_ty = &self.direct_type(left_ty);
+                                    let right_ty = &self.direct_type(right_ty);
+                                    if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
+                                        !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
                                         let op_span = ctx.hir.node_kind(ctx.node).span;
                                         fatal(op_span, format_args!("operation `<=` at is not defined for {:?} and {:?}",
@@ -309,10 +431,10 @@ impl TypeCheck<'_> {
                             },
                             BinaryOpKind::Add => {
                                 {
-                                    let left_ty = &self.type_(left_ty);
-                                    let right_ty = &self.type_(right_ty);
-                                    if !matches!(left_ty.data, TypeData::Primitive(PrimitiveType::I32)) ||
-                                        !matches!(right_ty.data, TypeData::Primitive(PrimitiveType::I32))
+                                    let left_ty = &self.direct_type(left_ty);
+                                    let right_ty = &self.direct_type(right_ty);
+                                    if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
+                                        !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
                                         let op_span = ctx.hir.node_kind(ctx.node).span;
                                         panic!("operation `+` at [{}:{}] is not defined for {:?} and {:?}",
@@ -324,10 +446,10 @@ impl TypeCheck<'_> {
                             }
                             BinaryOpKind::Sub => {
                                 {
-                                    let left_ty = &self.type_(left_ty);
-                                    let right_ty = &self.type_(right_ty);
-                                    if !matches!(left_ty.data, TypeData::Primitive(PrimitiveType::I32)) ||
-                                        !matches!(right_ty.data, TypeData::Primitive(PrimitiveType::I32))
+                                    let left_ty = &self.direct_type(left_ty);
+                                    let right_ty = &self.direct_type(right_ty);
+                                    if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
+                                        !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
                                         let op_span = ctx.hir.node_kind(ctx.node).span;
                                         panic!("operation `-` at [{}:{}] is not defined for {:?} and {:?}",
@@ -344,20 +466,17 @@ impl TypeCheck<'_> {
                 }
             }
             NodeKind::Struct => {
-                self.lang_type(LangType::Unit)
+                self.types.typing(ctx.hir.struct_(ctx.node).ty)
             }
             NodeKind::StructType => {
                 let fields = &ctx.hir.struct_type(ctx.node).fields;
                 let fields: Vec<_> = fields
                     .iter()
-                    .map(|f| self.build_type(f.ty, ctx.hir))
+                    .map(|f| self.types.typing(f.ty))
                     .collect();
-                self.insert_type(Type {
-                    node: (self.package_id, ctx.node),
-                    data: TypeData::Struct(StructType {
-                        fields,
-                    }),
-                })
+                self.insert_type(ctx.node, TypeData::Struct(StructType {
+                    fields,
+                }))
             }
             NodeKind::StructValue => {
                 let StructValue { name, anonymous_fields, fields } = ctx.hir.struct_value(ctx.node);
@@ -369,7 +488,7 @@ impl TypeCheck<'_> {
             }
             NodeKind::Path => {
                 if self.reso_ctx() == ResoCtx::Import {
-                    return;
+                    return
                 } else {
                     self.types.typing(ctx.hir.path(ctx.node).segment)
                 }
@@ -442,89 +561,30 @@ impl TypeCheck<'_> {
             },
             _ => unimplemented!("{:?}", ctx.hir.node_kind(ctx.node))
         };
-        self.types.insert_typing(ctx.node, ty);
+        self.finish_typing(ctx.node, ty);
     }
 }
 
 impl HirVisitor for TypeCheck<'_> {
     fn node(&mut self, ctx: HirVisitorCtx) {
-        self.push_reso_ctx(ctx.link);
-
-        if self.types.try_typing(ctx.node).is_some() {
-            return;
+        if let Some(v) = reso_req(ctx.link) {
+            self.reso_ctxs.push(v);
         }
-        let ty = match ctx.kind {
-            NodeKind::FnDecl => {
-                let FnDecl {
-                    args,
-                    ret_ty,
-                    unsafe_,
-                    body,
-                    .. } = ctx.hir.fn_decl(ctx.node);
-                let args: Vec<_> = args.iter()
-                    .copied()
-                    .map(|n| self.build_type(n, ctx.hir))
-                    .collect();
-                let result = ret_ty.map(|n| self.build_type(n, ctx.hir))
-                    .unwrap_or_else(|| self.lang_type(LangType::Unit));
-                self.insert_type(Type {
-                    node: (self.package_id, ctx.node),
-                    data: TypeData::Fn(FnType {
-                        args,
-                        result,
-                        unsafe_: unsafe_.is_some(),
-                        extern_: body.is_none(),
-                    }),
-                })
-            }
-            NodeKind::Literal => {
-                match ctx.hir.literal(ctx.node) {
-                    &Literal::Bool(_) => self.lang_type(LangType::Bool),
-                    &Literal::Int(IntLiteral { ty, .. }) => {
-                        if let Some(ty) = ty {
-                            match ty {
-                                IntTypeSuffix::I32 => self.lang_type(LangType::I32),
-                                _ => unimplemented!()
-                            }
-                        } else {
-                            // FIXME
-                            self.lang_type(LangType::I32)
-                        }
-                    },
-                    &Literal::Unit => self.lang_type(LangType::Unit),
-                    _ => unimplemented!()
-                }
-            }
-            | NodeKind::Module
-            | NodeKind::Struct
-            | NodeKind::StructType
-            | NodeKind::StructValue
-            | NodeKind::FnDeclArg
-            | NodeKind::TyExpr
-            | NodeKind::Path
-            | NodeKind::PathEndEmpty
-            | NodeKind::PathEndIdent
-            | NodeKind::PathEndStar
-            | NodeKind::PathSegment
-            | NodeKind::Block
-            | NodeKind::IfExpr
-            | NodeKind::Op
-            | NodeKind::Let
-            | NodeKind::LetDecl
-            | NodeKind::FnCall
-            | NodeKind::Fn_
-            | NodeKind::UseStmt
-            => return,
-            _ => {
-                unimplemented!("{:?}", ctx.hir.node_kind(ctx.node));
-            },
-        };
-        self.types.insert_typing(ctx.node, ty);
+        if self.types.try_typing(ctx.node).is_none() {
+            self.do_pre_typing(ctx);
+        }
     }
 
     fn after_node(&mut self, ctx: HirVisitorCtx) {
-        self.after_node0(ctx);
-        self.pop_reso_ctx(ctx.link);
+        self.check(ctx);
+
+        if self.types.try_typing(ctx.node).is_none() {
+            self.do_typing(ctx);
+        }
+
+        if let Some(v) = reso_req(ctx.link) {
+            assert_eq!(self.reso_ctxs.pop().unwrap(), v);
+        }
     }
 }
 
