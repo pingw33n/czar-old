@@ -1,7 +1,8 @@
 use enum_as_inner::EnumAsInner;
 use if_chain::if_chain;
 use slab::Slab;
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 use crate::hir::*;
 use crate::hir::traverse::*;
@@ -21,11 +22,21 @@ pub enum PrimitiveType {
 
 #[derive(Debug)]
 pub struct Type {
-    pub node: GlobalNodeId,
-    pub data: Option<TypeData>,
+    package_id: PackageId,
+    id: LocalTypeId,
+    node: NodeId,
+    data: Option<TypeData>,
 }
 
 impl Type {
+    pub fn id(&self) -> TypeId {
+        (self.package_id, self.id)
+    }
+
+    pub fn node(&self) -> GlobalNodeId {
+        (self.package_id, self.node)
+    }
+
     pub fn data(&self) -> &TypeData {
         self.data.as_ref().unwrap()
     }
@@ -36,7 +47,7 @@ pub enum TypeData {
     Fn(FnType),
     Primitive(PrimitiveType),
     Struct(StructType),
-    Type(LocalTypeId),
+    Type(TypeId),
 }
 
 #[derive(Debug)]
@@ -79,8 +90,16 @@ impl Types {
         &mut self.types[id]
     }
 
-    pub fn insert_type(&mut self, ty: Type) -> LocalTypeId {
-        self.types.insert(ty)
+    pub fn insert_type(&mut self, node: GlobalNodeId, data: Option<TypeData>) -> TypeId {
+        let e = self.types.vacant_entry();
+        let id = e.key();
+        e.insert(Type {
+            package_id: node.0,
+            id,
+            node: node.1,
+            data,
+        });
+        (node.0, id)
     }
 
     pub fn typing(&self, node: NodeId) -> TypeId {
@@ -107,22 +126,52 @@ impl Types {
     }
 }
 
+pub struct TypeCheck<'a> {
+    pub package_id: PackageId,
+    pub hir: &'a Hir,
+    pub discover_data: &'a DiscoverData,
+    pub resolve_data: &'a ResolveData,
+    pub packages: &'a Packages,
+}
+
+impl TypeCheck<'_> {
+    pub fn run(self) -> Types {
+        let mut types = Types::default();
+        let tc = &mut Impl {
+            resolve_data: self.resolve_data,
+            types: &mut types,
+            package_id: self.package_id,
+            packages: self.packages,
+            reso_ctxs: Default::default(),
+            #[cfg(debug_assertions)]
+            type_id_set: Default::default(),
+        };
+        if self.package_id.is_std() {
+            tc.build_lang_types(self.discover_data, self.hir);
+        }
+        self.hir.traverse(tc);
+        types
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ResoCtx {
+enum ResoCtx {
     Import,
     Type,
     Value,
 }
 
-pub struct TypeCheck<'a> {
-    pub resolve_data: &'a ResolveData,
-    pub types: &'a mut Types,
-    pub package_id: PackageId,
-    pub packages: &'a Packages,
-    pub reso_ctxs: Vec<ResoCtx>,
+struct Impl<'a> {
+    resolve_data: &'a ResolveData,
+    types: &'a mut Types,
+    package_id: PackageId,
+    packages: &'a Packages,
+    reso_ctxs: Vec<ResoCtx>,
+    #[cfg(debug_assertions)]
+    type_id_set: RefCell<HashSet<TypeId>>,
 }
 
-impl TypeCheck<'_> {
+impl Impl<'_> {
     pub fn build_lang_types(&mut self, discover_data: &DiscoverData, hir: &Hir) {
         let resolver = Resolver {
             discover_data,
@@ -162,26 +211,29 @@ impl TypeCheck<'_> {
         }
     }
 
-    fn type_(&self, id: TypeId) -> &Type {
-        self.types(id.0).type_(id.1)
-    }
-
-    fn direct_type(&self, id: TypeId) -> &Type {
-        let ty = self.type_(id);
-        if let Some(&next_id) = ty.data().as_type() {
-            let ty = self.type_((id.0, next_id));
-            assert!(ty.data().as_type().is_none());
-            ty
-        } else {
-            ty
+    fn deep_type(&self, mut id: TypeId) -> &Type {
+        #[cfg(debug_assertions)] {
+            assert!(self.type_id_set.borrow_mut().is_empty());
         }
+        let ty = loop {
+            let ty = self.types(id.0).type_(id.1);
+            if let Some(&next_id) = ty.data().as_type() {
+                #[cfg(debug_assertions)] {
+                    assert!(self.type_id_set.borrow_mut().insert(next_id));
+                }
+                id = next_id;
+            } else {
+                break ty;
+            }
+        };
+        #[cfg(debug_assertions)] {
+            self.type_id_set.borrow_mut().clear();
+        }
+        ty
     }
 
     fn insert_type(&mut self, node: NodeId, data: TypeData) -> TypeId {
-        (self.package_id, self.types.insert_type(Type {
-            node: (self.package_id, node),
-            data: Some(data),
-        }))
+        self.types.insert_type((self.package_id, node), Some(data))
     }
 
     fn insert_typing(&mut self, node: NodeId, data: TypeData) -> TypeId {
@@ -194,20 +246,17 @@ impl TypeCheck<'_> {
         (PackageId::std(), self.types(PackageId::std()).lang(ty))
     }
 
-    fn typing(&self, node: NodeId) -> &Type {
-        self.try_typing(node).unwrap()
+    fn deep_typing(&self, node: NodeId) -> &Type {
+        self.try_deep_typing(node).unwrap()
     }
 
-    fn try_typing(&self, node: NodeId) -> Option<&Type> {
-        let (pkg, ty) = self.types.try_typing(node)?;
-        Some(self.types(pkg).type_(ty))
+    fn try_deep_typing(&self, node: NodeId) -> Option<&Type> {
+        let ty = self.types.try_typing(node)?;
+        Some(self.deep_type(ty))
     }
 
     pub fn begin_typing(&mut self, node: NodeId) -> TypeId {
-        let ty = (self.package_id, self.types.insert_type(Type {
-            node: (self.package_id, node),
-            data: None
-        }));
+        let ty = self.types.insert_type((self.package_id, node), None);
         self.types.insert_typing(node, ty);
         ty
     }
@@ -216,9 +265,8 @@ impl TypeCheck<'_> {
         if let Some(id) = self.types.try_typing(node) {
             assert_eq!(id.0, self.package_id);
             let typ = self.types.type_mut(id.1);
-            assert_eq!(typ.node, (self.package_id, node));
-            assert_eq!(ty.0, self.package_id);
-            assert!(typ.data.replace(TypeData::Type(ty.1)).is_none());
+            assert_eq!(typ.node(), (self.package_id, node));
+            assert!(typ.data.replace(TypeData::Type(ty)).is_none());
         } else {
             self.types.insert_typing(node, ty)
         }
@@ -295,14 +343,14 @@ impl TypeCheck<'_> {
                     body,
                     .. } = ctx.hir.fn_decl(ctx.node);
                 let formal_ret_ty = ret_ty
-                    .map(|n| self.types.typing(n))
+                    .map(|n| self.deep_typing(n).id())
                     .unwrap_or(self.lang_type(LangType::Unit));
                 if let Some(body) = *body {
                     let actual_ret_ty = self.types.typing(body);
                     if actual_ret_ty != formal_ret_ty {
                         let span = ctx.hir.node_kind(ctx.node).span;
                         fatal(span, format_args!("`fn` actual type {:?} is incompatible with formal return type {:?}",
-                            self.direct_type(actual_ret_ty), self.direct_type(formal_ret_ty)));
+                            self.deep_type(actual_ret_ty), self.deep_type(formal_ret_ty)));
                     }
                 }
             },
@@ -336,7 +384,7 @@ impl TypeCheck<'_> {
                     kind,
                     args: actual_args,
                     .. } = ctx.hir.fn_call(ctx.node);
-                let callee_ty = self.typing(*callee);
+                let callee_ty = self.deep_typing(*callee);
                 if *kind != FnCallKind::Free {
                     unimplemented!();
                 }
@@ -347,7 +395,7 @@ impl TypeCheck<'_> {
                     fatal(span, "expected function");
                 };
 
-                let formal_args = &self.hir(ctx.hir, callee_ty.node.0).fn_decl(callee_ty.node.1).args;
+                let formal_args = &self.hir(ctx.hir, callee_ty.node().0).fn_decl(callee_ty.node().1).args;
                 assert_eq!(actual_args.len(), formal_args.len());
                 for (actual, formal) in actual_args
                     .iter()
@@ -370,7 +418,7 @@ impl TypeCheck<'_> {
             }
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
-                if !matches!(self.typing(cond).data(), TypeData::Primitive(PrimitiveType::Bool)) {
+                if !matches!(self.deep_typing(cond).data(), TypeData::Primitive(PrimitiveType::Bool)) {
                     let span = ctx.hir.node_kind(cond).span;
                     fatal(span, "expected bool expr");
                 }
@@ -416,8 +464,8 @@ impl TypeCheck<'_> {
                         match kind.value {
                             BinaryOpKind::LtEq => {
                                 {
-                                    let left_ty = &self.direct_type(left_ty);
-                                    let right_ty = &self.direct_type(right_ty);
+                                    let left_ty = self.deep_type(left_ty);
+                                    let right_ty = self.deep_type(right_ty);
                                     if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
@@ -430,8 +478,8 @@ impl TypeCheck<'_> {
                             },
                             BinaryOpKind::Add => {
                                 {
-                                    let left_ty = &self.direct_type(left_ty);
-                                    let right_ty = &self.direct_type(right_ty);
+                                    let left_ty = self.deep_type(left_ty);
+                                    let right_ty = self.deep_type(right_ty);
                                     if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
@@ -444,8 +492,8 @@ impl TypeCheck<'_> {
                             }
                             BinaryOpKind::Sub => {
                                 {
-                                    let left_ty = &self.direct_type(left_ty);
-                                    let right_ty = &self.direct_type(right_ty);
+                                    let left_ty = self.deep_type(left_ty);
+                                    let right_ty = self.deep_type(right_ty);
                                     if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
@@ -562,7 +610,7 @@ impl TypeCheck<'_> {
     }
 }
 
-impl HirVisitor for TypeCheck<'_> {
+impl HirVisitor for Impl<'_> {
     fn before_node(&mut self, ctx: HirVisitorCtx) {
         if let Some(v) = reso_req(ctx.link) {
             self.reso_ctxs.push(v);

@@ -2,7 +2,7 @@
 #![deny(non_snake_case)]
 #![deny(unused_must_use)]
 
-use crate::semantic::type_check::{Types, TypeCheck};
+use crate::semantic::type_check::{TypeCheck, Types};
 use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
 use crate::package::{Packages, Package, PackageId};
@@ -24,22 +24,15 @@ fn compile_package(s: &str, name: Ident, packages: &mut Packages) -> PackageId {
 
     let package_id = packages.next_id();
 
-    let mut resolve_data = ResolveData::build(&discover_data, &hir, package_id, packages);
+    let resolve_data = ResolveData::build(&discover_data, &hir, package_id, packages);
 
-    let mut types = Types::default();
-    {
-        let tc = &mut TypeCheck {
-            resolve_data: &mut resolve_data,
-            types: &mut types,
-            package_id,
-            packages,
-            reso_ctxs: Default::default(),
-        };
-        if package_id.is_std() {
-            tc.build_lang_types(&discover_data, &hir);
-        }
-        hir.traverse(tc);
-    }
+    let types = TypeCheck {
+        package_id,
+        hir: &hir,
+        discover_data: &discover_data,
+        resolve_data: &resolve_data,
+        packages,
+    }.run();
 
     packages.insert(package_id, Package {
         name,
