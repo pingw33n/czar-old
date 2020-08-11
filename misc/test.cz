@@ -1,0 +1,15 @@
+fn fib(_ v: i32) -> i32 {
+    if v <= 1 {
+      v
+    } else {
+        let a: i32 = v - 1;
+        let b: i32 = v - 2;
+        fib(a) + fib(b)
+    }
+}
+
+fn main() {
+    print_i32(fib(20));
+}
+
+unsafe fn print_i32(_ v: i32);

@@ -5,43 +5,50 @@
 use crate::semantic::type_check::{TypeCheck, Types};
 use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
-use crate::package::{Packages, Package, PackageId};
+use crate::package::{Packages, Package, PackageId, PackageKind};
 use crate::hir::Ident;
 
-// mod codegen;
+mod codegen;
 mod hir;
 mod package;
 mod semantic;
 mod syntax;
 mod util;
 
-fn compile_package(s: &str, name: Ident, packages: &mut Packages) -> PackageId {
+fn compile_package(s: &str, name: Ident, kind: PackageKind, packages: &mut Packages) -> PackageId {
     let hir = syntax::parse::parse_str(s).unwrap();
     eprintln!("{}", hir.display());
 
     let discover_data = DiscoverData::build(&hir);
     discover_data.print_scopes(&hir);
 
-    let package_id = packages.next_id();
+    let id = packages.next_id();
 
-    let resolve_data = ResolveData::build(&discover_data, &hir, package_id, packages);
+    let resolve_data = ResolveData::build(
+        &discover_data,
+        &hir,
+        id,
+        kind,
+        packages,
+    );
 
     let types = TypeCheck {
-        package_id,
+        package_id: id,
         hir: &hir,
         discover_data: &discover_data,
         resolve_data: &resolve_data,
         packages,
     }.run();
 
-    packages.insert(package_id, Package {
+    packages.insert(id, Package {
+        id,
         name,
         hir,
         discover_data,
         resolve_data,
         types,
     });
-    package_id
+    id
 }
 
 fn main() {
@@ -61,46 +68,21 @@ fn main() {
             pub struct bool {}
         }
         struct Unit {}
-    "##, "std".into(), packages);
+    "##, "std".into(), PackageKind::Lib, packages);
     assert!(std.is_std());
 
-    let my = compile_package(r##"
-        fn fib(_ v: i32) -> i32 {
-            if v <= 1 {
-                v
-            } else {
-                let a: i32 = v - 1;
-                let b: i32 = v - 2;
-                fib(a) + fib(b)
-            }
-        }
+    let test_pkg = compile_package(&std::fs::read_to_string("misc/test.cz").unwrap(),
+        "test".into(), PackageKind::Exe, packages);
 
-        fn main() {
-            mod bar {
-                struct S {
-                    f: S
-                }
-                fn f() -> i32 {
-                    let x: i32 = 0;
-                    use f as Z;
-                    42
-                }
-            }
-            print_i32(fib(10));
-        }
-
-        unsafe fn print_i32(_ v: i32);
-
-        "##, "my".into(), packages);
-
-    // let mut cg = codegen::Codegen::new(&ast);
-    // {
-    //     measure_time::print_time!("llvm ir");
-    //     cg.lower();
-    // }
-    // cg.dump();
-    // {
-    //     measure_time::print_time!("llvm codegen");
-    //     cg.write("/tmp/out.o", codegen::OutputFileKind::Object);
-    // }
+    let mut cg = codegen::Codegen::new(packages);
+    {
+        measure_time::print_time!("llvm ir");
+        cg.lower(test_pkg);
+    }
+    cg.dump();
+    {
+        measure_time::print_time!("llvm codegen");
+        cg.write("/tmp/out.o", codegen::OutputFileKind::Object);
+        cg.write("/tmp/out.asm", codegen::OutputFileKind::Assembly);
+    }
 }

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::hir::*;
 use crate::hir::traverse::*;
-use crate::package::{GlobalNodeId, PackageId, Packages};
+use crate::package::{GlobalNodeId, PackageId, PackageKind, Packages};
 
 use super::*;
 use super::discover::{DiscoverData, NsKind};
@@ -13,10 +13,17 @@ use crate::util::enums::EnumExt;
 #[derive(Debug, Default)]
 pub struct ResolveData {
     path_to_resolution: NodeMap<Resolution>,
+    entry_point: Option<NodeId>,
 }
 
 impl ResolveData {
-    pub fn build(discover_data: &DiscoverData, hir: &Hir, package_id: PackageId, packages: &Packages) -> Self {
+    pub fn build(
+        discover_data: &DiscoverData,
+        hir: &Hir,
+        package_id: PackageId,
+        package_kind: PackageKind,
+        packages: &Packages,
+    ) -> Self {
         let mut resolve_data = ResolveData::default();
         hir.traverse(&mut Build {
             discover_data,
@@ -24,6 +31,22 @@ impl ResolveData {
             package_id,
             packages,
         });
+        if package_kind == PackageKind::Exe {
+            let resolver = Resolver {
+                discover_data,
+                resolve_data: &resolve_data,
+                hir,
+                package_id,
+                packages,
+            };
+            let reso = resolver.resolve_in_package(&["main"]);
+            let node = reso.type_or_other().unwrap();
+            if node.0 != package_id {
+                let span = packages[node.0].hir.node_kind(node.1).span;
+                fatal(span, "`main` function must be defined in the same package");
+            }
+            resolve_data.entry_point = Some(node.1);
+        }
         resolve_data
     }
 
@@ -37,6 +60,10 @@ impl ResolveData {
 
     pub fn try_resolution_of(&self, path: NodeId) -> Option<Resolution> {
         self.path_to_resolution.get(&path).copied()
+    }
+
+    pub fn entry_point(&self) -> Option<NodeId> {
+        self.entry_point
     }
 }
 
@@ -164,7 +191,7 @@ impl<'a> Resolver<'a> {
         if package_id == self.package_id {
             self.clone()
         } else {
-            let package = self.packages.get(package_id);
+            let package = &self.packages[package_id];
             Self {
                 discover_data: &package.discover_data,
                 resolve_data: &package.resolve_data,
@@ -179,7 +206,7 @@ impl<'a> Resolver<'a> {
         if package_id == self.package_id {
             self.hir
         } else {
-            &self.packages.get(package_id).hir
+            &self.packages[package_id].hir
         }
     }
 
@@ -252,7 +279,7 @@ impl<'a> Resolver<'a> {
             if let Some(reso) = self.resolve_in_scopes(scope, first, paths).non_empty() {
                 reso
             } else if let Some(package_id) = self.packages.try_by_name(&first.value) {
-                let package = self.packages.get(package_id);
+                let package = &self.packages[package_id];
                 Resolution::single(NsKind::Type, (package_id, package.hir.root))
             } else {
                 let std_resolver = self.with_package(PackageId::std());

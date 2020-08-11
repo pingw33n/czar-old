@@ -6,12 +6,11 @@ use std::collections::{HashMap, HashSet};
 
 use crate::hir::*;
 use crate::hir::traverse::*;
+use crate::package::{GlobalNodeId, PackageId, Packages};
 
 use super::*;
-use super::discover::{DiscoverData, NsKind};
-use crate::package::{GlobalNodeId, PackageId, Packages};
-use super::resolve::ResolveData;
-use crate::semantic::resolve::Resolver;
+use resolve::{ResolveData, Resolver};
+use discover::{DiscoverData, NsKind};
 
 #[derive(Clone, Copy, Debug)]
 pub enum PrimitiveType {
@@ -79,6 +78,7 @@ pub struct Types {
     types: Slab<Type>,
     typings: NodeMap<TypeId>,
     lang_types: Option<Box<HashMap<LangType, LocalTypeId>>>,
+    path_to_target: NodeMap<GlobalNodeId>,
 }
 
 impl Types {
@@ -124,6 +124,14 @@ impl Types {
         }
         assert!(self.lang_types.as_mut().unwrap().insert(lang_ty, ty).is_none());
     }
+
+    pub fn target_of(&self, path: NodeId) -> GlobalNodeId {
+        self.path_to_target[&path]
+    }
+
+    fn insert_path_to_target(&mut self, path: NodeId, target: GlobalNodeId) {
+        assert!(self.path_to_target.insert(path, target).is_none());
+    }
 }
 
 pub struct TypeCheck<'a> {
@@ -150,6 +158,29 @@ impl TypeCheck<'_> {
             tc.build_lang_types(self.discover_data, self.hir);
         }
         self.hir.traverse(tc);
+        if let Some(entry_point) = self.resolve_data.entry_point() {
+            match tc.unaliased_typing(entry_point).data() {
+                TypeData::Fn(FnType { args, result, unsafe_, extern_ }) => {
+                    if args.len() != 0 {
+                        fatal(self.hir.node_kind(entry_point).span, "`main` function must not accept arguments");
+                    }
+                    if !matches!(tc.unalias_type(*result).data(), TypeData::Primitive(PrimitiveType::Unit)) {
+                        fatal(self.hir.node_kind(entry_point).span, "`main` function must have unit return type");
+                    }
+                    if *unsafe_ {
+                        fatal(self.hir.node_kind(entry_point).span, "`main` function must not be unsafe");
+                    }
+                    if *extern_ {
+                        fatal(self.hir.node_kind(entry_point).span, "`main` function must not be external");
+                    }
+                }
+                _ => {
+                    let node_kind = self.hir.node_kind(entry_point);
+                    fatal(node_kind.span, format_args!("expected `main` function, but found {:?}",
+                        node_kind.value));
+                }
+            }
+        }
         types
     }
 }
@@ -207,11 +238,11 @@ impl Impl<'_> {
         if package_id == self.package_id {
             &self.types
         } else {
-            &self.packages.get(package_id).types
+            &self.packages[package_id].types
         }
     }
 
-    fn deep_type(&self, mut id: TypeId) -> &Type {
+    fn unalias_type(&self, mut id: TypeId) -> &Type {
         #[cfg(debug_assertions)] {
             assert!(self.type_id_set.borrow_mut().is_empty());
         }
@@ -246,22 +277,22 @@ impl Impl<'_> {
         (PackageId::std(), self.types(PackageId::std()).lang(ty))
     }
 
-    fn deep_typing(&self, node: NodeId) -> &Type {
-        self.try_deep_typing(node).unwrap()
+    fn unaliased_typing(&self, node: NodeId) -> &Type {
+        self.try_unaliased_typing(node).unwrap()
     }
 
-    fn try_deep_typing(&self, node: NodeId) -> Option<&Type> {
+    fn try_unaliased_typing(&self, node: NodeId) -> Option<&Type> {
         let ty = self.types.try_typing(node)?;
-        Some(self.deep_type(ty))
+        Some(self.unalias_type(ty))
     }
 
-    pub fn begin_typing(&mut self, node: NodeId) -> TypeId {
+    fn begin_typing(&mut self, node: NodeId) -> TypeId {
         let ty = self.types.insert_type((self.package_id, node), None);
         self.types.insert_typing(node, ty);
         ty
     }
 
-    pub fn finish_typing(&mut self, node: NodeId, ty: TypeId) {
+    fn finish_typing(&mut self, node: NodeId, ty: TypeId) {
         if let Some(id) = self.types.try_typing(node) {
             assert_eq!(id.0, self.package_id);
             let typ = self.types.type_mut(id.1);
@@ -276,7 +307,7 @@ impl Impl<'_> {
         if package_id == self.package_id {
             this_hir
         } else {
-            &self.packages.get(package_id).hir
+            &self.packages[package_id].hir
         }
     }
 
@@ -343,14 +374,14 @@ impl Impl<'_> {
                     body,
                     .. } = ctx.hir.fn_decl(ctx.node);
                 let formal_ret_ty = ret_ty
-                    .map(|n| self.deep_typing(n).id())
+                    .map(|n| self.unaliased_typing(n).id())
                     .unwrap_or(self.lang_type(LangType::Unit));
                 if let Some(body) = *body {
                     let actual_ret_ty = self.types.typing(body);
                     if actual_ret_ty != formal_ret_ty {
                         let span = ctx.hir.node_kind(ctx.node).span;
                         fatal(span, format_args!("`fn` actual type {:?} is incompatible with formal return type {:?}",
-                            self.deep_type(actual_ret_ty), self.deep_type(formal_ret_ty)));
+                            self.unalias_type(actual_ret_ty), self.unalias_type(formal_ret_ty)));
                     }
                 }
             },
@@ -384,7 +415,7 @@ impl Impl<'_> {
                     kind,
                     args: actual_args,
                     .. } = ctx.hir.fn_call(ctx.node);
-                let callee_ty = self.deep_typing(*callee);
+                let callee_ty = self.unaliased_typing(*callee);
                 if *kind != FnCallKind::Free {
                     unimplemented!();
                 }
@@ -418,7 +449,7 @@ impl Impl<'_> {
             }
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
-                if !matches!(self.deep_typing(cond).data(), TypeData::Primitive(PrimitiveType::Bool)) {
+                if !matches!(self.unaliased_typing(cond).data(), TypeData::Primitive(PrimitiveType::Bool)) {
                     let span = ctx.hir.node_kind(cond).span;
                     fatal(span, "expected bool expr");
                 }
@@ -464,8 +495,8 @@ impl Impl<'_> {
                         match kind.value {
                             BinaryOpKind::LtEq => {
                                 {
-                                    let left_ty = self.deep_type(left_ty);
-                                    let right_ty = self.deep_type(right_ty);
+                                    let left_ty = self.unalias_type(left_ty);
+                                    let right_ty = self.unalias_type(right_ty);
                                     if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
@@ -478,8 +509,8 @@ impl Impl<'_> {
                             },
                             BinaryOpKind::Add => {
                                 {
-                                    let left_ty = self.deep_type(left_ty);
-                                    let right_ty = self.deep_type(right_ty);
+                                    let left_ty = self.unalias_type(left_ty);
+                                    let right_ty = self.unalias_type(right_ty);
                                     if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
@@ -492,8 +523,8 @@ impl Impl<'_> {
                             }
                             BinaryOpKind::Sub => {
                                 {
-                                    let left_ty = self.deep_type(left_ty);
-                                    let right_ty = self.deep_type(right_ty);
+                                    let left_ty = self.unalias_type(left_ty);
+                                    let right_ty = self.unalias_type(right_ty);
                                     if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
                                         !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
                                     {
@@ -535,7 +566,10 @@ impl Impl<'_> {
                 if self.reso_ctx() == ResoCtx::Import {
                     return
                 } else {
-                    self.types.typing(ctx.hir.path(ctx.node).segment)
+                    let segment = ctx.hir.path(ctx.node).segment;
+                    let target = self.types.target_of(segment);
+                    self.types.insert_path_to_target(ctx.node, target);
+                    self.types.typing(segment)
                 }
             }
             NodeKind::PathEndIdent => {
@@ -568,10 +602,11 @@ impl Impl<'_> {
                 if reso_ctx == ResoCtx::Import {
                     return;
                 }
+                self.types.insert_path_to_target(ctx.node, (pkg, node));
                 if pkg == self.package_id {
                     self.build_type(node, ctx.hir)
                 } else {
-                    self.packages.get(pkg).types.typing(node)
+                    self.packages[pkg].types.typing(node)
                 }
             }
             NodeKind::PathSegment => {
@@ -579,6 +614,8 @@ impl Impl<'_> {
                     if self.reso_ctx() != ResoCtx::Import;
                     if let Some(&suffix) = ctx.hir.path_segment(ctx.node).suffix.first();
                     then {
+                        let target = self.types.target_of(suffix);
+                        self.types.insert_path_to_target(ctx.node, target);
                         self.types.typing(suffix)
                     } else {
                         return;

@@ -5,6 +5,13 @@ use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
 use crate::semantic::type_check::Types;
 use std::collections::HashMap;
+use std::ops::Index;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PackageKind {
+    Exe,
+    Lib,
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(transparent)]
@@ -35,6 +42,7 @@ impl Default for PackageId {
 pub type GlobalNodeId = (PackageId, NodeId);
 
 pub struct Package {
+    pub id: PackageId,
     pub name: Ident,
     pub hir: Hir,
     pub discover_data: DiscoverData,
@@ -60,11 +68,19 @@ impl Packages {
         e.insert(package);
     }
 
-    pub fn get(&self, id: PackageId) -> &Package {
-        &self.packages[id.0]
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(PackageId, &'a Package)> + 'a {
+        self.packages.iter().map(|(id, v)| (PackageId(id), v))
     }
 
     pub fn try_by_name(&self, name: &str) -> Option<PackageId> {
         self.by_name.get(name).copied()
+    }
+}
+
+impl Index<PackageId> for Packages {
+    type Output = Package;
+
+    fn index(&self, index: PackageId) -> &Self::Output {
+        &self.packages[index.0]
     }
 }
