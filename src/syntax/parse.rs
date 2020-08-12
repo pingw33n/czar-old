@@ -3,7 +3,7 @@ mod test;
 
 use std::convert::TryFrom;
 
-use crate::hir::*;
+use crate::hir::{*, Range};
 
 use super::*;
 

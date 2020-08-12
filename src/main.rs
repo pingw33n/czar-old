@@ -2,7 +2,7 @@
 #![deny(non_snake_case)]
 #![deny(unused_must_use)]
 
-use crate::semantic::type_check::{TypeCheck, Types};
+use crate::semantic::type_check::TypeCheck;
 use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
 use crate::package::{Packages, Package, PackageId, PackageKind};

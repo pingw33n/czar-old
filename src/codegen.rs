@@ -1,4 +1,3 @@
-use enum_as_inner::EnumAsInner;
 use llvm_sys::*;
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
