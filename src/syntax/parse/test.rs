@@ -8,11 +8,11 @@ fn test() {
 
     for &(name, inp, exp) in data {
         eprintln!("test: {}", name);
-        let hir = crate::syntax::parse::parse_str(inp).unwrap();
+        let hir = crate::syntax::parse::parse_str(inp.into(), &mut Default::default()).unwrap();
         assert_eq!(hir.display().to_string(), exp.unwrap_or(inp), "{}", name);
 
         if let Some(exp) = exp {
-            let hir = crate::syntax::parse::parse_str(exp).unwrap();
+            let hir = crate::syntax::parse::parse_str(exp.into(), &mut Default::default()).unwrap();
             assert_eq!(hir.display().to_string(), exp, "expected output doesn't parse into itself: {}", name);
         }
     }
@@ -36,21 +36,22 @@ fn mod_file_resolution() {
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not found"))
         }
     }
-    let hir = crate::syntax::parse::parse_file_with("foo/bar/main.cz", &mut Fs(files)).unwrap();
-    assert_eq!(hir.sources().count(), 3);
+    let hir = crate::syntax::parse::parse_file_with("foo/bar/main.cz", &mut Fs(files),
+        &mut Default::default()).unwrap();
+    assert_eq!(hir.sources().len(), 3);
 
     let root_mod = hir.module(hir.root);
-    let src = hir.source(root_mod.source_id.unwrap());
+    let src = &hir.sources()[root_mod.source_id.unwrap()];
     assert_eq!(src.mod_name, None);
     assert_eq!(&src.path, &Path::new("foo/bar/main.cz"));
 
     let mod1 = hir.module(root_mod.items[0]);
-    let src = hir.source(mod1.source_id.unwrap());
+    let src = &hir.sources()[mod1.source_id.unwrap()];
     assert_eq!(src.mod_name, Some("mod1".into()));
     assert_eq!(&src.path, &Path::new("foo/bar/mod1.cz"));
 
     let mod2 = hir.module(mod1.items[0]);
-    let src = hir.source(mod2.source_id.unwrap());
+    let src = &hir.sources()[mod2.source_id.unwrap()];
     assert_eq!(src.mod_name, Some("mod2".into()));
     assert_eq!(&src.path, &Path::new("foo/bar/mod1/mod2.cz"));
 

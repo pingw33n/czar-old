@@ -2,77 +2,34 @@
 #![deny(non_snake_case)]
 #![deny(unused_must_use)]
 
-use crate::semantic::type_check::TypeCheck;
-use crate::semantic::discover::DiscoverData;
-use crate::semantic::resolve::ResolveData;
-use crate::package::{Packages, Package, PackageId, PackageKind};
-use crate::hir::Ident;
+use crate::package::{Packages, PackageKind};
 
 mod codegen;
+mod compiler;
+mod diag;
 mod hir;
 mod package;
 mod semantic;
 mod syntax;
 mod util;
 
-fn compile_package(s: &str, name: Ident, kind: PackageKind, packages: &mut Packages) -> PackageId {
-    let hir = syntax::parse::parse_str(s).unwrap();
-    eprintln!("{}", hir.display());
-
-    let discover_data = DiscoverData::build(&hir);
-    discover_data.print_scopes(&hir);
-
-    let id = packages.next_id();
-
-    let resolve_data = ResolveData::build(
-        &discover_data,
-        &hir,
-        id,
-        kind,
-        packages,
-    );
-
-    let types = TypeCheck {
-        package_id: id,
-        hir: &hir,
-        discover_data: &discover_data,
-        resolve_data: &resolve_data,
-        packages,
-    }.run();
-
-    packages.insert(id, Package {
-        id,
-        name,
-        hir,
-        discover_data,
-        resolve_data,
-        types,
-    });
-    id
-}
-
 fn main() {
     let packages = &mut Packages::default();
 
-    let std = compile_package(r##"
-        pub mod prelude {
-            pub mod v1 {
-                pub use package::i32::i32;
-                pub use package::bool::bool;
-            }
-        }
-        pub mod i32 {
-            pub struct i32 {}
-        }
-        pub mod bool {
-            pub struct bool {}
-        }
-        struct Unit {}
-    "##, "std".into(), PackageKind::Lib, packages);
+    let std = compiler::compile(
+        "misc/std.cz",
+        "std".into(),
+        PackageKind::Lib,
+        packages,
+    ).unwrap();
     assert!(std.is_std());
 
-    let test_pkg = compile_package(&std::fs::read_to_string("misc/test.cz").unwrap(),
-        "test".into(), PackageKind::Exe, packages);
+    let test_pkg = compiler::compile(
+        "misc/test.cz",
+        "test".into(),
+        PackageKind::Exe,
+        packages,
+    ).unwrap();
 
     let mut cg = codegen::Codegen::new(packages);
     {

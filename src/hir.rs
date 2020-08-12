@@ -6,6 +6,7 @@ use slab::Slab;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 pub use crate::syntax::{FloatLiteral, FloatTypeSuffix, IntLiteral, IntTypeSuffix, S, Span, Spanned};
 
@@ -65,9 +66,41 @@ pub type SourceId = usize;
 pub struct Source {
     pub mod_name: Option<Ident>,
     pub path: PathBuf,
+    pub text: Rc<String>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
+pub struct Sources {
+    sources: Slab<Source>,
+}
+
+impl Sources {
+    pub fn iter(&self) -> impl Iterator<Item=(SourceId, &Source)> {
+        self.sources.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.sources.len()
+    }
+
+    pub fn insert(&mut self, source: Source) -> SourceId {
+        self.sources.insert(source)
+    }
+}
+
+impl std::ops::Index<SourceId> for Sources {
+    type Output = Source;
+
+    fn index(&self, index: SourceId) -> &Self::Output {
+        &self.sources[index]
+    }
+}
+
+pub fn source_file_name(mod_name: &str) -> PathBuf {
+    format!("{}.cz", mod_name).into()
+}
+
+#[derive(Default)]
 pub struct Hir {
     nodes: Slab<S<NodeKind>>,
     blocks: NodeMap<Block>,
@@ -97,7 +130,7 @@ pub struct Hir {
     uses: NodeMap<Use>,
     whiles: NodeMap<While>,
 
-    sources: Slab<Source>,
+    sources: Sources,
 
     pub root: NodeId,
 }
@@ -146,16 +179,16 @@ impl Hir {
         Self::default()
     }
 
-    pub fn sources(&self) -> impl Iterator<Item=(SourceId, &Source)> {
-        self.sources.iter()
+    pub fn sources(&self) -> &Sources {
+        &self.sources
     }
 
-    pub fn source(&self, id: SourceId) -> &Source {
-        &self.sources[id]
+    pub fn sources_mut(&mut self) -> &mut Sources {
+        &mut self.sources
     }
 
-    pub fn insert_source(&mut self, source: Source) -> SourceId {
-        self.sources.insert(source)
+    pub fn into_sources(self) -> Sources {
+        self.sources
     }
 
     pub fn node_kind(&self, id: NodeId) -> S<NodeKind> {

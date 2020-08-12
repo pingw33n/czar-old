@@ -95,7 +95,3 @@ impl<T> Spanned<T> {
         }
     }
 }
-
-pub fn source_file_name(mod_name: &str) -> PathBuf {
-    format!("{}.cz", mod_name).into()
-}

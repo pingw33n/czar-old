@@ -12,11 +12,13 @@ use super::*;
 #[derive(Clone, Copy, Debug, EnumAsInner, Eq, PartialEq)]
 pub enum Token {
     Eof,
+
+    // These are meaningless and are never produced by the lexer.
     Unknown,
+    Comment,
 
     BlockClose(Block),
     BlockOpen(Block),
-    Comment,
     Ident,
     Label,
     Keyword(Keyword),
@@ -222,7 +224,7 @@ const EOF: char = '\0';
 
 struct SavedState<'a> {
     chars: Chars<'a>,
-    error_count: usize,
+    errors: Vec<Error>,
     saved_buf: usize,
 }
 
@@ -241,11 +243,26 @@ impl Drop for SavedStateId {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum ErrorKind {
+    InvalidLineEnding,
+    UnknownToken,
+    UnterminatedBlockComment,
+    UnterminatedCharLiteral,
+    UnterminatedString,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Error {
+    pub kind: ErrorKind,
+    pub span: Span,
+}
+
 pub struct Lexer<'a> {
     s: &'a str,
     chars: Chars<'a>,
     buf: VecDeque<S<Token>>,
-    error_count: usize,
+    errors: Vec<Error>,
     saved_states: Vec<SavedState<'a>>,
     saved_bufs: Vec<S<Token>>,
 }
@@ -256,9 +273,9 @@ impl<'a> Lexer<'a> {
             s,
             chars: s.chars(),
             buf: VecDeque::new(),
+            errors: Vec::new(),
             saved_states: Vec::new(),
             saved_bufs: Vec::new(),
-            error_count: 0,
         }
     }
 
@@ -294,7 +311,7 @@ impl<'a> Lexer<'a> {
     pub fn save_state(&mut self) -> SavedStateId {
         self.saved_states.push(SavedState {
             chars: self.chars.clone(),
-            error_count: self.error_count,
+            errors: self.errors.clone(),
             saved_buf: self.saved_bufs.len(),
         });
         self.saved_bufs.extend(&self.buf);
@@ -306,7 +323,7 @@ impl<'a> Lexer<'a> {
         let state = self.saved_states.pop().unwrap();
         assert!(state.saved_buf <= self.saved_bufs.len());
         self.chars = state.chars;
-        self.error_count = state.error_count;
+        self.errors = state.errors;
         self.buf.clear();
         self.buf.extend(self.saved_bufs.drain(state.saved_buf..));
         self.saved_bufs.truncate(state.saved_buf);
@@ -319,8 +336,8 @@ impl<'a> Lexer<'a> {
         self.saved_bufs.truncate(state.saved_buf);
     }
 
-    pub fn is_ok(&self) -> bool {
-        self.error_count == 0
+    pub fn errors(&self) -> &[Error] {
+        &self.errors
     }
 
     fn fill_buf(&mut self, len: usize) {
@@ -533,9 +550,11 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn error(&mut self, span: Span, msg: &str) {
-        eprintln!("({}..{}) {}", span.start, span.end, msg);
-        self.error_count += 1;
+    fn error(&mut self, kind: ErrorKind, span: Span) {
+        self.errors.push(Error {
+            kind,
+            span,
+        });
     }
 
     fn line_comment(&mut self) -> Token {
@@ -567,7 +586,7 @@ impl<'a> Lexer<'a> {
         }
 
         if depth != 0 {
-            self.error(Span::new(start, self.pos()), "unterminated block comment");
+            self.error(ErrorKind::UnterminatedBlockComment, Span::new(start, self.pos()));
         }
 
         Token::Comment
@@ -603,7 +622,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn unknown(&mut self, start: usize) -> Token {
-        self.error(Span::new(start, start + 1), "unknown token");
+        self.error(ErrorKind::UnknownToken, Span::new(start, start + 1));
         Token::Unknown
     }
 
@@ -687,7 +706,7 @@ impl<'a> Lexer<'a> {
             let c = self.next_char();
             match c {
                 EOF => {
-                    self.error(Span::new(start, self.pos()), "unterminated string");
+                    self.error(ErrorKind::UnterminatedString, Span::new(start, self.pos()));
                     break;
                 }
                 '"' => break,
@@ -697,7 +716,7 @@ impl<'a> Lexer<'a> {
                     '\n' => {},
                     _ => {
                         let p = self.pos();
-                        self.error(Span::new(p - 1, p), "invalid line ending");
+                        self.error(ErrorKind::InvalidLineEnding, Span::new(p - 1, p));
                         break;
                     }
                 }
@@ -712,7 +731,7 @@ impl<'a> Lexer<'a> {
             let c = self.next_char();
             match c {
                 '\n' | '\r' | EOF => {
-                    self.error(Span::new(start, self.pos()), "unterminated char literal");
+                    self.error(ErrorKind::UnterminatedCharLiteral, Span::new(start, self.pos()));
                     break;
                 }
                 '\\' => { self.next_char(); }

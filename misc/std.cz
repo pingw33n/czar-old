@@ -1,0 +1,16 @@
+pub mod prelude {
+    pub mod v1 {
+        pub use package::i32::i32;
+        pub use package::bool::bool;
+    }
+}
+
+pub mod i32 {
+    pub struct i32 {}
+}
+
+pub mod bool {
+    pub struct bool {}
+}
+
+struct Unit {}

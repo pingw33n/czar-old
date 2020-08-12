@@ -2,27 +2,29 @@
 mod test;
 
 use std::convert::TryFrom;
+use std::rc::Rc;
 
+use crate::diag::{self, Diag};
 use crate::hir::{*, Range};
 
 use super::*;
 
 #[derive(Debug)]
-pub enum PErrorKind {
+pub enum ErrorKind {
     Io(io::Error),
     Lex,
     Parse,
 }
 
 #[derive(Debug)]
-pub struct PError {
-    pub kind: PErrorKind,
+struct PError {
+    kind: ErrorKind,
     backtrace: Option<Box<backtrace::Backtrace>>,
 }
 
-impl From<PErrorKind> for PError {
-    fn from(kind: PErrorKind) -> Self {
-        let backtrace = if cfg!(debug_assertions) {
+impl From<ErrorKind> for PError {
+    fn from(kind: ErrorKind) -> Self {
+        let backtrace = if false && cfg!(debug_assertions) {
             Some(Box::new(backtrace::Backtrace::new()))
         } else {
             None
@@ -34,7 +36,7 @@ impl From<PErrorKind> for PError {
     }
 }
 
-pub type PResult<T> = Result<T, PError>;
+type PResult<T> = std::result::Result<T, PError>;
 
 pub trait Fs {
     fn read_file(&mut self, path: &StdPath) -> io::Result<String>;
@@ -104,20 +106,22 @@ impl Default for ExprState {
     }
 }
 
-pub struct Parser<'a> {
+struct ParserImpl<'a> {
     s: &'a str,
     lex: Lexer<'a>,
     hir: &'a mut Hir,
     source_id: SourceId,
     fs: &'a mut dyn Fs,
+    diag: &'a mut Diag,
 }
 
-impl<'a> Parser<'a> {
+impl<'a> ParserImpl<'a> {
     fn new(
         s: &'a str,
         source_id: SourceId,
         fs: &'a mut dyn Fs,
         hir: &'a mut Hir,
+        diag: &'a mut Diag,
     ) -> Self {
         Self {
             s,
@@ -125,20 +129,17 @@ impl<'a> Parser<'a> {
             hir,
             source_id,
             fs,
+            diag,
         }
-    }
-
-    fn read_file(fs: &mut dyn Fs, path: &StdPath) -> PResult<String> {
-        fs.read_file(path).map_err(|e| PErrorKind::Io(e).into())
     }
 
     fn parse(mut self) -> PResult<()> {
         let root = self.module_inner(Some(self.source_id), 0, None)?;
         self.hir.root = root;
-        if self.lex.is_ok() {
+        if self.lex.errors().is_empty() {
             Ok(())
         } else {
-            Err(PErrorKind::Lex.into())
+            Err(ErrorKind::Lex.into())
         }
     }
 
@@ -164,8 +165,8 @@ impl<'a> Parser<'a> {
                     Token::Keyword(Keyword::Fn) => self.fn_(vis)?,
                     Token::Keyword(Keyword::Static) => unimplemented!(),
                     _ => {
-                        return self.fatal(tok1.span,
-                            &format!("expected `fn` or `static`, found `{:?}`", tok1.value));
+                        return self.error(tok1.span,
+                            format!("expected `fn` or `static`, found `{:?}`", tok1.value));
                     }
                 }
             }
@@ -176,14 +177,14 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::Struct) => self.struct_(vis)?,
             Token::Keyword(Keyword::Impl) => {
                 if let Some(vis) = vis {
-                    return self.fatal(vis.span, "invalid visibility for impl block")
+                    return self.error(vis.span, "invalid visibility for impl block".into())
                 }
                 self.impl_()?
             }
             _ => {
                 if let Some(vis) = vis {
-                    return self.fatal(vis.span,
-                        &format!("expected item after visibility modifier, found `{:?}`", tok0.value));
+                    return self.error(vis.span,
+                        format!("expected item after visibility modifier, found `{:?}`", tok0.value));
                 }
                 return Ok(None);
             }
@@ -204,8 +205,8 @@ impl<'a> Parser<'a> {
                 if name.is_none() && tok.value != Token::Eof
                     || name.is_some() && tok.value != Token::BlockClose(lex::Block::Brace)
                 {
-                    return self.fatal(tok.span,
-                        &format!("expected item, found `{:?}`", tok.value));
+                    return self.error(tok.span,
+                        format!("expected item, found `{:?}`", tok.value));
                 }
                 break tok.span.end;
             }
@@ -230,8 +231,8 @@ impl<'a> Parser<'a> {
         Ok(if self.lex.nth(0).value == Token::Semi {
             let end = self.lex.next().span.end;
 
-            let (path, content) = {
-                let source = self.hir.source(self.source_id);
+            let (path, text) = {
+                let source = &self.hir.sources()[self.source_id];
                 let mut path = source.path.to_path_buf();
                 assert!(path.pop());
                 if top_level {
@@ -239,19 +240,20 @@ impl<'a> Parser<'a> {
                         path.push(mod_name.as_str());
                     }
                 } else {
-                    return self.fatal(Span::new(start, end),
-                        "module file reference can be top level only");
+                    return self.error(Span::new(start, end),
+                        "module file reference can be top level only".into());
                 }
                 path.push(source_file_name(&name.name.value));
-                let content = Self::read_file(self.fs, &path)?;
-                (path, content)
+                let text = Rc::new(read_file(self.fs, &path)?);
+                (path, text)
             };
-            let source_id = self.hir.insert_source(Source {
+            let source_id = self.hir.sources_mut().insert(Source {
                 mod_name: Some(name.name.value.clone()),
                 path,
+                text: text.clone(),
             });
 
-            Parser::new(&content, source_id, self.fs, &mut self.hir).parse()?;
+            ParserImpl::new(&text, source_id, self.fs, self.hir, self.diag).parse()?;
             let r = std::mem::replace(&mut self.hir.root, NodeId::null());
             assert_ne!(r, NodeId::null());
             r
@@ -284,13 +286,17 @@ impl<'a> Parser<'a> {
             })))
     }
 
-    fn fatal<T>(&self, span: Span, msg: &str) -> PResult<T> {
-        Self::fatal0(span, msg)
-    }
-
-    fn fatal0<T>(span: Span, msg: &str) -> PResult<T> {
-        eprintln!("[{:?}] {}", span.range(), msg);
-        Err(PErrorKind::Parse.into())
+    fn error<T>(&mut self, span: Span, text: String) -> PResult<T> {
+        let report = diag::Report {
+            severity: diag::Severity::Error,
+            text,
+            source: Some(diag::Source {
+                id: self.source_id,
+                span,
+            })
+        };
+        self.diag.report(report);
+        Err(ErrorKind::Parse.into())
     }
 
     fn fn_(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
@@ -312,11 +318,11 @@ impl<'a> Parser<'a> {
         while self.lex.nth(0).value != Token::BlockClose(lex::Block::Paren) {
             if !delimited {
                 let tok = self.lex.nth(0);
-                return self.fatal(tok.span, &format!("expected `,` but found `{:?}`", tok.value));
+                return self.error(tok.span, format!("expected `,` but found `{:?}`", tok.value));
             }
             if variadic.is_some() {
                 let tok = self.lex.nth(0);
-                return self.fatal(tok.span, &format!("expected `)`, found `{:?}`", tok.value));
+                return self.error(tok.span, format!("expected `)`, found `{:?}`", tok.value));
             }
 
             if self.lex.nth(0).value == Token::DotDotDot {
@@ -329,7 +335,7 @@ impl<'a> Parser<'a> {
                     let self_ = self.lex.maybe(Token::Keyword(Keyword::SelfLower));
                     if (ref_.is_some() || mut_.is_some()) && self_.is_none() {
                         let tok = self.lex.nth(0);
-                        return self.fatal(tok.span, &format!("expected `self`, found `{:?}`", tok.value));
+                        return self.error(tok.span, format!("expected `self`, found `{:?}`", tok.value));
                     }
                     if let Some(self_) = self_ {
                         let ty = self.hir.insert_path_from_ident(self_.with_value(Ident::self_upper()));
@@ -415,7 +421,7 @@ impl<'a> Parser<'a> {
         if actual.value == tok {
             Ok(actual)
         } else {
-            self.fatal(actual.span, &format!("expected {:?} but found {:?}", tok, actual.value))
+            self.error(actual.span, format!("expected {:?} but found {:?}", tok, actual.value))
         }
     }
 
@@ -432,14 +438,14 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn make_ident(&self, span: Span) -> PResult<S<Ident>> {
+    fn make_ident(&mut self, span: Span) -> PResult<S<Ident>> {
         let s = &self.s[span.range()];
         let value = lex::ident(s);
         if value.is_empty() {
-            self.fatal(span, "missing raw identifier or raw string")
+            self.error(span, "missing raw identifier or raw string".into())
         } else {
             match value.as_str() {
-                "_" | "self" | "Self" => return self.fatal(span, "invalid raw identifier"),
+                "_" | "self" | "Self" => return self.error(span, "invalid raw identifier".into()),
                 _ => {}
             }
             Ok(span.spanned(value.into()))
@@ -556,7 +562,7 @@ impl<'a> Parser<'a> {
             Ok(v)
         } else {
             let tok = self.lex.nth(0);
-            return self.fatal(tok.span, &format!("expected symbol path, found `{:?}`", tok.value));
+            return self.error(tok.span, format!("expected symbol path, found `{:?}`", tok.value));
         }
     }
 
@@ -583,7 +589,7 @@ impl<'a> Parser<'a> {
                         return Ok(None);
                     } else {
                         let tok = self.lex.nth(0);
-                        return self.fatal(tok.span, &format!("expected ident, found `{:?}`", tok.value));
+                        return self.error(tok.span, format!("expected ident, found `{:?}`", tok.value));
                     }
                 }
             };
@@ -694,7 +700,7 @@ impl<'a> Parser<'a> {
                     break Some(tok.span.end);
                 }
                 _ => {
-                    return self.fatal(tok.span, &format!("unexpected {:?}", tok.value));
+                    return self.error(tok.span, format!("unexpected {:?}", tok.value));
                 }
             };
             suffix.push(item);
@@ -705,7 +711,7 @@ impl<'a> Parser<'a> {
             if self.lex.maybe(Token::Comma).is_none()
                 && self.lex.nth(0).value != Token::BlockClose(lex::Block::Brace)
             {
-                return self.fatal(tok.span, &format!("unexpected {:?}", tok.value));
+                return self.error(tok.span, format!("unexpected {:?}", tok.value));
             }
         };
         if suffix.is_empty() {
@@ -754,8 +760,8 @@ impl<'a> Parser<'a> {
                             state = State::Done;
                         }
                         _ => {
-                            return self.fatal(tok.span,
-                                &format!("unexpected {:?}", tok.value));
+                            return self.error(tok.span,
+                                format!("unexpected {:?}", tok.value));
                         }
                     }
                 }
@@ -795,8 +801,8 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 _ => {
-                    return self.fatal(tok.span,
-                        &format!("expected `,` or `>`, found {:?}", tok.value));
+                    return self.error(tok.span,
+                        format!("expected `,` or `>`, found {:?}", tok.value));
                 }
             }
         }
@@ -828,8 +834,8 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 _ if !seen_comma => {
-                    return self.fatal(tok.span,
-                        &format!("expected `,` or `>`, found {:?}", tok.value));
+                    return self.error(tok.span,
+                        format!("expected `,` or `>`, found {:?}", tok.value));
                 }
                 _ => {}
             }
@@ -882,8 +888,8 @@ impl<'a> Parser<'a> {
                 expr.map(|v| needs_trailing_semi(self.hir.node_kind(v).value)).unwrap_or(true)
             {
                 let tok = self.lex.nth(0);
-                return self.fatal(tok.span,
-                    &format!("expected `}}` or `;`, found {:?}", tok.value));
+                return self.error(tok.span,
+                    format!("expected `}}` or `;`, found {:?}", tok.value));
             }
         };
 
@@ -918,7 +924,7 @@ impl<'a> Parser<'a> {
             }))))
     }
 
-    fn check_assoc_defined(&self, left: NodeId, op: S<Token>, f: impl Fn(BinaryOpKind) -> bool)
+    fn check_assoc_defined(&mut self, left: NodeId, op: S<Token>, f: impl Fn(BinaryOpKind) -> bool)
         -> PResult<()>
     {
         if self.hir.try_op(left)
@@ -926,7 +932,7 @@ impl<'a> Parser<'a> {
             .filter(|b| f(b.kind.value))
             .is_some()
         {
-            self.fatal(op.span, &format!("associativity is not defined for `{:?}`", op.value))
+            self.error(op.span, format!("associativity is not defined for `{:?}`", op.value))
         } else {
             Ok(())
         }
@@ -937,7 +943,7 @@ impl<'a> Parser<'a> {
             Ok(v)
         } else {
             let tok = self.lex.nth(0);
-            return self.fatal(tok.span, &format!("expected expression, found {:?}", tok.value));
+            return self.error(tok.span, format!("expected expression, found {:?}", tok.value));
         }
     }
 
@@ -1057,8 +1063,8 @@ impl<'a> Parser<'a> {
                     ..Default::default()
                 })?;
                 if needs_parens {
-                    return self.fatal(self.hir.node_kind(cond).span,
-                        "parenthesis are required here");
+                    return self.error(self.hir.node_kind(cond).span,
+                        "parentheses are required here".into());
                 }
                 let if_true = self.block()?;
                 let if_false = if self.lex.maybe(Token::Keyword(Keyword::Else)).is_some() {
@@ -1075,7 +1081,7 @@ impl<'a> Parser<'a> {
             }
             Token::Keyword(Keyword::Let) => {
                 if !state.at_group_start {
-                    return self.fatal(tok.span, "this `let` usage requires explicit grouping");
+                    return self.error(tok.span, "this `let` usage requires explicit grouping".into());
                 }
                 let start = tok.span.start;
                 self.lex.consume();
@@ -1114,8 +1120,8 @@ impl<'a> Parser<'a> {
                     ..Default::default()
                 })?;
                 if needs_parens {
-                    return self.fatal(self.hir.node_kind(cond).span,
-                        "parenthesis are required here");
+                    return self.error(self.hir.node_kind(cond).span,
+                        "parentheses are required here".into());
                 }
                 let block = self.block()?;
                 self.hir.insert_while(tok.span.extended(self.hir.node_kind(block).span.end).spanned(While {
@@ -1214,8 +1220,8 @@ impl<'a> Parser<'a> {
                 => {
                     if !state.at_group_start {
                         let start = self.hir.node_kind(left).span.start;
-                        return self.fatal(Span::new(start, tok.span.end),
-                            "this assignment operator usage requires parenthesis");
+                        return self.error(Span::new(start, tok.span.end),
+                            "this assignment operator usage requires parentheses".into());
                     }
                     ASSIGN_PREC
                 },
@@ -1348,18 +1354,19 @@ impl<'a> Parser<'a> {
             Token::Literal(lex::Literal::Int) => {
                 let IntLiteral { value, ty } = self.int_literal()?.value;
                 if ty.is_some() {
-                    return self.fatal(field.span, "type suffix is not allowed in tuple field index");
+                    return self.error(field.span,
+                        "type suffix is not allowed in tuple field index".into());
                 }
                 let idx = if let Ok(v) = i32::try_from(value) {
                     v as u32
                 } else {
-                    return self.fatal(field.span, "tuple field index is too big");
+                    return self.error(field.span, "tuple field index is too big".into());
                 };
                 field.span.spanned(Field::Index(idx))
             }
             _ => {
-                return self.fatal(field.span,
-                    &format!("expected field identifier or tuple field index, found `{:?}`", field.value));
+                return self.error(field.span,
+                    format!("expected field identifier or tuple field index, found `{:?}`", field.value));
             }
         };
         let span = self.hir.node_kind(receiver).span.extended(field.span.end);
@@ -1406,14 +1413,14 @@ impl<'a> Parser<'a> {
                 match tok.value {
                     Token::Comma => {},
                     Token::BlockClose(lex::Block::Paren) => break tok.span.end,
-                    _ => return self.fatal(tok.span,
-                        &format!("expected `,` or `)`, found {:?}", tok.value)),
+                    _ => return self.error(tok.span,
+                        format!("expected `,` or `)`, found {:?}", tok.value)),
                 }
             } else {
                 if name.is_some() {
                     let tok = self.lex.nth(0);
-                    return self.fatal(tok.span,
-                        &format!("expected expression, found `{:?}`", tok.value));
+                    return self.error(tok.span,
+                        format!("expected expression, found `{:?}`", tok.value));
                 }
                 let tok = self.expect(Token::BlockClose(lex::Block::Paren))?;
                 break tok.span.end;
@@ -1432,7 +1439,7 @@ impl<'a> Parser<'a> {
         let kind = if let Token::Literal(v) = tok.value {
             v
         } else {
-            return self.fatal(tok.span, &format!("expected literal, found {:?}", tok.value))?;
+            return self.error(tok.span, format!("expected literal, found {:?}", tok.value))?;
         };
         let lit = match kind {
             lex::Literal::Int => {
@@ -1460,17 +1467,17 @@ impl<'a> Parser<'a> {
         match s.parse::<IntLiteral>() {
             Ok(v) => Ok(span.spanned(v)),
             Err(_) => {
-                self.fatal(span, "invalid integer literal")
+                self.error(span, "invalid integer literal".into())
             }
         }
     }
 
-    fn float_literal(&self, span: Span) -> PResult<Literal> {
+    fn float_literal(&mut self, span: Span) -> PResult<Literal> {
         let s = &self.s[span.range()];
         match s.parse::<FloatLiteral>() {
             Ok(v) => Ok(Literal::Float(v)),
             Err(_) => {
-                self.fatal(span, "invalid floating point literal")
+                self.error(span, "invalid floating point literal".into())
             }
         }
     }
@@ -1480,7 +1487,7 @@ impl<'a> Parser<'a> {
         match lex::string_literal(s) {
             Ok(s) => Ok(Literal::String(s)),
             Err(lex::StringLiteralError) => {
-                self.fatal(span, "invalid string literal")
+                self.error(span, "invalid string literal".into())
             }
         }
     }
@@ -1490,7 +1497,7 @@ impl<'a> Parser<'a> {
         match lex::char_literal(s) {
             Ok(s) => Ok(Literal::Char(s)),
             Err(lex::CharLiteralError) => {
-                self.fatal(span, "invalid char literal")
+                self.error(span, "invalid char literal".into())
             }
         }
     }
@@ -1530,8 +1537,8 @@ impl<'a> Parser<'a> {
 
         if self.lex.maybe(Token::BlockOpen(lex::Block::Brace)).is_none() {
             let tok = self.lex.nth(0);
-            return self.fatal(tok.span,
-                &format!("expected `for` or `{{`, found `{:?}`", tok.value));
+            return self.error(tok.span,
+                format!("expected `for` or `{{`, found `{:?}`", tok.value));
         }
 
         let mut items = Vec::new();
@@ -1560,7 +1567,7 @@ impl<'a> Parser<'a> {
         while self.lex.nth(0).value != Token::BlockClose(lex::Block::Brace) {
             if !delimited {
                 let tok = self.lex.nth(0);
-                return self.fatal(tok.span, &format!("expected `,` or `}}` but found `{:?}`", tok.value));
+                return self.error(tok.span, format!("expected `,` or `}}` but found `{:?}`", tok.value));
             }
             let vis = if field_vis {
                 self.maybe_vis()
@@ -1587,7 +1594,7 @@ impl<'a> Parser<'a> {
         let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span;
 
         if !named_fields && !delimited && fields.len() == 1 {
-            return self.fatal(end, "expected `,`");
+            return self.error(end, "expected `,`".into());
         }
 
         Ok(self.hir.insert_struct_type(Span::new(start, end.end).spanned(StructType {
@@ -1625,10 +1632,10 @@ impl<'a> Parser<'a> {
         {
             let anonymous_fields = self.int_literal()?;
             if anonymous_fields.value.ty.is_some() {
-                return self.fatal(anonymous_fields.span, "unexpected int literal type suffix");
+                return self.error(anonymous_fields.span, "unexpected int literal type suffix".into());
             }
             if anonymous_fields.value.value != 0 {
-                return self.fatal(anonymous_fields.span, "invalid tuple field number");
+                return self.error(anonymous_fields.span, "invalid tuple field number".into());
             }
             self.expect(Token::Colon).unwrap();
             let value = self.expr(Default::default())?;
@@ -1681,7 +1688,7 @@ impl<'a> Parser<'a> {
                     }
                     if !delimited {
                         let tok = self.lex.nth(0);
-                        return self.fatal(tok.span, &format!("expected `,` or `}}` but found `{:?}`", tok.value));
+                        return self.error(tok.span, format!("expected `,` or `}}` but found `{:?}`", tok.value));
                     }
 
                     let name = if self.lex.nth(0).value == Token::Ident
@@ -1689,7 +1696,7 @@ impl<'a> Parser<'a> {
                     {
                         if anonymous_fields.is_some() {
                             let tok = self.lex.nth(0);
-                            return self.fatal(tok.span, "unexpected field name");
+                            return self.error(tok.span, "unexpected field name".into());
                         }
                         let name = self.ident()?;
                         self.expect(Token::Colon)?;
@@ -1727,29 +1734,62 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn parse_file_with(path: impl AsRef<StdPath>, fs: &mut dyn Fs) -> PResult<Hir> {
-    let path = path.as_ref().to_path_buf();
-    let mut hir = Hir::new();
-    let content = Parser::read_file(fs, &path)?;
-    let source_id = hir.insert_source(Source {
-        mod_name: None,
-        path,
-    });
-    Parser::new(&content, source_id, fs, &mut hir).parse()?;
-    Ok(hir)
+fn read_file(fs: &mut dyn Fs, path: &StdPath) -> PResult<String> {
+    fs.read_file(path).map_err(|e| ErrorKind::Io(e).into())
 }
 
-pub fn parse_file(path: impl AsRef<StdPath>) -> PResult<Hir> {
+pub struct Error {
+    pub kind: ErrorKind,
+    pub sources: Sources,
+    pub backtrace: Option<Box<backtrace::Backtrace>>,
+}
+
+impl Error {
+    fn from_perror(PError { kind, backtrace }: PError, hir: Hir) -> Self {
+        Self {
+            kind,
+            sources: hir.into_sources(),
+            backtrace,
+        }
+    }
+}
+
+impl std::fmt::Debug for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match &self.kind {
+            ErrorKind::Io(e) => write!(f, "Parser error ({:?})", e),
+            ErrorKind::Lex => write!(f, "Parser error (lexer)"),
+            ErrorKind::Parse => write!(f, "Parser error"),
+        }?;
+        if let Some(backtrace) = &self.backtrace {
+            writeln!(f)?;
+            write!(f, "{:?}", backtrace)?;
+        }
+        Ok(())
+    }
+}
+
+pub fn parse_file_with(path: impl AsRef<StdPath>, fs: &mut dyn Fs, diag: &mut Diag) -> std::result::Result<Hir, Error> {
+    let path = path.as_ref().to_path_buf();
+    let hir = Hir::new();
+    let text = match read_file(fs, &path) {
+        Ok(v) => v,
+        Err(e) => return Err(Error::from_perror(e, hir)),
+    };
+    parse(path, text, hir, fs, diag)
+}
+
+pub fn parse_file(path: impl AsRef<StdPath>, diag: &mut Diag) -> std::result::Result<Hir, Error> {
     struct StdFs;
     impl Fs for StdFs {
         fn read_file(&mut self, path: &StdPath) -> io::Result<String> {
             std::fs::read_to_string(path)
         }
     }
-    parse_file_with(path, &mut StdFs)
+    parse_file_with(path, &mut StdFs, diag)
 }
 
-pub fn parse_str(s: &str) -> PResult<Hir> {
+pub fn parse_str(text: String, diag: &mut Diag) -> std::result::Result<Hir, Error> {
     struct NotFoundFs;
     impl Fs for NotFoundFs {
         fn read_file(&mut self, _path: &StdPath) -> io::Result<String> {
@@ -1757,13 +1797,21 @@ pub fn parse_str(s: &str) -> PResult<Hir> {
         }
     }
 
-    let mut hir = Hir::new();
-    let source_id = hir.insert_source(Source {
+    let path = source_file_name("unnamed");
+    parse(path, text, Hir::new(), &mut NotFoundFs, diag)
+}
+
+fn parse(path: PathBuf, text: String, mut hir: Hir, fs: &mut dyn Fs, diag: &mut Diag) -> std::result::Result<Hir, Error> {
+    let text = Rc::new(text);
+    let source_id = hir.sources_mut().insert(Source {
         mod_name: None,
-        path: source_file_name("unnamed"),
+        text: text.clone(),
+        path,
     });
-    Parser::new(s, source_id, &mut NotFoundFs, &mut hir).parse()?;
-    Ok(hir)
+    match ParserImpl::new(&text, source_id, fs, &mut hir, diag).parse(){
+        Ok(()) => Ok(hir),
+        Err(e) => Err(Error::from_perror(e, hir)),
+    }
 }
 
 pub fn needs_trailing_semi(kind: NodeKind) -> bool {
