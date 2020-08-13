@@ -6,7 +6,7 @@ use slab::Slab;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub use crate::syntax::{FloatLiteral, FloatTypeSuffix, IntLiteral, IntTypeSuffix, S, Span, Spanned};
 
@@ -66,7 +66,7 @@ pub type SourceId = usize;
 pub struct Source {
     pub mod_name: Option<Ident>,
     pub path: PathBuf,
-    pub text: Rc<String>,
+    pub text: Arc<String>,
 }
 
 #[derive(Default)]

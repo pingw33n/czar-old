@@ -278,9 +278,8 @@ impl<'a> Resolver<'a> {
             let first = first.as_ref().map(|v| v.as_str());
             if let Some(reso) = self.resolve_in_scopes(scope, first, paths).non_empty() {
                 reso
-            } else if let Some(package_id) = self.packages.try_by_name(&first.value) {
-                let package = &self.packages[package_id];
-                Resolution::single(NsKind::Type, (package_id, package.hir.root))
+            } else if let Some(package) = self.packages.try_by_name(&first.value) {
+                Resolution::single(NsKind::Type, (package.id, package.hir.root))
             } else {
                 let std_resolver = self.with_package(PackageId::std());
                 // TODO cache this

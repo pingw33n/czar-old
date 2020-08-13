@@ -2,39 +2,45 @@
 #![deny(non_snake_case)]
 #![deny(unused_must_use)]
 
-use crate::package::{Packages, PackageKind};
+use crate::package::{Packages, PackageKind, PackageId};
 
 mod codegen;
-mod compiler;
+mod compile;
 mod diag;
 mod hir;
 mod package;
 mod semantic;
 mod syntax;
+#[cfg(test)]
+mod test;
 mod util;
 
 fn main() {
     let packages = &mut Packages::default();
 
-    let std = compiler::compile(
+    let std = compile::compile(
+        PackageId::std(),
         "misc/std.cz",
         "std".into(),
         PackageKind::Lib,
         packages,
     ).unwrap();
-    assert!(std.is_std());
+    packages.insert(std.into());
 
-    let test_pkg = compiler::compile(
+    let test_pkg = compile::compile(
+        PackageId::new(),
         "misc/test.cz",
         "test".into(),
         PackageKind::Exe,
         packages,
     ).unwrap();
+    let test_pkg_id = test_pkg.id;
+    packages.insert(test_pkg.into());
 
     let mut cg = codegen::Codegen::new(packages);
     {
         measure_time::print_time!("llvm ir");
-        cg.lower(test_pkg);
+        cg.run(test_pkg_id);
     }
     cg.dump();
     {

@@ -2,6 +2,8 @@ pub mod prelude {
     pub mod v1 {
         pub use package::i32::i32;
         pub use package::bool::bool;
+
+        pub unsafe fn print_i32(_ v: i32);
     }
 }
 

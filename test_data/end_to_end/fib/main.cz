@@ -8,6 +8,14 @@ fn fib(_ v: i32) -> i32 {
     }
 }
 
+fn print_fib(_ v: i32) {
+    print_i32(fib(v));
+}
+
 fn main() {
-    print_i32(fib(20));
+    print_fib(0 - 100);
+    print_fib(0);
+    print_fib(1);
+    print_fib(10);
+    print_fib(20);
 }

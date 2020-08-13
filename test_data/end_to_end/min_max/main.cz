@@ -1,0 +1,20 @@
+fn min(_ a: i32, _ b: i32) -> i32 {
+    if a <= b { a } else { b }
+}
+
+fn max(_ a: i32, _ b: i32) -> i32 {
+    if a <= b { b } else { a }
+}
+
+fn print_min_max(_ a: i32, _ b: i32) {
+    print_i32(min(a, b));
+    print_i32(max(a, b));
+}
+
+fn main() {
+    print_min_max(0 - 100, 0 - 101);
+    print_min_max(0 - 2_147_483_647 - 1, 0);
+    print_min_max(0, 0);
+    print_min_max(42, 1000);
+    print_min_max(42, 2_147_483_647);
+}

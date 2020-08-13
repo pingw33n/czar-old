@@ -2,7 +2,7 @@
 mod test;
 
 use std::convert::TryFrom;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::diag::{self, Diag};
 use crate::hir::{*, Range};
@@ -244,7 +244,7 @@ impl<'a> ParserImpl<'a> {
                         "module file reference can be top level only".into());
                 }
                 path.push(source_file_name(&name.name.value));
-                let text = Rc::new(read_file(self.fs, &path)?);
+                let text = Arc::new(read_file(self.fs, &path)?);
                 (path, text)
             };
             let source_id = self.hir.sources_mut().insert(Source {
@@ -1802,7 +1802,7 @@ pub fn parse_str(text: String, diag: &mut Diag) -> std::result::Result<Hir, Erro
 }
 
 fn parse(path: PathBuf, text: String, mut hir: Hir, fs: &mut dyn Fs, diag: &mut Diag) -> std::result::Result<Hir, Error> {
-    let text = Rc::new(text);
+    let text = Arc::new(text);
     let source_id = hir.sources_mut().insert(Source {
         mod_name: None,
         text: text.clone(),

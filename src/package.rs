@@ -1,11 +1,12 @@
-use slab::Slab;
+use std::collections::HashMap;
+use std::ops::Index;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::hir::{Hir, Ident, NodeId};
 use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
 use crate::semantic::type_check::Types;
-use std::collections::HashMap;
-use std::ops::Index;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PackageKind {
@@ -13,19 +14,25 @@ pub enum PackageKind {
     Lib,
 }
 
+static NEXT_ID: AtomicU32 = AtomicU32::new(PackageId::std().0 + 1);
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(transparent)]
-pub struct PackageId(usize);
+pub struct PackageId(u32);
 
 impl PackageId {
-    const STD: Self = Self(0);
+    pub fn new() -> Self {
+        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
+        assert!(id < u32::max_value());
+        Self(id)
+    }
 
     pub fn null() -> Self {
-        Self(usize::max_value())
+        Self(u32::max_value())
     }
 
     pub const fn std() -> Self {
-        PackageId::STD
+        Self(0)
     }
 
     pub const fn is_std(self) -> bool {
@@ -41,6 +48,8 @@ impl Default for PackageId {
 
 pub type GlobalNodeId = (PackageId, NodeId);
 
+pub type PackageRef = Arc<Package>;
+
 pub struct Package {
     pub id: PackageId,
     pub name: Ident,
@@ -50,30 +59,20 @@ pub struct Package {
     pub types: Types,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Packages {
-    packages: Slab<Package>,
-    by_name: HashMap<Ident, PackageId>,
+    by_id: HashMap<PackageId, PackageRef>,
+    by_name: HashMap<Ident, PackageRef>,
 }
 
 impl Packages {
-    pub fn next_id(&mut self) -> PackageId {
-        PackageId(self.packages.vacant_entry().key())
+    pub fn insert(&mut self, package: PackageRef) {
+        assert!(self.by_id.insert(package.id, package.clone()).is_none());
+        assert!(self.by_name.insert(package.name.clone(), package).is_none());
     }
 
-    pub fn insert(&mut self, id: PackageId, package: Package) {
-        self.by_name.insert(package.name.clone(), id);
-        let e = self.packages.vacant_entry();
-        assert_eq!(e.key(), id.0);
-        e.insert(package);
-    }
-
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(PackageId, &'a Package)> + 'a {
-        self.packages.iter().map(|(id, v)| (PackageId(id), v))
-    }
-
-    pub fn try_by_name(&self, name: &str) -> Option<PackageId> {
-        self.by_name.get(name).copied()
+    pub fn try_by_name(&self, name: &str) -> Option<&Package> {
+        self.by_name.get(name).map(|v| &**v)
     }
 }
 
@@ -81,6 +80,6 @@ impl Index<PackageId> for Packages {
     type Output = Package;
 
     fn index(&self, index: PackageId) -> &Self::Output {
-        &self.packages[index.0]
+        &self.by_id[&index]
     }
 }

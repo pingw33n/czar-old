@@ -24,11 +24,12 @@ impl std::fmt::Display for Error {
 }
 
 pub fn compile(
+    id: PackageId,
     path: impl AsRef<Path>,
     name: Ident,
     kind: PackageKind,
-    packages: &mut Packages,
-) -> Result<PackageId, Error> {
+    packages: &Packages,
+) -> Result<Package, Error> {
     let diag = &mut Diag::default();
 
     let hir = match syntax::parse::parse_file(path, diag) {
@@ -55,8 +56,6 @@ pub fn compile(
     let discover_data = DiscoverData::build(&hir);
     discover_data.print_scopes(&hir);
 
-    let id = packages.next_id();
-
     let resolve_data = ResolveData::build(
         &discover_data,
         &hir,
@@ -73,13 +72,12 @@ pub fn compile(
         packages,
     }.run();
 
-    packages.insert(id, Package {
+    Ok(Package {
         id,
         name,
         hir,
         discover_data,
         resolve_data,
         types,
-    });
-    Ok(id)
+    })
 }

@@ -9,6 +9,7 @@ void print_i32(int32_t v) {
 }
 
 int main() {
+    setvbuf(stdout, NULL, _IONBF, 0);
     __main();
     return 0;
 }

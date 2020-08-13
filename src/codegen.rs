@@ -106,7 +106,7 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    pub fn lower(&mut self, package_id: PackageId) {
+    pub fn run(&mut self, package_id: PackageId) {
         let entry_point = self.packages[package_id].resolve_data.entry_point().unwrap();
 
         self.fn_decl((package_id, entry_point));
