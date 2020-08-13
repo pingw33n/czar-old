@@ -67,10 +67,10 @@ fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) {
     let mut cg = codegen::Codegen::new(packages);
     {
         measure_time::print_time!("llvm ir");
-        cg.run(pkg_id);
+        cg.lower(pkg_id);
     }
 
-    cg.dump();
+    println!("{}", cg);
 
     let tmp_dir = tempdir().unwrap();
 
@@ -78,7 +78,7 @@ fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) {
     {
         measure_time::print_time!("llvm codegen");
 
-        cg.write(&obj_path, codegen::OutputFileKind::Object);
+        cg.emit_to_file(&obj_path, codegen::OutputFormat::Object).unwrap();
     }
 
     let run_stdout_txt = path.join("run.stdout.txt");

@@ -78,8 +78,6 @@ pub struct DiscoverData {
     node_to_scope: NodeMap<NodeId>,
     child_to_parent: NodeMap<NodeId>,
     node_to_module: NodeMap<NodeId>,
-    // FIXME this is really not the right place for this
-    fn_allocas: NodeMap<Vec<NodeId>>,
 }
 
 impl DiscoverData {
@@ -145,12 +143,6 @@ impl DiscoverData {
     pub fn set_module_of(&mut self, node: NodeId, module: NodeId) {
         assert_ne!(node, module);
         assert!(self.node_to_module.insert(node, module).is_none());
-    }
-
-    pub fn fn_allocas(&self, fn_decl: NodeId) -> &[NodeId] {
-        self.fn_allocas.get(&fn_decl)
-            .map(|v| &v[..])
-            .unwrap_or(&[])
     }
 
     pub fn print_scopes(&self, hir: &Hir) {
@@ -248,11 +240,6 @@ impl Build<'_> {
                 .insert_wildcard_import(node);
         }
     }
-
-    fn push_fn_alloca(&mut self, node: NodeId) {
-        self.data.fn_allocas.entry(*self.fn_decl_stack.last().unwrap())
-            .or_default().push(node);
-    }
 }
 
 impl HirVisitor for Build<'_> {
@@ -284,14 +271,10 @@ impl HirVisitor for Build<'_> {
 
                 self.insert(NsKind::Value, priv_name.clone(), ctx.node);
             },
-            NodeKind::IfExpr => {
-                self.push_fn_alloca(ctx.node);
-            },
             NodeKind::Let => {},
             NodeKind::LetDecl => {
                 let name = ctx.hir.let_decl(ctx.node).name.clone();
                 self.insert(NsKind::Value, name, ctx.node);
-                self.push_fn_alloca(ctx.node);
             },
             NodeKind::Module => {
                 self.module_stack.push(ctx.node);
@@ -331,6 +314,7 @@ impl HirVisitor for Build<'_> {
             | NodeKind::Cast
             | NodeKind::FieldAccess
             | NodeKind::FnCall
+            | NodeKind::IfExpr
             | NodeKind::Impl
             | NodeKind::Literal
             | NodeKind::Loop

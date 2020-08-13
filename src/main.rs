@@ -40,12 +40,13 @@ fn main() {
     let mut cg = codegen::Codegen::new(packages);
     {
         measure_time::print_time!("llvm ir");
-        cg.run(test_pkg_id);
+        cg.lower(test_pkg_id);
     }
-    cg.dump();
+    dbg!(&cg);
     {
         measure_time::print_time!("llvm codegen");
-        cg.write("/tmp/out.o", codegen::OutputFileKind::Object);
-        cg.write("/tmp/out.asm", codegen::OutputFileKind::Assembly);
+        cg.emit_to_file("/tmp/out.ll", codegen::OutputFormat::IR).unwrap();
+        cg.emit_to_file("/tmp/out.o", codegen::OutputFormat::Object).unwrap();
+        cg.emit_to_file("/tmp/out.asm", codegen::OutputFormat::Assembly).unwrap();
     }
 }
