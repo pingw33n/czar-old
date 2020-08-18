@@ -1,14 +1,34 @@
 pub mod prelude {
     pub mod v1 {
-        pub use package::i32::i32;
         pub use package::bool::bool;
+        pub use package::i32::i32;
+        pub use package::u32::u32;
+        pub use package::isize::isize;
+        pub use package::usize::usize;
 
+        pub unsafe fn print_bool(_ v: bool);
         pub unsafe fn print_i32(_ v: i32);
+        pub unsafe fn print_u32(_ v: u32);
+        pub unsafe fn print_isize(_ v: isize);
+        pub unsafe fn print_usize(_ v: usize);
+        pub unsafe fn println();
     }
 }
 
 pub mod i32 {
     pub struct i32 {}
+}
+
+pub mod u32 {
+    pub struct u32 {}
+}
+
+pub mod isize {
+    pub struct isize {}
+}
+
+pub mod usize {
+    pub struct usize {}
 }
 
 pub mod bool {

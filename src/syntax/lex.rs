@@ -790,8 +790,8 @@ pub enum IntTypeSuffix {
     U64 = 7,
     I128 = 8,
     U128 = 9,
-    Isize = 10,
-    Usize = 11,
+    ISize = 10,
+    USize = 11,
 }
 
 impl IntTypeSuffix {

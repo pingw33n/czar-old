@@ -16,6 +16,9 @@ use discover::{DiscoverData, NsKind};
 pub enum PrimitiveType {
     Bool,
     I32,
+    U32,
+    ISize,
+    USize,
     Unit,
 }
 
@@ -66,6 +69,9 @@ pub struct StructType {
 pub enum LangType {
     Bool,
     I32,
+    U32,
+    ISize,
+    USize,
     Unit,
 }
 
@@ -215,6 +221,9 @@ impl Impl<'_> {
             (&["Unit"][..], LangType::Unit, PrimitiveType::Unit),
             (&["bool", "bool"][..], LangType::Bool, PrimitiveType::Bool),
             (&["i32", "i32"][..], LangType::I32, PrimitiveType::I32),
+            (&["u32", "u32"][..], LangType::U32, PrimitiveType::U32),
+            (&["isize", "isize"][..], LangType::ISize, PrimitiveType::ISize),
+            (&["usize", "usize"][..], LangType::USize, PrimitiveType::USize),
         ] {
             let node = resolver.resolve_in_package(path)
                 .node(NsKind::Type)
@@ -426,15 +435,15 @@ impl Impl<'_> {
                     fatal(span, "expected function");
                 };
 
+                let callee_types = self.types(callee_ty.node().0);
                 let formal_args = &self.hir(ctx.hir, callee_ty.node().0).fn_decl(callee_ty.node().1).args;
                 assert_eq!(actual_args.len(), formal_args.len());
                 for (actual, formal) in actual_args
                     .iter()
                     .zip(formal_args.iter())
                 {
-                    if self.types.typing(actual.value) != self.types.typing(*formal) {
-                        dbg!(self.types.typing(actual.value), self.types.typing(*formal));
-                        dbg!(ctx.hir.node_kind(actual.value), ctx.hir.node_kind(*formal));
+                    let formal_ty = self.unalias_type(callee_types.typing(*formal));
+                    if self.unaliased_typing(actual.value).id() != formal_ty.id() {
                         fatal(ctx.hir.node_kind(actual.value).span, "`fn`: incompatible actual and formal arg types");
                     }
                 }
@@ -473,10 +482,14 @@ impl Impl<'_> {
                     &Literal::Bool(_) => self.lang_type(LangType::Bool),
                     &Literal::Int(IntLiteral { ty, .. }) => {
                         if let Some(ty) = ty {
-                            match ty {
-                                IntTypeSuffix::I32 => self.lang_type(LangType::I32),
-                                _ => unimplemented!()
-                            }
+                            use IntTypeSuffix::*;
+                            self.lang_type(match ty {
+                                I32 => LangType::I32,
+                                U32 => LangType::U32,
+                                ISize => LangType::ISize,
+                                USize => LangType::USize,
+                                _ => todo!(),
+                            })
                         } else {
                             // FIXME
                             self.lang_type(LangType::I32)
@@ -490,55 +503,101 @@ impl Impl<'_> {
             NodeKind::Op => {
                 match ctx.hir.op(ctx.node) {
                     &Op::Binary(BinaryOp { kind, left, right }) => {
-                        let left_ty = self.types.typing(left);
-                        let right_ty = self.types.typing(right);
+                        let left_ty = self.unaliased_typing(left);
+                        let right_ty = self.unaliased_typing(right);
+                        if left_ty.id() != right_ty.id() {
+                            fatal(ctx.hir.node_kind(ctx.node).span,
+                                format!("incompatible types for `{}` operation", kind.value));
+                        }
+                        use BinaryOpKind::*;
                         match kind.value {
-                            BinaryOpKind::LtEq => {
+                            | Eq
+                            | Gt
+                            | GtEq
+                            | Lt
+                            | LtEq
+                            | NotEq
+                            => {
+                                if !matches!(left_ty.data(), TypeData::Primitive(_)) ||
+                                    !matches!(right_ty.data(), TypeData::Primitive(_))
                                 {
-                                    let left_ty = self.unalias_type(left_ty);
-                                    let right_ty = self.unalias_type(right_ty);
-                                    if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
-                                        !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
-                                    {
-                                        let op_span = ctx.hir.node_kind(ctx.node).span;
-                                        fatal(op_span, format_args!("operation `<=` at is not defined for {:?} and {:?}",
-                                            left_ty, right_ty));
-                                    }
+                                    let op_span = ctx.hir.node_kind(ctx.node).span;
+                                    fatal(op_span, format_args!("operation `{}` at is not defined for {:?} and {:?}",
+                                        kind.value, left_ty, right_ty));
                                 }
                                 self.lang_type(LangType::Bool)
                             },
-                            BinaryOpKind::Add => {
-                                {
-                                    let left_ty = self.unalias_type(left_ty);
-                                    let right_ty = self.unalias_type(right_ty);
-                                    if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
-                                        !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
-                                    {
-                                        let op_span = ctx.hir.node_kind(ctx.node).span;
-                                        fatal(op_span, format_args!("operation `+` is not defined for {:?} and {:?}",
-                                            left_ty, right_ty));
+                            Add => {
+                                let ok = if let (&TypeData::Primitive(l), &TypeData::Primitive(r)) = (left_ty.data(), right_ty.data()) {
+                                    use PrimitiveType::*;
+                                    match (l, r) {
+                                        | (I32, I32)
+                                        | (U32, U32)
+                                        | (ISize, ISize)
+                                        | (USize, USize)
+                                        => true,
+                                        _ => false,
                                     }
+                                } else {
+                                    false
+                                };
+                                if !ok {
+                                    let op_span = ctx.hir.node_kind(ctx.node).span;
+                                    fatal(op_span, format_args!("operation `{}` is not defined for {:?} and {:?}",
+                                        kind.value, left_ty, right_ty));
                                 }
-                                left_ty
+                                left_ty.id()
                             }
-                            BinaryOpKind::Sub => {
-                                {
-                                    let left_ty = self.unalias_type(left_ty);
-                                    let right_ty = self.unalias_type(right_ty);
-                                    if !matches!(left_ty.data(), TypeData::Primitive(PrimitiveType::I32)) ||
-                                        !matches!(right_ty.data(), TypeData::Primitive(PrimitiveType::I32))
-                                    {
-                                        let op_span = ctx.hir.node_kind(ctx.node).span;
-                                        fatal(op_span, format_args!("operation `-` is not defined for {:?} and {:?}",
-                                            left_ty, right_ty));
+                            Sub => {
+                                let ok = if let (&TypeData::Primitive(l), &TypeData::Primitive(r)) = (left_ty.data(), right_ty.data()) {
+                                    use PrimitiveType::*;
+                                    match (l, r) {
+                                        | (I32, I32)
+                                        | (U32, U32)
+                                        | (ISize, ISize)
+                                        | (USize, USize)
+                                        => true,
+                                        _ => false,
                                     }
+                                } else {
+                                    false
+                                };
+                                if !ok {
+                                    let op_span = ctx.hir.node_kind(ctx.node).span;
+                                    fatal(op_span, format_args!("binary operation `{}` is not defined for {:?} and {:?}",
+                                        kind.value, left_ty, right_ty));
                                 }
-                                left_ty
+                                left_ty.id()
                             }
                             _ => unimplemented!(),
                         }
                     }
-                    _ => unimplemented!(),
+                    &Op::Unary(UnaryOp { kind, arg }) => {
+                        let arg_ty = self.unaliased_typing(arg);
+                        use UnaryOpKind::*;
+                        match kind.value {
+                            Neg => {
+                                let ok = if let &TypeData::Primitive(prim) = arg_ty.data() {
+                                    use PrimitiveType::*;
+                                    match prim {
+                                        | I32
+                                        | ISize
+                                        => true,
+                                        _ => false,
+                                    }
+                                } else {
+                                    false
+                                };
+                                if !ok {
+                                    let op_span = ctx.hir.node_kind(ctx.node).span;
+                                    fatal(op_span, format_args!("unary operation `{}` is not defined for {:?}",
+                                        kind.value, arg_ty));
+                                }
+                                arg_ty.id()
+                            }
+                            _ => todo!(),
+                        }
+                    }
                 }
             }
             NodeKind::Struct => {

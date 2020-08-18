@@ -1,0 +1,17 @@
+fn cmp(_ a: i32, _ b: i32) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn main() {
+    cmp(0i32, 0i32);
+    cmp(-2_147_483_648i32, -2_147_483_648i32);
+    cmp(2_147_483_647i32, 2_147_483_647i32);
+    cmp(-2_147_483_648i32, -2_147_483_647i32);
+    cmp(2_147_483_646i32, 2_147_483_647i32);
+}

@@ -322,6 +322,47 @@ pub enum BinaryOpKind {
     SubAssign,
 }
 
+impl std::fmt::Display for BinaryOpKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use BinaryOpKind::*;
+        let s = match *self {
+            Add => "+",
+            AddAssign => "+=",
+            And => "&&",
+            Assign => "=",
+            BitAnd => "&",
+            BitAndAssign => "&=",
+            BitOr => "|",
+            BitOrAssign => "|=",
+            BitXor => "^",
+            BitXorAssign => "^=",
+            Div => "/",
+            DivAssign => "/=",
+            Eq => "=",
+            Gt => ">",
+            GtEq => ">=",
+            Index => "[]",
+            Lt => "<",
+            LtEq => "<=",
+            Rem => "%",
+            RemAssign => "%=",
+            Mul => "*",
+            MulAssign => "*=",
+            NotEq => "!=",
+            Or => "|",
+            RangeExcl => "..",
+            RangeIncl => "..=",
+            Shl => "<<",
+            ShlAssign => "<<=",
+            Shr => ">>",
+            ShrAssign => ">>=",
+            Sub => "-",
+            SubAssign => "-=",
+        };
+        f.write_str(s)
+    }
+}
+
 #[derive(Debug)]
 pub struct BinaryOp {
     pub kind: S<BinaryOpKind>,
@@ -338,6 +379,22 @@ pub enum UnaryOpKind {
     Not,
     PanickingUnwrap,
     PropagatingUnwrap,
+}
+
+impl std::fmt::Display for UnaryOpKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use UnaryOpKind::*;
+        let s = match *self {
+            Addr => "&",
+            AddrMut => "&mut",
+            Deref => "*",
+            Neg => "-",
+            Not => "!",
+            PanickingUnwrap => "!",
+            PropagatingUnwrap => "?",
+        };
+        f.write_str(s)
+    }
 }
 
 #[derive(Debug)]

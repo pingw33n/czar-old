@@ -252,24 +252,63 @@ impl<'a> Codegen<'a> {
                 let op = ctx.package.hir.op(node);
                 match op {
                     &Op::Binary(BinaryOp { kind, left, right }) => {
-                        let left = self.expr(left, ctx);
-                        let right = self.expr(right, ctx);
+                        let leftv = self.expr(left, ctx);
+                        let rightv = self.expr(right, ctx);
                         use BinaryOpKind::*;
                         match kind.value {
                             Add => {
-                                self.bodyb.add(left, right)
+                                self.bodyb.add(leftv, rightv)
                             },
-                            LtEq => {
-                                self.bodyb.icmp(left, right, IntPredicate::LLVMIntSLE)
+                            | Eq
+                            | Gt
+                            | GtEq
+                            | Lt
+                            | LtEq
+                            | NotEq => {
+                                use PrimitiveType::*;
+                                let prim_ty = self.unaliased_htyping((ctx.package.id, left)).data().as_primitive().expect("todo");
+                                if matches!(prim_ty, Unit) {
+                                    self.bool_literal(true)
+                                } else {
+                                    let signed = match prim_ty {
+                                        | I32
+                                        | ISize
+                                        => true,
+                                        | Bool
+                                        | U32
+                                        | USize
+                                        => false,
+                                        Unit => todo!(),
+                                    };
+
+                                    use IntPredicate::*;
+                                    let pred = match kind.value {
+                                        Eq => LLVMIntEQ,
+                                        Gt => if signed { LLVMIntSGT } else { LLVMIntUGT },
+                                        GtEq => if signed { LLVMIntSGE } else { LLVMIntUGE },
+                                        Lt => if signed { LLVMIntSLT } else { LLVMIntULT },
+                                        LtEq => if signed { LLVMIntSLE } else { LLVMIntULE },
+                                        NotEq => LLVMIntNE,
+                                        _ => unreachable!(),
+                                    };
+                                    self.bodyb.icmp(leftv, rightv, pred)
+                                }
                             },
                             Sub => {
-                                self.bodyb.sub(left, right)
+                                self.bodyb.sub(leftv, rightv)
                             },
                             _ => todo!("{:?}", kind)
                         }
                     },
                     &Op::Unary(UnaryOp { kind, arg }) => {
-                        todo!()
+                        let arg = self.expr(arg, ctx);
+                        use UnaryOpKind::*;
+                        match kind.value {
+                            Neg => {
+                                self.bodyb.sub(llvm::const_int(arg.type_(), 0), arg)
+                            }
+                            _ => todo!("{:?}", kind)
+                        }
                     },
                 }
             }
@@ -316,6 +355,12 @@ impl<'a> Codegen<'a> {
         }
     }
 
+    fn unaliased_htyping(&self, node: GlobalNodeId) -> &Type {
+        let ty = self.packages[node.0].types.typing(node.1);
+        let unaliased = self.unalias(ty);
+        self.packages[unaliased.0].types.type_(unaliased.1)
+    }
+
     fn typing(&mut self, node: GlobalNodeId) -> llvm::TypeRef {
         let ty = self.packages[node.0].types.typing(node.1);
         self.type_(ty)
@@ -335,10 +380,14 @@ impl<'a> Codegen<'a> {
                 let res_ty = self.type_(*result);
                 llvm::function_type(res_ty, args_ty)
             }
-            &TypeData::Primitive(prim) => match prim {
-                PrimitiveType::Bool => self.llvm.int_type(1),
-                PrimitiveType::I32 => self.llvm.int_type(32),
-                PrimitiveType::Unit => self.llvm.struct_type(&mut []),
+            &TypeData::Primitive(prim) => {
+                use PrimitiveType::*;
+                match prim {
+                    Bool => self.llvm.int_type(1),
+                    I32 | U32 => self.llvm.int_type(32),
+                    ISize | USize => self.llvm.int_type(self.llvm.pointer_size_bits()),
+                    Unit => self.llvm.struct_type(&mut []),
+                }
             }
             _ => todo!(),
         };

@@ -1,0 +1,15 @@
+fn cmp(_ a: u32, _ b: u32) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn main() {
+    cmp(0u32, 0u32);
+    cmp(0xffff_ffffu32, 0xffff_ffffu32);
+    cmp(0xffff_fffeu32, 0xffff_ffffu32);
+}

@@ -8,7 +8,6 @@ use std::ptr::{self, NonNull};
 use std::sync::Once;
 
 pub use llvm_sys::LLVMIntPredicate as IntPredicate;
-use llvm_sys::analysis::LLVMVerifyModule;
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -69,8 +68,12 @@ impl ValueRef {
         }).unwrap().into()
     }
 
-    pub fn entry_bb(self: ValueRef) -> BasicBlockRef {
+    pub fn entry_bb(self) -> BasicBlockRef {
         NonNull::new(unsafe { LLVMGetEntryBasicBlock(self.0.as_ptr()) }).unwrap().into()
+    }
+
+    pub fn type_(self) -> TypeRef {
+        NonNull::new(unsafe { LLVMTypeOf(self.0.as_ptr()) }).unwrap().into()
     }
 }
 
@@ -244,7 +247,10 @@ impl Llvm {
                 }
             }
         }
+    }
 
+    pub fn pointer_size_bits(&self) -> u32 {
+        unsafe { LLVMPointerSize(self.data_layout.as_ptr()) * 8 }
     }
 }
 
