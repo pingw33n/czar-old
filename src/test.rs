@@ -1,12 +1,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
+use threadpool::ThreadPool;
 
 use crate::{compile, codegen};
 use crate::hir::source_file_name;
 use crate::package::{PackageKind, PackageId, Packages};
-use threadpool::ThreadPool;
 
 #[test]
 fn end_to_end() {
@@ -37,6 +38,8 @@ fn end_to_end() {
 
     let tp = ThreadPool::new(num_cpus::get());
 
+    let errors = Arc::new(Mutex::new(Vec::new()));
+
     for e in fs::read_dir(&path).unwrap() {
         let e = e.unwrap();
         if !e.path().is_dir() {
@@ -44,14 +47,30 @@ fn end_to_end() {
         }
         let glue_obj_path = glue_obj_path.path().to_path_buf();
         let packages = packages.clone();
-        tp.execute(move || run(&e.path(), &glue_obj_path, packages.clone()))
+        let errors = errors.clone();
+        tp.execute(move || {
+            if let Err(err) = run(&e.path(), &glue_obj_path, packages.clone()) {
+                errors.lock().unwrap().push(err);
+            }
+        })
     }
 
     tp.join();
     assert_eq!(tp.panic_count(), 0);
+    let mut errors = errors.try_lock().unwrap();
+    if let Some(Error { test_name, actual, expected }) = errors.pop() {
+        assert_eq!(actual, expected, "{}", test_name);
+        unreachable!();
+    }
 }
 
-fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) {
+struct Error {
+    test_name: String,
+    actual: String,
+    expected: String,
+}
+
+fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) -> Result<(), Error> {
     let packages = &mut packages;
     let main: PathBuf = [path, &source_file_name("main")].iter().collect();
     let pkg = compile::compile(
@@ -100,7 +119,17 @@ fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) {
 
         let stdout_exp = fs::read_to_string(run_stdout_txt).unwrap();
         let stdout_act = std::str::from_utf8(&out.stdout).unwrap();
-        assert_eq!(stdout_act, stdout_exp);
+        if stdout_act != &stdout_exp {
+            Err(Error {
+                test_name: path.file_name().unwrap().to_string_lossy().into(),
+                actual: stdout_act.into(),
+                expected: stdout_exp,
+            })
+        } else {
+            Ok(())
+        }
+    } else {
+        Ok(())
     }
 }
 
