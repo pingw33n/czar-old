@@ -475,7 +475,20 @@ impl Impl<'_> {
                 self.lang_type(LangType::Bool)
             }
             NodeKind::LetDecl => {
-                self.types.typing(ctx.hir.let_decl(ctx.node).ty.expect("unimplemented"))
+                let LetDecl { ty, init, .. } = ctx.hir.let_decl(ctx.node);
+                if let Some(ty) = *ty {
+                    let typ = self.types.typing(ty);
+                    if let Some(init) = *init {
+                        if self.unaliased_typing(init).id() != self.unalias_type(typ).id() {
+                            fatal(ctx.hir.node_kind(ty).span, "formal and actual variable types differ");
+                        }
+                    }
+                    typ
+                } else if let Some(init) = *init {
+                    self.types.typing(init)
+                } else {
+                    fatal(ctx.hir.node_kind(ctx.node).span, "can't infer variable type");
+                }
             }
             NodeKind::Literal => {
                 match ctx.hir.literal(ctx.node) {
@@ -708,7 +721,7 @@ impl Impl<'_> {
 
 impl HirVisitor for Impl<'_> {
     fn before_node(&mut self, ctx: HirVisitorCtx) {
-        if let Some(v) = reso_req(ctx.link) {
+        if let Some(v) = reso_ctx(ctx.link) {
             self.reso_ctxs.push(v);
         }
         if self.types.try_typing(ctx.node).is_none() {
@@ -723,13 +736,13 @@ impl HirVisitor for Impl<'_> {
             self.do_typing(ctx);
         }
 
-        if let Some(v) = reso_req(ctx.link) {
+        if let Some(v) = reso_ctx(ctx.link) {
             assert_eq!(self.reso_ctxs.pop().unwrap(), v);
         }
     }
 }
 
-fn reso_req(link: NodeLink) -> Option<ResoCtx> {
+fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
     use NodeLink::*;
     Some(match link {
         | BlockExpr
