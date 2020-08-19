@@ -363,7 +363,7 @@ impl std::fmt::Display for BinaryOpKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct BinaryOp {
     pub kind: S<BinaryOpKind>,
     pub left: NodeId,
@@ -397,7 +397,7 @@ impl std::fmt::Display for UnaryOpKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct UnaryOp {
     pub kind: S<UnaryOpKind>,
     pub arg: NodeId,

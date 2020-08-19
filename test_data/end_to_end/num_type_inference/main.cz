@@ -1,0 +1,82 @@
+fn arg_i32(_ v: i32) {
+    print_i32(v);
+}
+
+fn ret_i32() -> i32 {
+    -256
+}
+
+fn arg_u32(_ v: u32) {
+    print_u32(v);
+}
+
+fn ret_u32() -> u32 {
+    {
+        ({
+            256
+        })
+    }
+}
+
+fn arg_isize(_ v: isize) {
+    print_isize(v);
+}
+
+fn arg_usize(_ v: usize) {
+    print_usize(v);
+}
+
+fn ret_isize() -> isize {
+    -512
+}
+
+fn ret_usize() -> usize {
+    {
+        ({
+            512
+        })
+    }
+}
+
+fn expr1() {
+    let a = 1;
+    let b = a + 2;
+    let c = b - 10isize;
+    let b1 = c < b;
+    let b2 = 0 > c;
+    print_bool(b1);
+    print_bool(b2);
+}
+
+fn let_() {
+    let _b: i32 = -42;
+    let _b: u32 = 42;
+    let _a: isize = -42;
+    let _a: usize = 42;
+}
+
+fn main() {
+    print_i32(0x7fff_ffff);
+    arg_i32(0x7fff_ffff);
+    arg_i32(-0x8000_0000);
+    print_i32(ret_i32());
+
+    println();
+    print_u32(0xffff_ffff);
+    arg_u32(0xffff_ffff);
+    print_u32(ret_u32());
+
+    println();
+    print_isize(512);
+    arg_isize(512);
+    arg_isize(-512);
+    print_isize(ret_isize());
+
+    println();
+    print_usize(1024);
+    arg_usize(1024);
+    print_usize(ret_usize());
+
+    println();
+    expr1();
+}

@@ -9,7 +9,7 @@ fn cmp(_ a: usize, _ b: usize) {
 }
 
 fn main() {
-    cmp(0usize, 0usize);
-    cmp(256usize, 256usize);
-    cmp(255usize, 256usize);
+    cmp(0, 0);
+    cmp(256, 256);
+    cmp(255, 256);
 }

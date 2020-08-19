@@ -49,6 +49,7 @@ fn end_to_end() {
         let packages = packages.clone();
         let errors = errors.clone();
         tp.execute(move || {
+            println!("###### test: {}", e.path().file_name().unwrap().to_string_lossy());
             if let Err(err) = run(&e.path(), &glue_obj_path, packages.clone()) {
                 errors.lock().unwrap().push(err);
             }

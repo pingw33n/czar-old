@@ -371,6 +371,10 @@ impl<'a> Codegen<'a> {
             return v;
         }
         let unaliased = self.unalias(ty);
+        if let Some(&v) = self.types.get(&unaliased) {
+            assert!(self.types.insert(ty, v).is_none());
+            return v;
+        }
         let ty_ll = match self.packages[unaliased.0].types.type_(unaliased.1).data() {
             TypeData::Fn(FnType { args, result, .. }) => {
                 let args_ty = &mut Vec::with_capacity(args.len());
@@ -389,6 +393,7 @@ impl<'a> Codegen<'a> {
                     Unit => self.llvm.struct_type(&mut []),
                 }
             }
+            TypeData::Unknown(_) => unreachable!(),
             _ => todo!(),
         };
 

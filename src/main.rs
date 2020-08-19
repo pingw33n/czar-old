@@ -27,9 +27,10 @@ fn main() {
     ).unwrap();
     packages.insert(std.into());
 
+    let path = std::env::args().nth(1).unwrap();
     let test_pkg = compile::compile(
         PackageId::new(),
-        "misc/test.cz",
+        path,
         "test".into(),
         PackageKind::Exe,
         packages,

@@ -9,9 +9,9 @@ fn cmp(_ a: isize, _ b: isize) {
 }
 
 fn main() {
-    cmp(0isize, 0isize);
-    cmp(-42isize, -42isize);
-    cmp(42isize, 42isize);
-    cmp(-42isize, -41isize);
-    cmp(41isize, 42isize);
+    cmp(0, 0);
+    cmp(-42, -42);
+    cmp(42, 42);
+    cmp(-42, -41);
+    cmp(41, 42);
 }

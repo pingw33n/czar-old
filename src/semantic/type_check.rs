@@ -12,7 +12,7 @@ use super::*;
 use resolve::{ResolveData, Resolver};
 use discover::{DiscoverData, NsKind};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PrimitiveType {
     Bool,
     I32,
@@ -20,6 +20,20 @@ pub enum PrimitiveType {
     ISize,
     USize,
     Unit,
+}
+
+impl PrimitiveType {
+    pub fn is_int(self) -> bool {
+        use PrimitiveType::*;
+        match self {
+            I32 | U32 | ISize | USize => true,
+            Bool | Unit => false,
+        }
+    }
+
+    pub fn is_float(self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug)]
@@ -50,6 +64,7 @@ pub enum TypeData {
     Primitive(PrimitiveType),
     Struct(StructType),
     Type(TypeId),
+    Unknown(UnknownType)
 }
 
 #[derive(Debug)]
@@ -73,6 +88,12 @@ pub enum LangType {
     ISize,
     USize,
     Unit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum UnknownType {
+    Float,
+    Int,
 }
 
 pub type LocalTypeId = usize;
@@ -154,6 +175,7 @@ impl TypeCheck<'_> {
         let tc = &mut Impl {
             resolve_data: self.resolve_data,
             types: &mut types,
+            unknown_types: Default::default(),
             package_id: self.package_id,
             packages: self.packages,
             reso_ctxs: Default::default(),
@@ -201,6 +223,7 @@ enum ResoCtx {
 struct Impl<'a> {
     resolve_data: &'a ResolveData,
     types: &'a mut Types,
+    unknown_types: HashSet<LocalTypeId>,
     package_id: PackageId,
     packages: &'a Packages,
     reso_ctxs: Vec<ResoCtx>,
@@ -251,12 +274,16 @@ impl Impl<'_> {
         }
     }
 
+    fn type_(&self, id: TypeId) -> &Type {
+        self.types(id.0).type_(id.1)
+    }
+
     fn unalias_type(&self, mut id: TypeId) -> &Type {
         #[cfg(debug_assertions)] {
             assert!(self.type_id_set.borrow_mut().is_empty());
         }
         let ty = loop {
-            let ty = self.types(id.0).type_(id.1);
+            let ty = self.type_(id);
             if let Some(&next_id) = ty.data().as_type() {
                 #[cfg(debug_assertions)] {
                     assert!(self.type_id_set.borrow_mut().insert(next_id));
@@ -273,7 +300,12 @@ impl Impl<'_> {
     }
 
     fn insert_type(&mut self, node: NodeId, data: TypeData) -> TypeId {
-        self.types.insert_type((self.package_id, node), Some(data))
+        let unknown = data.as_unknown().is_some();
+        let ty = self.types.insert_type((self.package_id, node), Some(data));
+        if unknown {
+            assert!(self.unknown_types.insert(ty.1));
+        }
+        ty
     }
 
     fn insert_typing(&mut self, node: NodeId, data: TypeData) -> TypeId {
@@ -386,12 +418,15 @@ impl Impl<'_> {
                     .map(|n| self.unaliased_typing(n).id())
                     .unwrap_or(self.lang_type(LangType::Unit));
                 if let Some(body) = *body {
-                    let actual_ret_ty = self.types.typing(body);
-                    if actual_ret_ty != formal_ret_ty {
+                    self.unify(self.types.typing(body), formal_ret_ty);
+
+                    let actual_ret_ty = self.unaliased_typing(body);
+                    if actual_ret_ty.id() != formal_ret_ty {
                         let span = ctx.hir.node_kind(ctx.node).span;
                         fatal(span, format_args!("`fn` actual type {:?} is incompatible with formal return type {:?}",
-                            self.unalias_type(actual_ret_ty), self.unalias_type(formal_ret_ty)));
+                            actual_ret_ty, self.unalias_type(formal_ret_ty)));
                     }
+                    self.handle_unknown_types();
                 }
             },
             _ => {},
@@ -424,31 +459,47 @@ impl Impl<'_> {
                     kind,
                     args: actual_args,
                     .. } = ctx.hir.fn_call(ctx.node);
-                let callee_ty = self.unaliased_typing(*callee);
-                if *kind != FnCallKind::Free {
-                    unimplemented!();
-                }
-                let fn_ty = if let Some(v) = callee_ty.data().as_fn() {
-                    v
-                } else {
-                    let span = ctx.hir.node_kind(*callee).span;
-                    fatal(span, "expected function");
+                let (callee_node, res) = {
+                    let callee_ty = self.unaliased_typing(*callee);
+                    if *kind != FnCallKind::Free {
+                        unimplemented!();
+                    }
+                    let res = if let Some(v) = callee_ty.data().as_fn() {
+                        v.result
+                    } else {
+                        let span = ctx.hir.node_kind(*callee).span;
+                        fatal(span, "expected function");
+                    };
+                    let callee_node = callee_ty.node();
+                    (callee_node, res)
                 };
 
-                let callee_types = self.types(callee_ty.node().0);
-                let formal_args = &self.hir(ctx.hir, callee_ty.node().0).fn_decl(callee_ty.node().1).args;
-                assert_eq!(actual_args.len(), formal_args.len());
-                for (actual, formal) in actual_args
+                let formal_args = self.hir(ctx.hir, callee_node.0).fn_decl(callee_node.1).args.clone();
+
+                if actual_args.len() != formal_args.len() {
+                    let name = &self.hir(ctx.hir, callee_node.0).fn_decl(callee_node.1).name.value;
+                    fatal(ctx.hir.node_kind(ctx.node).span, format!(
+                        "`fn`: `{}`: invalid number of actual parameters: expected {}, found {}",
+                        name,
+                        formal_args.len(), actual_args.len()));
+                }
+
+                for (actual, &formal) in actual_args
                     .iter()
                     .zip(formal_args.iter())
                 {
-                    let formal_ty = self.unalias_type(callee_types.typing(*formal));
-                    if self.unaliased_typing(actual.value).id() != formal_ty.id() {
-                        fatal(ctx.hir.node_kind(actual.value).span, "`fn`: incompatible actual and formal arg types");
+                    self.unify(self.types.typing(actual.value), self.types(callee_node.0).typing(formal));
+
+                    let formal_ty = self.unalias_type(self.types(callee_node.0).typing(formal));
+                    let actual_ty = self.unaliased_typing(actual.value);
+                    if actual_ty.id() != formal_ty.id() {
+                        fatal(ctx.hir.node_kind(actual.value).span, format!(
+                            "`fn`: incompatible actual `{:?}` and formal `{:?}` arg types",
+                            actual_ty, formal_ty));
                     }
                 }
 
-                fn_ty.result
+                res
             }
             NodeKind::FnDecl => {
                 unreachable!()
@@ -475,16 +526,20 @@ impl Impl<'_> {
                 self.lang_type(LangType::Bool)
             }
             NodeKind::LetDecl => {
-                let LetDecl { ty, init, .. } = ctx.hir.let_decl(ctx.node);
-                if let Some(ty) = *ty {
+                let &LetDecl { ty, init, .. } = ctx.hir.let_decl(ctx.node);
+                if let Some(ty) = ty {
+                    if let Some(init) = init {
+                        self.unify(self.types.typing(ty), self.types.typing(init));
+                    }
+
                     let typ = self.types.typing(ty);
-                    if let Some(init) = *init {
+                    if let Some(init) = init {
                         if self.unaliased_typing(init).id() != self.unalias_type(typ).id() {
                             fatal(ctx.hir.node_kind(ty).span, "formal and actual variable types differ");
                         }
                     }
                     typ
-                } else if let Some(init) = *init {
+                } else if let Some(init) = init {
                     self.types.typing(init)
                 } else {
                     fatal(ctx.hir.node_kind(ctx.node).span, "can't infer variable type");
@@ -504,8 +559,7 @@ impl Impl<'_> {
                                 _ => todo!(),
                             })
                         } else {
-                            // FIXME
-                            self.lang_type(LangType::I32)
+                            self.insert_type(ctx.node, TypeData::Unknown(UnknownType::Int))
                         }
                     },
                     &Literal::Unit => self.lang_type(LangType::Unit),
@@ -515,101 +569,11 @@ impl Impl<'_> {
             NodeKind::Module => return,
             NodeKind::Op => {
                 match ctx.hir.op(ctx.node) {
-                    &Op::Binary(BinaryOp { kind, left, right }) => {
-                        let left_ty = self.unaliased_typing(left);
-                        let right_ty = self.unaliased_typing(right);
-                        if left_ty.id() != right_ty.id() {
-                            fatal(ctx.hir.node_kind(ctx.node).span,
-                                format!("incompatible types for `{}` operation", kind.value));
-                        }
-                        use BinaryOpKind::*;
-                        match kind.value {
-                            | Eq
-                            | Gt
-                            | GtEq
-                            | Lt
-                            | LtEq
-                            | NotEq
-                            => {
-                                if !matches!(left_ty.data(), TypeData::Primitive(_)) ||
-                                    !matches!(right_ty.data(), TypeData::Primitive(_))
-                                {
-                                    let op_span = ctx.hir.node_kind(ctx.node).span;
-                                    fatal(op_span, format_args!("operation `{}` at is not defined for {:?} and {:?}",
-                                        kind.value, left_ty, right_ty));
-                                }
-                                self.lang_type(LangType::Bool)
-                            },
-                            Add => {
-                                let ok = if let (&TypeData::Primitive(l), &TypeData::Primitive(r)) = (left_ty.data(), right_ty.data()) {
-                                    use PrimitiveType::*;
-                                    match (l, r) {
-                                        | (I32, I32)
-                                        | (U32, U32)
-                                        | (ISize, ISize)
-                                        | (USize, USize)
-                                        => true,
-                                        _ => false,
-                                    }
-                                } else {
-                                    false
-                                };
-                                if !ok {
-                                    let op_span = ctx.hir.node_kind(ctx.node).span;
-                                    fatal(op_span, format_args!("operation `{}` is not defined for {:?} and {:?}",
-                                        kind.value, left_ty, right_ty));
-                                }
-                                left_ty.id()
-                            }
-                            Sub => {
-                                let ok = if let (&TypeData::Primitive(l), &TypeData::Primitive(r)) = (left_ty.data(), right_ty.data()) {
-                                    use PrimitiveType::*;
-                                    match (l, r) {
-                                        | (I32, I32)
-                                        | (U32, U32)
-                                        | (ISize, ISize)
-                                        | (USize, USize)
-                                        => true,
-                                        _ => false,
-                                    }
-                                } else {
-                                    false
-                                };
-                                if !ok {
-                                    let op_span = ctx.hir.node_kind(ctx.node).span;
-                                    fatal(op_span, format_args!("binary operation `{}` is not defined for {:?} and {:?}",
-                                        kind.value, left_ty, right_ty));
-                                }
-                                left_ty.id()
-                            }
-                            _ => unimplemented!(),
-                        }
+                    &Op::Binary(op) => {
+                        self.type_binary_op(op, ctx)
                     }
-                    &Op::Unary(UnaryOp { kind, arg }) => {
-                        let arg_ty = self.unaliased_typing(arg);
-                        use UnaryOpKind::*;
-                        match kind.value {
-                            Neg => {
-                                let ok = if let &TypeData::Primitive(prim) = arg_ty.data() {
-                                    use PrimitiveType::*;
-                                    match prim {
-                                        | I32
-                                        | ISize
-                                        => true,
-                                        _ => false,
-                                    }
-                                } else {
-                                    false
-                                };
-                                if !ok {
-                                    let op_span = ctx.hir.node_kind(ctx.node).span;
-                                    fatal(op_span, format_args!("unary operation `{}` is not defined for {:?}",
-                                        kind.value, arg_ty));
-                                }
-                                arg_ty.id()
-                            }
-                            _ => todo!(),
-                        }
+                    &Op::Unary(op) => {
+                        self.type_unary_op(op, ctx)
                     }
                 }
             }
@@ -716,6 +680,141 @@ impl Impl<'_> {
             _ => unimplemented!("{:?}", ctx.hir.node_kind(ctx.node))
         };
         self.finish_typing(ctx.node, ty);
+    }
+
+    fn type_binary_op(&mut self, BinaryOp { kind, left, right }: BinaryOp, ctx: HirVisitorCtx) -> TypeId {
+        self.unify(self.types.typing(left), self.types.typing(right));
+
+        let left_ty = self.unaliased_typing(left);
+        let right_ty = self.unaliased_typing(right);
+        use BinaryOpKind::*;
+        match kind.value {
+            | Eq
+            | Gt
+            | GtEq
+            | Lt
+            | LtEq
+            | NotEq
+            => {
+                let ok = match (left_ty.data(), right_ty.data()) {
+                    (TypeData::Primitive(l), TypeData::Primitive(r)) if l == r => true,
+                    | (TypeData::Unknown(UnknownType::Int), TypeData::Unknown(UnknownType::Int))
+                    | (TypeData::Unknown(UnknownType::Float), TypeData::Unknown(UnknownType::Float))
+                    => true,
+                    _ => false,
+                };
+                if !ok {
+                    let op_span = ctx.hir.node_kind(ctx.node).span;
+                    fatal(op_span, format_args!("operation `{}` at is not defined for {:?} and {:?}",
+                        kind.value, left_ty, right_ty));
+                }
+                self.lang_type(LangType::Bool)
+            },
+            Add | Sub => {
+                let ok = match (left_ty.data(), right_ty.data()) {
+                    (TypeData::Primitive(l), TypeData::Primitive(r)) => {
+                        use PrimitiveType::*;
+                        match (l, r) {
+                            | (I32, I32)
+                            | (U32, U32)
+                            | (ISize, ISize)
+                            | (USize, USize)
+                            => true,
+                            _ => false,
+                        }
+                    }
+                    | (TypeData::Unknown(UnknownType::Int), TypeData::Unknown(UnknownType::Int))
+                    | (TypeData::Unknown(UnknownType::Float), TypeData::Unknown(UnknownType::Float))
+                    => true,
+                    _ => false,
+                };
+                if !ok {
+                    let op_span = ctx.hir.node_kind(ctx.node).span;
+                    fatal(op_span, format_args!("operation `{}` is not defined for {:?} and {:?}",
+                        kind.value, left_ty, right_ty));
+                }
+                left_ty.id()
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    fn type_unary_op(&mut self, UnaryOp { kind, arg }: UnaryOp, ctx: HirVisitorCtx) -> TypeId {
+        let arg_ty = self.unaliased_typing(arg);
+        use UnaryOpKind::*;
+        match kind.value {
+            Neg => {
+                let ok = match arg_ty.data() {
+                    &TypeData::Primitive(prim) => {
+                        use PrimitiveType::*;
+                        match prim {
+                            | I32
+                            | ISize
+                            => true,
+                            _ => false,
+                        }
+                    }
+                    | TypeData::Unknown(UnknownType::Int)
+                    | TypeData::Unknown(UnknownType::Float)
+                    => true,
+                    _ => false,
+                };
+                if !ok {
+                    let op_span = ctx.hir.node_kind(ctx.node).span;
+                    fatal(op_span, format_args!("unary operation `{}` is not defined for {:?}",
+                        kind.value, arg_ty));
+                }
+                arg_ty.id()
+            }
+            _ => todo!(),
+        }
+    }
+
+    fn unify(&mut self, ty1: TypeId, ty2: TypeId) {
+        if ty1 == ty2 {
+            return;
+        }
+        let (ty, to_type) = {
+            let ty1 = self.unalias_type(ty1);
+            if ty1.id() == ty2 {
+                return;
+            }
+            let ty2 = self.unalias_type(ty2);
+            if ty1.id() == ty2.id() {
+                return;
+            }
+            use TypeData::*;
+            match (ty1.data(), ty2.data()) {
+                (Unknown(UnknownType::Int), Primitive(pt)) if pt.is_int() => (ty1.id(), ty2.id()),
+                (Primitive(pt), Unknown(UnknownType::Int)) if pt.is_int() => (ty2.id(), ty1.id()),
+                (Unknown(UnknownType::Float), Primitive(pt)) if pt.is_float() => (ty1.id(), ty2.id()),
+                (Primitive(pt), Unknown(UnknownType::Float)) if pt.is_float() => (ty2.id(), ty1.id()),
+                | (Unknown(UnknownType::Int), Unknown(UnknownType::Int))
+                | (Unknown(UnknownType::Float), Unknown(UnknownType::Float))
+                 => (ty1.id(), ty2.id()),
+                _ => return,
+            }
+        };
+        assert_eq!(ty.0, self.package_id);
+        let typ = self.types.type_mut(ty.1);
+        assert!(typ.data().as_unknown().is_some());
+        assert!(self.unknown_types.remove(&ty.1));
+        typ.data = Some(TypeData::Type(to_type));
+    }
+
+    fn handle_unknown_types(&mut self) {
+        if self.unknown_types.is_empty() {
+            return;
+        }
+        let i32 = self.lang_type(LangType::I32);
+        for ty in self.unknown_types.drain() {
+            let fallback = match self.types.type_(ty).data().as_unknown().unwrap() {
+                UnknownType::Int => i32,
+                UnknownType::Float => todo!(),
+            };
+            let typ = self.types.type_mut(ty);
+            typ.data = Some(TypeData::Type(fallback));
+        }
     }
 }
 
