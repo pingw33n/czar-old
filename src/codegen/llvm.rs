@@ -31,6 +31,10 @@ pub struct TypeRef(NonNull<LLVMType>);
 
 impl From<NonNull<LLVMType>> for TypeRef {
     fn from(v: NonNull<LLVMType>) -> Self {
+        unsafe {
+            assert_ne!(LLVMGetTypeContext(v.as_ptr()), LLVMGetGlobalContext(),
+                "global context must not be used");
+        }
         Self(v)
     }
 }
@@ -62,12 +66,6 @@ impl ValueRef {
         NonNull::new(unsafe { LLVMGetParam(self.0.as_ptr(), i) }).unwrap().into()
     }
 
-    pub fn append_new_bb(self, name: &str) -> BasicBlockRef {
-        NonNull::new(unsafe {
-            LLVMAppendBasicBlock(self.0.as_ptr(), cstring(name).as_ptr())
-        }).unwrap().into()
-    }
-
     pub fn entry_bb(self) -> BasicBlockRef {
         NonNull::new(unsafe { LLVMGetEntryBasicBlock(self.0.as_ptr()) }).unwrap().into()
     }
@@ -79,7 +77,10 @@ impl ValueRef {
 
 impl From<NonNull<LLVMValue>> for ValueRef {
     fn from(v: NonNull<LLVMValue>) -> Self {
-        Self(v)
+        let r = Self(v);
+        // Check not in the global context.
+        r.type_();
+        r
     }
 }
 
@@ -177,9 +178,15 @@ impl Llvm {
         }).unwrap().into()
     }
 
-    pub fn new_basic_block(&self, name: &str) -> BasicBlockRef {
+    pub fn new_bb(&self, name: &str) -> BasicBlockRef {
         NonNull::new(unsafe {
             LLVMCreateBasicBlockInContext(self.c.as_ptr(), cstring(name).as_ptr())
+        }).unwrap().into()
+    }
+
+    pub fn append_new_bb(&self, fn_: ValueRef, name: &str) -> BasicBlockRef {
+        NonNull::new(unsafe {
+            LLVMAppendBasicBlockInContext(self.c.as_ptr(), fn_.0.as_ptr(), cstring(name).as_ptr())
         }).unwrap().into()
     }
 

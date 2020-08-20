@@ -100,7 +100,7 @@ impl<'a> Codegen<'a> {
         let FnDecl { args, body, .. } = package.hir.fn_decl(fn_decl.1);
         if let Some(body) = *body {
             let fn_ = self.fn_decls[&fn_decl];
-            let header_bb = fn_.append_new_bb("header");
+            let header_bb = self.llvm.append_new_bb(fn_, "header");
             self.headerb.position_at_end(header_bb);
 
             let allocas = &mut HashMap::new();
@@ -114,7 +114,7 @@ impl<'a> Codegen<'a> {
                 assert!(allocas.insert(arg, val).is_none());
             }
 
-            let body_bb = fn_.append_new_bb("body");
+            let body_bb = self.llvm.append_new_bb(fn_, "body");
             self.bodyb.position_at_end(body_bb);
 
             let ret = self.expr(body, &mut ExprCtx {
@@ -180,9 +180,9 @@ impl<'a> Codegen<'a> {
                 let &IfExpr { cond, if_true, if_false } = ctx.package.hir.if_expr(node);
                 let cond = self.expr(cond, ctx);
 
-                let if_true_bb = fn_.append_new_bb("__if_true");
-                let if_false_bb = fn_.append_new_bb("__if_false");
-                let succ_bb = fn_.append_new_bb("__if_succ");
+                let if_true_bb = self.llvm.append_new_bb(fn_, "__if_true");
+                let if_false_bb = self.llvm.append_new_bb(fn_, "__if_false");
+                let succ_bb = self.llvm.append_new_bb(fn_, "__if_succ");
 
                 self.bodyb.cond_br(cond, if_true_bb, if_false_bb);
 
