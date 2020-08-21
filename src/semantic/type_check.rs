@@ -209,6 +209,9 @@ impl TypeCheck<'_> {
                 }
             }
         }
+        for (_, ty) in &types.types {
+            assert!(ty.data.is_some(), "{:?} {:?}", ty, self.hir.node_kind(ty.node));
+        }
         types
     }
 }
@@ -816,6 +819,20 @@ impl Impl<'_> {
             typ.data = Some(TypeData::Type(fallback));
         }
     }
+
+    fn has_complete_typing(&self, node: NodeId) -> bool {
+        let id = if let Some(v) = self.types.try_typing(node) {
+            v
+        } else {
+            return false;
+        };
+        if id.0 == self.package_id {
+            self.types.type_(id.1).data.is_some()
+        } else {
+            debug_assert!(self.type_(id).data.is_some());
+            true
+        }
+    }
 }
 
 impl HirVisitor for Impl<'_> {
@@ -831,7 +848,7 @@ impl HirVisitor for Impl<'_> {
     fn after_node(&mut self, ctx: HirVisitorCtx) {
         self.check(ctx);
 
-        if self.types.try_typing(ctx.node).is_none() {
+        if !self.has_complete_typing(ctx.node) {
             self.do_typing(ctx);
         }
 
