@@ -1,8 +1,10 @@
 use enum_as_inner::EnumAsInner;
+use enum_map::EnumMap;
+use enum_map_derive::Enum;
 use if_chain::if_chain;
 use slab::Slab;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::hir::*;
 use crate::hir::traverse::*;
@@ -13,26 +15,90 @@ use resolve::{ResolveData, Resolver};
 use discover::{DiscoverData, NsKind};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NumberType {
+    Float,
+    Int,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Sign {
+    Signed,
+    Unsigned,
+}
+
+#[derive(Clone, Copy, Debug, Enum, Eq, PartialEq)]
 pub enum PrimitiveType {
     Bool,
+    F32,
+    F64,
+    I8,
+    U8,
+    I16,
+    U16,
     I32,
     U32,
+    I64,
+    U64,
+    I128,
+    U128,
     ISize,
     USize,
     Unit,
 }
 
 impl PrimitiveType {
-    pub fn is_int(self) -> bool {
+    pub fn as_number(self) -> Option<NumberType> {
         use PrimitiveType::*;
         match self {
-            I32 | U32 | ISize | USize => true,
-            Bool | Unit => false,
+            | I8
+            | U8
+            | I16
+            | U16
+            | I32
+            | U32
+            | I64
+            | U64
+            | I128
+            | U128
+            | ISize
+            | USize
+            => Some(NumberType::Int),
+
+            | F32
+            | F64
+            => Some(NumberType::Float),
+
+            | Bool
+            | Unit
+            => None,
         }
     }
 
-    pub fn is_float(self) -> bool {
-        false
+    pub fn int_sign(self) -> Option<Sign> {
+        use PrimitiveType::*;
+        match self {
+            | I8
+            | I16
+            | I32
+            | I64
+            | I128
+            | ISize
+            => Some(Sign::Signed),
+
+            | U8
+            | U16
+            | U32
+            | U64
+            | U128
+            | USize
+            => Some(Sign::Signed),
+
+            | Bool
+            | F32
+            | F64
+            | Unit
+            => None,
+        }
     }
 }
 
@@ -64,7 +130,18 @@ pub enum TypeData {
     Primitive(PrimitiveType),
     Struct(StructType),
     Type(TypeId),
-    Unknown(UnknownType)
+    UnknownNumber(NumberType)
+}
+
+impl TypeData {
+    pub fn as_number(&self) -> Option<NumberType> {
+        use TypeData::*;
+        match self {
+            Primitive(v) => v.as_number(),
+            UnknownNumber(v) => Some(*v),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -80,22 +157,6 @@ pub struct StructType {
     pub fields: Vec<TypeId>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum LangType {
-    Bool,
-    I32,
-    U32,
-    ISize,
-    USize,
-    Unit,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum UnknownType {
-    Float,
-    Int,
-}
-
 pub type LocalTypeId = usize;
 
 pub type TypeId = (PackageId, LocalTypeId);
@@ -104,7 +165,7 @@ pub type TypeId = (PackageId, LocalTypeId);
 pub struct Types {
     types: Slab<Type>,
     typings: NodeMap<TypeId>,
-    lang_types: Option<Box<HashMap<LangType, LocalTypeId>>>,
+    primitive_types: Option<Box<EnumMap<PrimitiveType, Option<LocalTypeId>>>>,
     path_to_target: NodeMap<GlobalNodeId>,
 }
 
@@ -141,15 +202,9 @@ impl Types {
         assert!(self.typings.insert(node, ty).is_none());
     }
 
-    pub fn lang(&self, ty: LangType) -> LocalTypeId {
-        self.lang_types.as_ref().unwrap()[&ty]
-    }
-
-    pub fn insert_lang_type(&mut self, lang_ty: LangType, ty: LocalTypeId) {
-        if self.lang_types.is_none() {
-            self.lang_types = Some(Box::new(HashMap::new()));
-        }
-        assert!(self.lang_types.as_mut().unwrap().insert(lang_ty, ty).is_none());
+    pub fn primitive(&self, ty: PrimitiveType) -> LocalTypeId {
+        self.primitive_types.as_ref().unwrap()[ty]
+            .unwrap()
     }
 
     pub fn target_of(&self, path: NodeId) -> GlobalNodeId {
@@ -175,7 +230,7 @@ impl TypeCheck<'_> {
         let tc = &mut Impl {
             resolve_data: self.resolve_data,
             types: &mut types,
-            unknown_types: Default::default(),
+            unknown_num_types: Default::default(),
             package_id: self.package_id,
             packages: self.packages,
             reso_ctxs: Default::default(),
@@ -183,7 +238,7 @@ impl TypeCheck<'_> {
             type_id_set: Default::default(),
         };
         if self.package_id.is_std() {
-            tc.build_lang_types(self.discover_data, self.hir);
+            tc.build_primitive_types(self.discover_data, self.hir);
         }
         self.hir.traverse(tc);
         if let Some(entry_point) = self.resolve_data.entry_point() {
@@ -226,7 +281,7 @@ enum ResoCtx {
 struct Impl<'a> {
     resolve_data: &'a ResolveData,
     types: &'a mut Types,
-    unknown_types: HashSet<LocalTypeId>,
+    unknown_num_types: HashSet<LocalTypeId>,
     package_id: PackageId,
     packages: &'a Packages,
     reso_ctxs: Vec<ResoCtx>,
@@ -235,7 +290,7 @@ struct Impl<'a> {
 }
 
 impl Impl<'_> {
-    pub fn build_lang_types(&mut self, discover_data: &DiscoverData, hir: &Hir) {
+    pub fn build_primitive_types(&mut self, discover_data: &DiscoverData, hir: &Hir) {
         let resolver = Resolver {
             discover_data,
             resolve_data: &Default::default(),
@@ -243,21 +298,33 @@ impl Impl<'_> {
             package_id: PackageId::std(),
             packages: &Packages::default(),
         };
-        for &(path, lang, ty) in &[
-            (&["Unit"][..], LangType::Unit, PrimitiveType::Unit),
-            (&["bool", "bool"][..], LangType::Bool, PrimitiveType::Bool),
-            (&["i32", "i32"][..], LangType::I32, PrimitiveType::I32),
-            (&["u32", "u32"][..], LangType::U32, PrimitiveType::U32),
-            (&["isize", "isize"][..], LangType::ISize, PrimitiveType::ISize),
-            (&["usize", "usize"][..], LangType::USize, PrimitiveType::USize),
-        ] {
+        self.types.primitive_types = Some(Box::new(EnumMap::from(|ty| {
+            use PrimitiveType::*;
+            let path = match ty {
+                Bool => &["bool", "bool"][..],
+                F32 => &["f32", "f32"][..],
+                F64 => &["f64", "f64"][..],
+                I8 => &["i8", "i8"][..],
+                U8 => &["u8", "u8"][..],
+                I16 => &["i16", "i16"][..],
+                U16 => &["u16", "u16"][..],
+                I32 => &["i32", "i32"][..],
+                U32 => &["u32", "u32"][..],
+                I64 => &["i64", "i64"][..],
+                U64 => &["u64", "u64"][..],
+                I128 => &["i128", "i128"][..],
+                U128 => &["u128", "u128"][..],
+                ISize => &["isize", "isize"][..],
+                USize => &["usize", "usize"][..],
+                Unit => &["Unit"][..],
+            };
             let node = resolver.resolve_in_package(path)
                 .node(NsKind::Type)
                 .unwrap();
             assert!(node.0.is_std());
             let ty = self.insert_typing(node.1, TypeData::Primitive(ty));
-            self.types.insert_lang_type(lang, ty.1);
-        }
+            Some(ty.1)
+        })));
     }
 
     fn build_type(&mut self, node: NodeId, hir: &Hir) -> TypeId {
@@ -303,10 +370,10 @@ impl Impl<'_> {
     }
 
     fn insert_type(&mut self, node: NodeId, data: TypeData) -> TypeId {
-        let unknown = data.as_unknown().is_some();
+        let unknown_number = data.as_unknown_number().is_some();
         let ty = self.types.insert_type((self.package_id, node), Some(data));
-        if unknown {
-            assert!(self.unknown_types.insert(ty.1));
+        if unknown_number {
+            assert!(self.unknown_num_types.insert(ty.1));
         }
         ty
     }
@@ -317,8 +384,8 @@ impl Impl<'_> {
         ty
     }
 
-    fn lang_type(&self, ty: LangType) -> TypeId {
-        (PackageId::std(), self.types(PackageId::std()).lang(ty))
+    fn primitive_type(&self, ty: PrimitiveType) -> TypeId {
+        (PackageId::std(), self.types(PackageId::std()).primitive(ty))
     }
 
     fn unaliased_typing(&self, node: NodeId) -> &Type {
@@ -374,7 +441,7 @@ impl Impl<'_> {
                     .map(|n| self.build_type(n, ctx.hir))
                     .collect();
                 let result = ret_ty.map(|n| self.build_type(n, ctx.hir))
-                    .unwrap_or_else(|| self.lang_type(LangType::Unit));
+                    .unwrap_or_else(|| self.primitive_type(PrimitiveType::Unit));
                 self.insert_typing(ctx.node, TypeData::Fn(FnType {
                     args,
                     result,
@@ -419,7 +486,7 @@ impl Impl<'_> {
                     .. } = ctx.hir.fn_decl(ctx.node);
                 let formal_ret_ty = ret_ty
                     .map(|n| self.unaliased_typing(n).id())
-                    .unwrap_or(self.lang_type(LangType::Unit));
+                    .unwrap_or(self.primitive_type(PrimitiveType::Unit));
                 if let Some(body) = *body {
                     self.unify(self.types.typing(body), formal_ret_ty);
 
@@ -429,7 +496,7 @@ impl Impl<'_> {
                         fatal(span, format_args!("`fn` actual type {:?} is incompatible with formal return type {:?}",
                             actual_ret_ty, self.unalias_type(formal_ret_ty)));
                     }
-                    self.handle_unknown_types();
+                    self.handle_unknown_num_types();
                 }
             },
             _ => {},
@@ -449,11 +516,11 @@ impl Impl<'_> {
                         | Struct
                         | Use
                         | While
-                        => self.lang_type(LangType::Unit),
+                        => self.primitive_type(PrimitiveType::Unit),
                         _ => self.types.typing(expr)
                     }
                 } else {
-                    self.lang_type(LangType::Unit)
+                    self.primitive_type(PrimitiveType::Unit)
                 }
             }
             NodeKind::FnCall => {
@@ -526,7 +593,7 @@ impl Impl<'_> {
                 if_true_ty
             }
             NodeKind::Let => {
-                self.lang_type(LangType::Bool)
+                self.primitive_type(PrimitiveType::Bool)
             }
             NodeKind::LetDecl => {
                 let &LetDecl { ty, init, .. } = ctx.hir.let_decl(ctx.node);
@@ -550,22 +617,40 @@ impl Impl<'_> {
             }
             NodeKind::Literal => {
                 match ctx.hir.literal(ctx.node) {
-                    &Literal::Bool(_) => self.lang_type(LangType::Bool),
+                    &Literal::Bool(_) => self.primitive_type(PrimitiveType::Bool),
                     &Literal::Int(IntLiteral { ty, .. }) => {
                         if let Some(ty) = ty {
                             use IntTypeSuffix::*;
-                            self.lang_type(match ty {
-                                I32 => LangType::I32,
-                                U32 => LangType::U32,
-                                ISize => LangType::ISize,
-                                USize => LangType::USize,
-                                _ => todo!(),
+                            self.primitive_type(match ty {
+                                I8 => PrimitiveType::I8,
+                                U8 => PrimitiveType::U8,
+                                I16 => PrimitiveType::I16,
+                                U16 => PrimitiveType::U16,
+                                I32 => PrimitiveType::I32,
+                                U32 => PrimitiveType::U32,
+                                I64 => PrimitiveType::I64,
+                                U64 => PrimitiveType::U64,
+                                I128 => PrimitiveType::I128,
+                                U128 => PrimitiveType::U128,
+                                ISize => PrimitiveType::ISize,
+                                USize => PrimitiveType::USize,
                             })
                         } else {
-                            self.insert_type(ctx.node, TypeData::Unknown(UnknownType::Int))
+                            self.insert_type(ctx.node, TypeData::UnknownNumber(NumberType::Int))
                         }
                     },
-                    &Literal::Unit => self.lang_type(LangType::Unit),
+                    &Literal::Float(FloatLiteral { ty, .. }) => {
+                        if let Some(ty) = ty {
+                            use FloatTypeSuffix::*;
+                            self.primitive_type(match ty {
+                                F32 => PrimitiveType::F32,
+                                F64 => PrimitiveType::F64,
+                            })
+                        } else {
+                            self.insert_type(ctx.node, TypeData::UnknownNumber(NumberType::Float))
+                        }
+                    }
+                    &Literal::Unit => self.primitive_type(PrimitiveType::Unit),
                     _ => unimplemented!()
                 }
             }
@@ -599,7 +684,7 @@ impl Impl<'_> {
                 if name.is_some() || !fields.is_empty() {
                     unimplemented!();
                 }
-                self.lang_type(LangType::Unit)
+                self.primitive_type(PrimitiveType::Unit)
             }
             NodeKind::Path => {
                 if self.reso_ctx() == ResoCtx::Import {
@@ -678,7 +763,7 @@ impl Impl<'_> {
             | NodeKind::PathEndStar
             | NodeKind::Use
             => {
-                self.lang_type(LangType::Unit)
+                self.primitive_type(PrimitiveType::Unit)
             },
             _ => unimplemented!("{:?}", ctx.hir.node_kind(ctx.node))
         };
@@ -701,9 +786,7 @@ impl Impl<'_> {
             => {
                 let ok = match (left_ty.data(), right_ty.data()) {
                     (TypeData::Primitive(l), TypeData::Primitive(r)) if l == r => true,
-                    | (TypeData::Unknown(UnknownType::Int), TypeData::Unknown(UnknownType::Int))
-                    | (TypeData::Unknown(UnknownType::Float), TypeData::Unknown(UnknownType::Float))
-                    => true,
+                    (TypeData::UnknownNumber(l), TypeData::UnknownNumber(r)) if l == r => true,
                     _ => false,
                 };
                 if !ok {
@@ -711,25 +794,15 @@ impl Impl<'_> {
                     fatal(op_span, format_args!("operation `{}` at is not defined for {:?} and {:?}",
                         kind.value, left_ty, right_ty));
                 }
-                self.lang_type(LangType::Bool)
+                self.primitive_type(PrimitiveType::Bool)
             },
-            Add | Sub => {
-                let ok = match (left_ty.data(), right_ty.data()) {
-                    (TypeData::Primitive(l), TypeData::Primitive(r)) => {
-                        use PrimitiveType::*;
-                        match (l, r) {
-                            | (I32, I32)
-                            | (U32, U32)
-                            | (ISize, ISize)
-                            | (USize, USize)
-                            => true,
-                            _ => false,
-                        }
-                    }
-                    | (TypeData::Unknown(UnknownType::Int), TypeData::Unknown(UnknownType::Int))
-                    | (TypeData::Unknown(UnknownType::Float), TypeData::Unknown(UnknownType::Float))
-                    => true,
-                    _ => false,
+            Add | Div | Mul | Sub => {
+                let ok = if let (Some(l), Some(r)) =
+                    (left_ty.data().as_number(), right_ty.data().as_number())
+                {
+                    l == r
+                } else {
+                    false
                 };
                 if !ok {
                     let op_span = ctx.hir.node_kind(ctx.node).span;
@@ -748,18 +821,8 @@ impl Impl<'_> {
         match kind.value {
             Neg => {
                 let ok = match arg_ty.data() {
-                    &TypeData::Primitive(prim) => {
-                        use PrimitiveType::*;
-                        match prim {
-                            | I32
-                            | ISize
-                            => true,
-                            _ => false,
-                        }
-                    }
-                    | TypeData::Unknown(UnknownType::Int)
-                    | TypeData::Unknown(UnknownType::Float)
-                    => true,
+                    TypeData::Primitive(prim) if prim.as_number().is_some() => true,
+                    TypeData::UnknownNumber(_) => true,
                     _ => false,
                 };
                 if !ok {
@@ -788,32 +851,29 @@ impl Impl<'_> {
             }
             use TypeData::*;
             match (ty1.data(), ty2.data()) {
-                (Unknown(UnknownType::Int), Primitive(pt)) if pt.is_int() => (ty1.id(), ty2.id()),
-                (Primitive(pt), Unknown(UnknownType::Int)) if pt.is_int() => (ty2.id(), ty1.id()),
-                (Unknown(UnknownType::Float), Primitive(pt)) if pt.is_float() => (ty1.id(), ty2.id()),
-                (Primitive(pt), Unknown(UnknownType::Float)) if pt.is_float() => (ty2.id(), ty1.id()),
-                | (Unknown(UnknownType::Int), Unknown(UnknownType::Int))
-                | (Unknown(UnknownType::Float), Unknown(UnknownType::Float))
-                 => (ty1.id(), ty2.id()),
+                (&UnknownNumber(num), Primitive(pt)) if pt.as_number() == Some(num) => (ty1.id(), ty2.id()),
+                (Primitive(pt), &UnknownNumber(num)) if pt.as_number() == Some(num) => (ty2.id(), ty1.id()),
+                (UnknownNumber(l), UnknownNumber(r)) if l == r => (ty1.id(), ty2.id()),
                 _ => return,
             }
         };
         assert_eq!(ty.0, self.package_id);
         let typ = self.types.type_mut(ty.1);
-        assert!(typ.data().as_unknown().is_some());
-        assert!(self.unknown_types.remove(&ty.1));
+        assert!(typ.data().as_unknown_number().is_some());
+        assert!(self.unknown_num_types.remove(&ty.1));
         typ.data = Some(TypeData::Type(to_type));
     }
 
-    fn handle_unknown_types(&mut self) {
-        if self.unknown_types.is_empty() {
+    fn handle_unknown_num_types(&mut self) {
+        if self.unknown_num_types.is_empty() {
             return;
         }
-        let i32 = self.lang_type(LangType::I32);
-        for ty in self.unknown_types.drain() {
-            let fallback = match self.types.type_(ty).data().as_unknown().unwrap() {
-                UnknownType::Int => i32,
-                UnknownType::Float => todo!(),
+        let i32 = self.primitive_type(PrimitiveType::I32);
+        let f64 = self.primitive_type(PrimitiveType::F64);
+        for ty in self.unknown_num_types.drain() {
+            let fallback = match self.types.type_(ty).data().as_unknown_number().unwrap() {
+                NumberType::Int => i32,
+                NumberType::Float => f64,
             };
             let typ = self.types.type_mut(ty);
             typ.data = Some(TypeData::Type(fallback));

@@ -1,18 +1,63 @@
 pub mod prelude {
     pub mod v1 {
         pub use package::bool::bool;
+        pub use package::i8::i8;
+        pub use package::u8::u8;
+        pub use package::i16::i16;
+        pub use package::u16::u16;
         pub use package::i32::i32;
         pub use package::u32::u32;
+        pub use package::i64::i64;
+        pub use package::u64::u64;
+        pub use package::i128::i128;
+        pub use package::u128::u128;
         pub use package::isize::isize;
         pub use package::usize::usize;
+        pub use package::f32::f32;
+        pub use package::f64::f64;
 
         pub unsafe fn print_bool(_ v: bool);
+        pub unsafe fn print_i8(_ v: i8);
+        pub unsafe fn print_u8(_ v: u8);
+        pub unsafe fn print_i16(_ v: i16);
+        pub unsafe fn print_u16(_ v: u16);
         pub unsafe fn print_i32(_ v: i32);
         pub unsafe fn print_u32(_ v: u32);
+        pub unsafe fn print_i64(_ v: i64);
+        pub unsafe fn print_u64(_ v: u64);
+        pub unsafe fn print_i128(_ v: i128);
+        pub unsafe fn print_u128(_ v: u128);
         pub unsafe fn print_isize(_ v: isize);
         pub unsafe fn print_usize(_ v: usize);
+        pub unsafe fn print_f32(_ v: f32);
+        pub unsafe fn print_f64(_ v: f64);
         pub unsafe fn println();
+        pub unsafe fn print_sep();
     }
+}
+
+pub mod f32 {
+    pub struct f32 {}
+}
+
+pub mod f64 {
+    pub struct f64 {}
+}
+
+pub mod i8 {
+    pub struct i8 {}
+}
+
+pub mod u8 {
+    pub struct u8 {}
+}
+
+pub mod i16 {
+    pub struct i16 {}
+}
+
+pub mod u16 {
+    pub struct u16 {}
 }
 
 pub mod i32 {
@@ -21,6 +66,22 @@ pub mod i32 {
 
 pub mod u32 {
     pub struct u32 {}
+}
+
+pub mod i64 {
+    pub struct i64 {}
+}
+
+pub mod u64 {
+    pub struct u64 {}
+}
+
+pub mod i128 {
+    pub struct i128 {}
+}
+
+pub mod u128 {
+    pub struct u128 {}
 }
 
 pub mod isize {

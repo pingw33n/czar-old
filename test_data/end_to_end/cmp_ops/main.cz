@@ -1,0 +1,281 @@
+fn cmp_f32(_ a: f32, _ b: f32) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_f32() {
+    cmp_f32(0.0, 0.0);
+    cmp_f32(-1.0, -1.0);
+    cmp_f32(0.0, 1.0);
+    cmp_f32(1.0, -1.0);
+}
+
+fn cmp_f64(_ a: f64, _ b: f64) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_f64() {
+    cmp_f64(0.0, 0.0);
+    cmp_f64(-1.0, -1.0);
+    cmp_f64(0.0, 1.0);
+    cmp_f64(1.0, -1.0);
+}
+
+fn cmp_i8(_ a: i8, _ b: i8) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_i8() {
+    cmp_i8(0, 0);
+    cmp_i8(-128, -128);
+    cmp_i8(127, 127);
+    cmp_i8(-128, -127);
+    cmp_i8(126, 127);
+}
+
+fn cmp_u8(_ a: u8, _ b: u8) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_u8() {
+    cmp_u8(0, 0);
+    cmp_u8(255, 255);
+    cmp_u8(254, 255);
+}
+
+fn cmp_i16(_ a: i16, _ b: i16) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_i16() {
+    cmp_i16(0, 0);
+    cmp_i16(-32768, -32768);
+    cmp_i16(32767, 32767);
+    cmp_i16(-32768, -32767);
+    cmp_i16(32766, 32767);
+}
+
+fn cmp_u16(_ a: u16, _ b: u16) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_u16() {
+    cmp_u16(0, 0);
+    cmp_u16(65535, 65535);
+    cmp_u16(65534, 65535);
+}
+
+fn cmp_i32(_ a: i32, _ b: i32) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_i32() {
+    cmp_i32(0, 0);
+    cmp_i32(-2_147_483_648, -2_147_483_648);
+    cmp_i32(2_147_483_647, 2_147_483_647);
+    cmp_i32(-2_147_483_648, -2_147_483_647);
+    cmp_i32(2_147_483_646, 2_147_483_647);
+}
+
+fn cmp_u32(_ a: u32, _ b: u32) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_u32() {
+    cmp_u32(0, 0);
+    cmp_u32(0xffff_ffff, 0xffff_ffff);
+    cmp_u32(0xffff_fffe, 0xffff_ffff);
+}
+
+fn cmp_i64(_ a: i64, _ b: i64) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_i64() {
+    cmp_i64(0, 0);
+    cmp_i64(-0x8000_0000_0000_0000, -0x8000_0000_0000_0000);
+    cmp_i64(0x7fff_ffff_ffff_ffff, 0x7fff_ffff_ffff_ffff);
+    cmp_i64(-0x8000_0000_0000_0000, -0x7fff_ffff_ffff_ffff);
+    cmp_i64(0x7fff_ffff_ffff_fffe, 0x7fff_ffff_ffff_ffff);
+}
+
+fn cmp_u64(_ a: u64, _ b: u64) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_u64() {
+    cmp_u64(0, 0);
+    cmp_u64(0xffff_ffff_ffff_ffff, 0xffff_ffff_ffff_ffff);
+    cmp_u64(0xffff_ffff_ffff_fffe, 0xffff_ffff_ffff_ffff);
+}
+
+fn cmp_i128(_ a: i128, _ b: i128) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_i128() {
+    cmp_i128(0, 0);
+    cmp_i128(-0x8000_0000_0000_0000_0000_0000_0000_0000, -0x8000_0000_0000_0000_0000_0000_0000_0000);
+    cmp_i128(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff, 0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+    cmp_i128(-0x8000_0000_0000_0000_0000_0000_0000_0000, -0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+    cmp_i128(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_fffe, 0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+}
+
+fn cmp_u128(_ a: u128, _ b: u128) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_u128() {
+    cmp_u128(0, 0);
+    cmp_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff, 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+    cmp_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_fffe, 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+}
+
+fn cmp_isize(_ a: isize, _ b: isize) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_isize() {
+    cmp_isize(0, 0);
+    cmp_isize(-42, -42);
+    cmp_isize(42, 42);
+    cmp_isize(-42, -41);
+    cmp_isize(41, 42);
+}
+
+fn cmp_usize(_ a: usize, _ b: usize) {
+    print_bool(a == b);
+    print_bool(a != b);
+    print_bool(a < b);
+    print_bool(a <= b);
+    print_bool(a > b);
+    print_bool(a >= b);
+    println();
+}
+
+fn run_cmp_usize() {
+    cmp_usize(0, 0);
+    cmp_usize(256, 256);
+    cmp_usize(255, 256);
+}
+
+fn main() {
+    print_sep();
+    run_cmp_f32();
+
+    print_sep();
+    run_cmp_f64();
+
+    print_sep();
+    run_cmp_i8();
+
+    print_sep();
+    run_cmp_u8();
+
+    print_sep();
+    run_cmp_i16();
+
+    print_sep();
+    run_cmp_u16();
+
+    print_sep();
+    run_cmp_i32();
+
+    print_sep();
+    run_cmp_u32();
+
+    print_sep();
+    run_cmp_i64();
+
+    print_sep();
+    run_cmp_u64();
+
+    print_sep();
+    run_cmp_i128();
+
+    print_sep();
+    run_cmp_u128();
+
+    print_sep();
+    run_cmp_isize();
+
+    print_sep();
+    run_cmp_usize();
+}

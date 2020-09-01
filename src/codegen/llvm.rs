@@ -8,6 +8,7 @@ use std::ptr::{self, NonNull};
 use std::sync::Once;
 
 pub use llvm_sys::LLVMIntPredicate as IntPredicate;
+pub use llvm_sys::LLVMRealPredicate as RealPredicate;
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -28,6 +29,26 @@ impl From<NonNull<LLVMBasicBlock>> for BasicBlockRef {
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct TypeRef(NonNull<LLVMType>);
+
+impl TypeRef {
+    pub fn const_int(self, v: u128) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMConstIntOfArbitraryPrecision(self.0.as_ptr(), 2, [v as u64, (v >> 64) as u64].as_ptr())
+        }).unwrap().into()
+    }
+
+    pub fn const_real(self, v: f64) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMConstReal(self.0.as_ptr(), v)
+        }).unwrap().into()
+    }
+
+    pub fn function(ret_ty: TypeRef, param_tys: &mut [TypeRef]) -> TypeRef {
+        NonNull::new(unsafe {
+            LLVMFunctionType(ret_ty.0.as_ptr(), param_tys.as_mut_ptr() as *mut _, param_tys.len() as u32, 0)
+        }).unwrap().into()
+    }
+}
 
 impl From<NonNull<LLVMType>> for TypeRef {
     fn from(v: NonNull<LLVMType>) -> Self {
@@ -202,6 +223,18 @@ impl Llvm {
         }).unwrap().into()
     }
 
+    pub fn float_type(&self) -> TypeRef {
+        NonNull::new(unsafe {
+            LLVMFloatTypeInContext(self.c.as_ptr())
+        }).unwrap().into()
+    }
+
+    pub fn double_type(&self) -> TypeRef {
+        NonNull::new(unsafe {
+            LLVMDoubleTypeInContext(self.c.as_ptr())
+        }).unwrap().into()
+    }
+
     pub fn struct_type(&self, field_tys: &mut [TypeRef]) -> TypeRef {
         NonNull::new(unsafe {
             LLVMStructTypeInContext(self.c.as_ptr(),
@@ -338,9 +371,69 @@ impl BuilderRef {
         }).unwrap().into()
     }
 
+    pub fn mul(&self, left: ValueRef, right: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildMul(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn sdiv(&self, left: ValueRef, right: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildSDiv(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn udiv(&self, left: ValueRef, right: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildUDiv(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
     pub fn icmp(&self, left: ValueRef, right: ValueRef, predicate: IntPredicate) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildICmp(self.0.as_ptr(), predicate, left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn fcmp(&self, left: ValueRef, right: ValueRef, predicate: RealPredicate) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildFCmp(self.0.as_ptr(), predicate, left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn fneg(&self, v: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildFNeg(self.0.as_ptr(), v.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn fadd(&self, left: ValueRef, right: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildFAdd(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn fsub(&self, left: ValueRef, right: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildFSub(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn fmul(&self, left: ValueRef, right: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildFDiv(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn fdiv(&self, left: ValueRef, right: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildFDiv(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn neg(&self, v: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildNeg(self.0.as_ptr(), v.0.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
@@ -349,18 +442,6 @@ impl BuilderRef {
             LLVMBuildSub(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
-}
-
-pub fn const_int(ty: TypeRef, v: u128) -> ValueRef {
-    NonNull::new(unsafe {
-        LLVMConstIntOfArbitraryPrecision(ty.0.as_ptr(), 2, [v as u64, (v >> 64) as u64].as_ptr())
-    }).unwrap().into()
-}
-
-pub fn function_type(ret_ty: TypeRef, param_tys: &mut [TypeRef]) -> TypeRef {
-    NonNull::new(unsafe {
-        LLVMFunctionType(ret_ty.0.as_ptr(), param_tys.as_mut_ptr() as *mut _, param_tys.len() as u32, 0)
-    }).unwrap().into()
 }
 
 fn cstring(s: &str) -> CString {

@@ -1,0 +1,177 @@
+fn do_i8(_ a: i8, _ b: i8) {
+    print_i8(a + b);
+    print_i8(a - b);
+    print_i8(-a);
+    print_i8(-b);
+    println();
+}
+
+fn do_u8(_ a: u8, _ b: u8) {
+    print_u8(a + b);
+    print_u8(a - b);
+    println();
+}
+
+fn do_i16(_ a: i16, _ b: i16) {
+    print_i16(a + b);
+    print_i16(a - b);
+    print_i16(-a);
+    print_i16(-b);
+    println();
+}
+
+fn do_u16(_ a: u16, _ b: u16) {
+    print_u16(a + b);
+    print_u16(a - b);
+    println();
+}
+
+fn do_i32(_ a: i32, _ b: i32) {
+    print_i32(a + b);
+    print_i32(a - b);
+    print_i32(-a);
+    print_i32(-b);
+    println();
+}
+
+fn do_u32(_ a: u32, _ b: u32) {
+    print_u32(a + b);
+    print_u32(a - b);
+    println();
+}
+
+fn do_i64(_ a: i64, _ b: i64) {
+    print_i64(a + b);
+    print_i64(a - b);
+    print_i64(-a);
+    print_i64(-b);
+    println();
+}
+
+fn do_u64(_ a: u64, _ b: u64) {
+    print_u64(a + b);
+    print_u64(a - b);
+    println();
+}
+
+fn do_i128(_ a: i128, _ b: i128) {
+    print_i128(a + b);
+    print_i128(a - b);
+    print_i128(-a);
+    print_i128(-b);
+    println();
+}
+
+fn do_u128(_ a: u128, _ b: u128) {
+    print_u128(a + b);
+    print_u128(a - b);
+    println();
+}
+
+fn do_isize(_ a: isize, _ b: isize) {
+    print_isize(a + b);
+    print_isize(a - b);
+    print_isize(-a);
+    print_isize(-b);
+    println();
+}
+
+fn do_usize(_ a: usize, _ b: usize) {
+    print_usize(a + b);
+    print_usize(a - b);
+    println();
+}
+
+fn do_f32(_ a: f32, _ b: f32) {
+    print_f32(a + b);
+    print_f32(a - b);
+    print_f32(-a);
+    print_f32(-b);
+    println();
+}
+
+fn do_f64(_ a: f64, _ b: f64) {
+    print_f64(a + b);
+    print_f64(a - b);
+    print_f64(-a);
+    print_f64(-b);
+    println();
+}
+
+fn main() {
+    print_sep();
+    do_i8(0, 0);
+    do_i8(0, 1);
+    do_i8(126, 127);
+    do_i8(-126, -127);
+
+    print_sep();
+    do_u8(0, 0);
+    do_u8(0, 1);
+    do_u8(254, 255);
+
+    print_sep();
+    do_i16(0, 0);
+    do_i16(0, 1);
+    do_i16(32766, 32767);
+    do_i16(-32768, -32767);
+
+    print_sep();
+    do_u16(0, 0);
+    do_u16(0, 1);
+    do_u16(65534, 65535);
+
+    print_sep();
+    do_i32(0, 0);
+    do_i32(0, 1);
+    do_i32(0x7fff_fffe, 0x7fff_ffff);
+    do_i32(-0x8000_0000, -0x7fff_ffff);
+
+    print_sep();
+    do_u32(0, 0);
+    do_u32(0, 1);
+    do_u32(0xffff_fffe, 0xffff_ffff);
+
+    print_sep();
+    do_i64(0, 0);
+    do_i64(0, 1);
+    do_i64(0x7fff_ffff_ffff_fffe, 0x7fff_ffff_ffff_ffff);
+    do_i64(-0x8000_0000_0000_0000, -0x7fff_ffff_ffff_ffff);
+
+    print_sep();
+    do_u64(0, 0);
+    do_u64(0, 1);
+    do_u64(0xffff_ffff_ffff_fffe, 0xffff_ffff_ffff_ffff);
+
+    print_sep();
+    do_i128(0, 0);
+    do_i128(0, 1);
+    do_i128(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_fffe, 0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+    do_i128(-0x8000_0000_0000_0000_0000_0000_0000_0000, -0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+
+    print_sep();
+    do_u128(0, 0);
+    do_u128(0, 1);
+    do_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_fffe, 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+
+    print_sep();
+    do_isize(0, 0);
+    do_isize(0, 1);
+    do_isize(42, 43);
+    do_isize(-43, -42);
+
+    print_sep();
+    do_usize(0, 0);
+    do_usize(1, 0);
+    do_usize(43, 42);
+
+    print_sep();
+    do_f32(0.0, 0.0);
+    do_f32(1.234, 0.234);
+    do_f32(-42.345, 42.345);
+
+    print_sep();
+    do_f64(0.0, 0.0);
+    do_f64(1.234, 0.234);
+    do_f64(-42.345, 42.345);
+}

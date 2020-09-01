@@ -242,9 +242,12 @@ impl<'a> Codegen<'a> {
                     Literal::String(_) => todo!(),
                     &Literal::Int(IntLiteral { value, .. }) => {
                         let ty = self.typing((ctx.package.id, node));
-                        llvm::const_int(ty, value)
+                        ty.const_int(value)
                     },
-                    Literal::Float(_) => todo!(),
+                    &Literal::Float(FloatLiteral { value, .. }) => {
+                        let ty = self.typing((ctx.package.id, node));
+                        ty.const_real(value)
+                    },
                     Literal::Unit => self.unit_literal(),
                 }
             }
@@ -257,7 +260,10 @@ impl<'a> Codegen<'a> {
                         use BinaryOpKind::*;
                         match kind.value {
                             Add => {
-                                self.bodyb.add(leftv, rightv)
+                                match self.unaliased_typing((ctx.package.id, left)).data().as_number().unwrap() {
+                                    NumberType::Float => self.bodyb.fadd(leftv, rightv),
+                                    NumberType::Int => self.bodyb.add(leftv, rightv),
+                                }
                             },
                             | Eq
                             | Gt
@@ -266,46 +272,60 @@ impl<'a> Codegen<'a> {
                             | LtEq
                             | NotEq => {
                                 use PrimitiveType::*;
-                                let prim_ty = self.unaliased_htyping((ctx.package.id, left)).data().as_primitive().expect("todo");
-                                if matches!(prim_ty, Unit) {
+                                let prim_ty = *self.unaliased_typing((ctx.package.id, left)).data().as_primitive().expect("todo");
+                                if prim_ty == Unit {
                                     self.bool_literal(true)
                                 } else {
-                                    let signed = match prim_ty {
-                                        | I32
-                                        | ISize
-                                        => true,
-                                        | Bool
-                                        | U32
-                                        | USize
-                                        => false,
-                                        Unit => todo!(),
-                                    };
+                                    match prim_ty.as_number().unwrap() {
+                                        NumberType::Float => {
+                                            use RealPredicate::*;
+                                            let pred = match kind.value {
+                                                Eq => LLVMRealOEQ,
+                                                Gt => LLVMRealOGT,
+                                                GtEq => LLVMRealOGE,
+                                                Lt => LLVMRealOLT,
+                                                LtEq => LLVMRealOLE,
+                                                NotEq => LLVMRealONE,
+                                                _ => unreachable!(),
+                                            };
+                                            self.bodyb.fcmp(leftv, rightv, pred)
+                                        }
+                                        NumberType::Int => {
+                                            let sign = prim_ty.int_sign().unwrap();
 
-                                    use IntPredicate::*;
-                                    let pred = match kind.value {
-                                        Eq => LLVMIntEQ,
-                                        Gt => if signed { LLVMIntSGT } else { LLVMIntUGT },
-                                        GtEq => if signed { LLVMIntSGE } else { LLVMIntUGE },
-                                        Lt => if signed { LLVMIntSLT } else { LLVMIntULT },
-                                        LtEq => if signed { LLVMIntSLE } else { LLVMIntULE },
-                                        NotEq => LLVMIntNE,
-                                        _ => unreachable!(),
-                                    };
-                                    self.bodyb.icmp(leftv, rightv, pred)
+                                        use IntPredicate::*;
+                                        let pred = match kind.value {
+                                            Eq => LLVMIntEQ,
+                                            Gt => if sign == Sign::Signed { LLVMIntSGT } else { LLVMIntUGT },
+                                            GtEq => if sign == Sign::Signed { LLVMIntSGE } else { LLVMIntUGE },
+                                            Lt => if sign == Sign::Signed { LLVMIntSLT } else { LLVMIntULT },
+                                            LtEq => if sign == Sign::Signed { LLVMIntSLE } else { LLVMIntULE },
+                                            NotEq => LLVMIntNE,
+                                            _ => unreachable!(),
+                                        };
+                                        self.bodyb.icmp(leftv, rightv, pred)
+                                        }
+                                    }
                                 }
                             },
                             Sub => {
-                                self.bodyb.sub(leftv, rightv)
+                                match self.unaliased_typing((ctx.package.id, left)).data().as_number().unwrap() {
+                                    NumberType::Float => self.bodyb.fsub(leftv, rightv),
+                                    NumberType::Int => self.bodyb.sub(leftv, rightv),
+                                }
                             },
                             _ => todo!("{:?}", kind)
                         }
                     },
                     &Op::Unary(UnaryOp { kind, arg }) => {
-                        let arg = self.expr(arg, ctx);
+                        let argv = self.expr(arg, ctx);
                         use UnaryOpKind::*;
                         match kind.value {
                             Neg => {
-                                self.bodyb.sub(llvm::const_int(arg.type_(), 0), arg)
+                                match self.unaliased_typing((ctx.package.id, arg)).data().as_number().unwrap() {
+                                    NumberType::Float => self.bodyb.fneg(argv),
+                                    NumberType::Int => self.bodyb.neg(argv),
+                                }
                             }
                             _ => todo!("{:?}", kind)
                         }
@@ -338,9 +358,9 @@ impl<'a> Codegen<'a> {
     }
 
     fn bool_literal(&mut self, v: bool) -> llvm::ValueRef {
-        let ty = self.type_((PackageId::std(), self.packages[PackageId::std()].types.lang(LangType::Bool)));
+        let ty = self.type_((PackageId::std(), self.packages[PackageId::std()].types.primitive(PrimitiveType::Bool)));
         let v = if v { 1 } else { 0 };
-        llvm::const_int(ty, v)
+        ty.const_int(v)
     }
 
     fn unit_literal(&self) -> llvm::ValueRef {
@@ -355,7 +375,7 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn unaliased_htyping(&self, node: GlobalNodeId) -> &Type {
+    fn unaliased_typing(&self, node: GlobalNodeId) -> &Type {
         let ty = self.packages[node.0].types.typing(node.1);
         let unaliased = self.unalias(ty);
         self.packages[unaliased.0].types.type_(unaliased.1)
@@ -382,18 +402,24 @@ impl<'a> Codegen<'a> {
                     args_ty.push(self.type_(arg));
                 }
                 let res_ty = self.type_(*result);
-                llvm::function_type(res_ty, args_ty)
+                TypeRef::function(res_ty, args_ty)
             }
             &TypeData::Primitive(prim) => {
                 use PrimitiveType::*;
                 match prim {
                     Bool => self.llvm.int_type(1),
+                    F32 => self.llvm.float_type(),
+                    F64 => self.llvm.double_type(),
+                    I8 | U8 => self.llvm.int_type(8),
+                    I16 | U16 => self.llvm.int_type(16),
                     I32 | U32 => self.llvm.int_type(32),
+                    I64 | U64 => self.llvm.int_type(64),
+                    I128 | U128 => self.llvm.int_type(128),
                     ISize | USize => self.llvm.int_type(self.llvm.pointer_size_bits()),
                     Unit => self.llvm.struct_type(&mut []),
                 }
             }
-            TypeData::Unknown(_) => unreachable!(),
+            TypeData::UnknownNumber(_) => unreachable!(),
             _ => todo!(),
         };
 
