@@ -1,3 +1,5 @@
+pub mod intrinsic;
+
 use llvm_sys::*;
 use llvm_sys::analysis::*;
 use llvm_sys::core::*;
@@ -9,6 +11,8 @@ use std::sync::Once;
 
 pub use llvm_sys::LLVMIntPredicate as IntPredicate;
 pub use llvm_sys::LLVMRealPredicate as RealPredicate;
+
+use intrinsic::Intrinsic;
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -217,6 +221,12 @@ impl Llvm {
         }).unwrap().into()
     }
 
+    pub fn void_type(&self) -> TypeRef {
+        NonNull::new(unsafe {
+            LLVMVoidTypeInContext(self.c.as_ptr())
+        }).unwrap().into()
+    }
+
     pub fn int_type(&self, bit_count: u32) -> TypeRef {
         NonNull::new(unsafe {
             LLVMIntTypeInContext(self.c.as_ptr(), bit_count)
@@ -291,6 +301,18 @@ impl Llvm {
 
     pub fn pointer_size_bits(&self) -> u32 {
         unsafe { LLVMPointerSize(self.data_layout.as_ptr()) * 8 }
+    }
+
+    pub fn intrinsic<T: Intrinsic>(&self) -> T {
+        let name = T::KIND.cname();
+        let func = match unsafe { NonNull::new(LLVMGetNamedFunction(self.m.as_ptr(), name.as_ptr())) } {
+            Some(v) => v.into(),
+            None => {
+                let ty = T::func_type(self);
+                self.add_function(name.to_str().unwrap(), ty)
+            }
+        };
+        T::new(func)
     }
 }
 
@@ -421,7 +443,7 @@ impl BuilderRef {
 
     pub fn fmul(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
-            LLVMBuildFDiv(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+            LLVMBuildFMul(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
@@ -440,6 +462,12 @@ impl BuilderRef {
     pub fn sub(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildSub(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn unreachable(&self) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildUnreachable(self.0.as_ptr())
         }).unwrap().into()
     }
 }

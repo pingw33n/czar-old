@@ -293,17 +293,17 @@ impl<'a> Codegen<'a> {
                                         NumberType::Int => {
                                             let sign = prim_ty.int_sign().unwrap();
 
-                                        use IntPredicate::*;
-                                        let pred = match kind.value {
-                                            Eq => LLVMIntEQ,
-                                            Gt => if sign == Sign::Signed { LLVMIntSGT } else { LLVMIntUGT },
-                                            GtEq => if sign == Sign::Signed { LLVMIntSGE } else { LLVMIntUGE },
-                                            Lt => if sign == Sign::Signed { LLVMIntSLT } else { LLVMIntULT },
-                                            LtEq => if sign == Sign::Signed { LLVMIntSLE } else { LLVMIntULE },
-                                            NotEq => LLVMIntNE,
-                                            _ => unreachable!(),
-                                        };
-                                        self.bodyb.icmp(leftv, rightv, pred)
+                                            use IntPredicate::*;
+                                            let pred = match kind.value {
+                                                Eq => LLVMIntEQ,
+                                                Gt => if sign == Sign::Signed { LLVMIntSGT } else { LLVMIntUGT },
+                                                GtEq => if sign == Sign::Signed { LLVMIntSGE } else { LLVMIntUGE },
+                                                Lt => if sign == Sign::Signed { LLVMIntSLT } else { LLVMIntULT },
+                                                LtEq => if sign == Sign::Signed { LLVMIntSLE } else { LLVMIntULE },
+                                                NotEq => LLVMIntNE,
+                                                _ => unreachable!(),
+                                            };
+                                            self.bodyb.icmp(leftv, rightv, pred)
                                         }
                                     }
                                 }
@@ -312,6 +312,34 @@ impl<'a> Codegen<'a> {
                                 match self.unaliased_typing((ctx.package.id, left)).data().as_number().unwrap() {
                                     NumberType::Float => self.bodyb.fsub(leftv, rightv),
                                     NumberType::Int => self.bodyb.sub(leftv, rightv),
+                                }
+                            },
+                            Mul => {
+                                match self.unaliased_typing((ctx.package.id, left)).data().as_number().unwrap() {
+                                    NumberType::Float => self.bodyb.fmul(leftv, rightv),
+                                    NumberType::Int => self.bodyb.mul(leftv, rightv),
+                                }
+                            },
+                            Div => {
+                                let prim_ty = self.unaliased_typing((ctx.package.id, left)).data().as_primitive().unwrap();
+                                match prim_ty.as_number().unwrap() {
+                                    NumberType::Float => self.bodyb.fdiv(leftv, rightv),
+                                    NumberType::Int => {
+                                        let panic_bb = self.llvm.append_new_bb(ctx.fn_, "__div_panic");
+                                        let succ_bb = self.llvm.append_new_bb(ctx.fn_, "__div_succ");
+                                        let cond = self.bodyb.icmp(rightv, rightv.type_().const_int(0), IntPredicate::LLVMIntEQ);
+                                        self.bodyb.cond_br(cond, panic_bb, succ_bb);
+
+                                        self.bodyb.position_at_end(panic_bb);
+                                        self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb);
+                                        self.bodyb.unreachable();
+
+                                        self.bodyb.position_at_end(succ_bb);
+                                        match prim_ty.int_sign().unwrap() {
+                                            Sign::Signed => self.bodyb.sdiv(leftv, rightv),
+                                            Sign::Unsigned => self.bodyb.udiv(leftv, rightv),
+                                        }
+                                    },
                                 }
                             },
                             _ => todo!("{:?}", kind)
