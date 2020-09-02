@@ -797,12 +797,11 @@ impl Impl<'_> {
                 self.primitive_type(PrimitiveType::Bool)
             },
             Add | Div | Mul | Sub => {
-                let ok = if let (Some(l), Some(r)) =
-                    (left_ty.data().as_number(), right_ty.data().as_number())
-                {
-                    l == r
-                } else {
-                    false
+                let ok = match (left_ty.data(), right_ty.data()) {
+                    (TypeData::Primitive(l), TypeData::Primitive(r)) =>
+                        l.as_number().is_some() && l == r,
+                    (TypeData::UnknownNumber(l), TypeData::UnknownNumber(r)) => l == r,
+                    _ => false,
                 };
                 if !ok {
                     let op_span = ctx.hir.node_kind(ctx.node).span;
