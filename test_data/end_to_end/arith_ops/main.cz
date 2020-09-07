@@ -7,6 +7,9 @@ fn do_i8(_ a: i8, _ b: i8) {
     if b > 0 {
         print_i8(a / b);
     }
+    if b > 0 {
+        print_i8(a % b);
+    }
     println();
 }
 
@@ -16,6 +19,9 @@ fn do_u8(_ a: u8, _ b: u8) {
     print_u8(a * b);
     if b > 0 {
         print_u8(a / b);
+    }
+    if b > 0 {
+        print_u8(a % b);
     }
     println();
 }
@@ -29,6 +35,9 @@ fn do_i16(_ a: i16, _ b: i16) {
     if b > 0 {
         print_i16(a / b);
     }
+    if b > 0 {
+        print_i16(a % b);
+    }
     println();
 }
 
@@ -38,6 +47,9 @@ fn do_u16(_ a: u16, _ b: u16) {
     print_u16(a * b);
     if b > 0 {
         print_u16(a / b);
+    }
+    if b > 0 {
+        print_u16(a % b);
     }
     println();
 }
@@ -51,6 +63,9 @@ fn do_i32(_ a: i32, _ b: i32) {
     if b > 0 {
         print_i32(a / b);
     }
+    if b > 0 {
+        print_i32(a % b);
+    }
     println();
 }
 
@@ -60,6 +75,9 @@ fn do_u32(_ a: u32, _ b: u32) {
     print_u32(a * b);
     if b > 0 {
         print_u32(a / b);
+    }
+    if b > 0 {
+        print_u32(a % b);
     }
     println();
 }
@@ -73,6 +91,9 @@ fn do_i64(_ a: i64, _ b: i64) {
     if b > 0 {
         print_i64(a / b);
     }
+    if b > 0 {
+        print_i64(a % b);
+    }
     println();
 }
 
@@ -82,6 +103,9 @@ fn do_u64(_ a: u64, _ b: u64) {
     print_u64(a * b);
     if b > 0 {
         print_u64(a / b);
+    }
+    if b > 0 {
+        print_u64(a % b);
     }
     println();
 }
@@ -95,6 +119,9 @@ fn do_i128(_ a: i128, _ b: i128) {
     if b > 0 {
         print_i128(a / b);
     }
+    if b > 0 {
+        print_i128(a % b);
+    }
     println();
 }
 
@@ -104,6 +131,9 @@ fn do_u128(_ a: u128, _ b: u128) {
     print_u128(a * b);
     if b > 0 {
         print_u128(a / b);
+    }
+    if b > 0 {
+        print_u128(a % b);
     }
     println();
 }
@@ -117,6 +147,9 @@ fn do_isize(_ a: isize, _ b: isize) {
     if b > 0 {
         print_isize(a / b);
     }
+    if b > 0 {
+        print_isize(a % b);
+    }
     println();
 }
 
@@ -126,6 +159,9 @@ fn do_usize(_ a: usize, _ b: usize) {
     print_usize(a * b);
     if b > 0 {
         print_usize(a / b);
+    }
+    if b > 0 {
+        print_usize(a % b);
     }
     println();
 }
@@ -137,6 +173,7 @@ fn do_f32(_ a: f32, _ b: f32) {
     print_f32(-b);
     print_f32(a * b);
     print_f32(a / b);
+    print_f32(a % b);
     println();
 }
 
@@ -147,6 +184,7 @@ fn do_f64(_ a: f64, _ b: f64) {
     print_f64(-b);
     print_f64(a * b);
     print_f64(a / b);
+    print_f64(a % b);
     println();
 }
 

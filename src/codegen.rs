@@ -321,27 +321,18 @@ impl<'a> Codegen<'a> {
                                 }
                             },
                             Div => {
-                                let prim_ty = self.unaliased_typing((ctx.package.id, left)).data().as_primitive().unwrap();
-                                match prim_ty.as_number().unwrap() {
-                                    NumberType::Float => self.bodyb.fdiv(leftv, rightv),
-                                    NumberType::Int => {
-                                        let panic_bb = self.llvm.append_new_bb(ctx.fn_, "__div_panic");
-                                        let succ_bb = self.llvm.append_new_bb(ctx.fn_, "__div_succ");
-                                        let cond = self.bodyb.icmp(rightv, rightv.type_().const_int(0), IntPredicate::LLVMIntEQ);
-                                        self.bodyb.cond_br(cond, panic_bb, succ_bb);
-
-                                        self.bodyb.position_at_end(panic_bb);
-                                        self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb);
-                                        self.bodyb.unreachable();
-
-                                        self.bodyb.position_at_end(succ_bb);
-                                        match prim_ty.int_sign().unwrap() {
-                                            Sign::Signed => self.bodyb.sdiv(leftv, rightv),
-                                            Sign::Unsigned => self.bodyb.udiv(leftv, rightv),
-                                        }
-                                    },
-                                }
+                                self.div_or_rem(ctx.fn_, (ctx.package.id, left), rightv,
+                                    || self.bodyb.sdiv(leftv, rightv),
+                                    || self.bodyb.udiv(leftv, rightv),
+                                    || self.bodyb.fdiv(leftv, rightv))
                             },
+                            Rem => {
+                                self.div_or_rem(ctx.fn_, (ctx.package.id, left), rightv,
+                                    || self.bodyb.srem(leftv, rightv),
+                                    || self.bodyb.urem(leftv, rightv),
+                                    || self.bodyb.frem(leftv, rightv))
+                            },
+
                             _ => todo!("{:?}", kind)
                         }
                     },
@@ -382,6 +373,36 @@ impl<'a> Codegen<'a> {
                 self.unit_literal()
             }
             _ => todo!("{:?}", ctx.package.hir.node_kind(node))
+        }
+    }
+
+    fn div_or_rem(&self,
+        fn_: ValueRef,
+        left: GlobalNodeId,
+        rightv: ValueRef,
+        signed: impl FnOnce() -> ValueRef,
+        unsigned: impl FnOnce() -> ValueRef,
+        float: impl FnOnce() -> ValueRef,
+    ) -> ValueRef {
+        let prim_ty = self.unaliased_typing(left).data().as_primitive().unwrap();
+        match prim_ty.as_number().unwrap() {
+            NumberType::Float => float(),
+            NumberType::Int => {
+                let panic_bb = self.llvm.append_new_bb(fn_, "__panic");
+                let succ_bb = self.llvm.append_new_bb(fn_, "__succ");
+                let cond = self.bodyb.icmp(rightv, rightv.type_().const_int(0), IntPredicate::LLVMIntEQ);
+                self.bodyb.cond_br(cond, panic_bb, succ_bb);
+
+                self.bodyb.position_at_end(panic_bb);
+                self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb);
+                self.bodyb.unreachable();
+
+                self.bodyb.position_at_end(succ_bb);
+                match prim_ty.int_sign().unwrap() {
+                    Sign::Signed => signed(),
+                    Sign::Unsigned => unsigned(),
+                }
+            },
         }
     }
 

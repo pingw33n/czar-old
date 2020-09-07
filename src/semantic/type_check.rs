@@ -796,7 +796,7 @@ impl Impl<'_> {
                 }
                 self.primitive_type(PrimitiveType::Bool)
             },
-            Add | Div | Mul | Sub => {
+            Add | Div | Mul | Sub | Rem => {
                 let ok = match (left_ty.data(), right_ty.data()) {
                     (TypeData::Primitive(l), TypeData::Primitive(r)) =>
                         l.as_number().is_some() && l == r,

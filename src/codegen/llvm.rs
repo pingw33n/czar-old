@@ -411,6 +411,24 @@ impl BuilderRef {
         }).unwrap().into()
     }
 
+    pub fn srem(&self, left: ValueRef, right: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildSRem(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn urem(&self, left: ValueRef, right: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildURem(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn frem(&self, left: ValueRef, right: ValueRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildFRem(self.0.as_ptr(), left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
     pub fn icmp(&self, left: ValueRef, right: ValueRef, predicate: IntPredicate) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildICmp(self.0.as_ptr(), predicate, left.0.as_ptr(), right.0.as_ptr(), empty_cstr())
