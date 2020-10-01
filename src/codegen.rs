@@ -86,7 +86,7 @@ impl<'a> Codegen<'a> {
         let name = if package.resolve_data.entry_point() == Some(node.1) {
             "__main"
         } else {
-            package.hir.fn_decl(node.1).name.value.as_str()
+            package.discover_data.fn_name(node.1).value.as_str()
         };
         let fn_ = self.llvm.add_function(&name, ty);
         assert!(self.fn_decls.insert(node, fn_).is_none());

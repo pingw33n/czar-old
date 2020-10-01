@@ -1,3 +1,4 @@
+use enum_as_inner::EnumAsInner;
 use enum_map::EnumMap;
 use enum_map_derive::Enum;
 use std::collections::hash_map::{Entry, HashMap};
@@ -6,8 +7,21 @@ use crate::hir::*;
 use crate::hir::traverse::*;
 use crate::util::enums::EnumExt;
 
-pub struct ScopeItem {
+use super::FnArgsKey;
+
+#[derive(EnumAsInner)]
+pub enum ScopeItem {
+    Single {
+        name: S<Ident>,
+        node: NodeId,
+    },
+    Fns(Vec<ScopeFn>),
+}
+
+pub struct ScopeFn {
     pub name: S<Ident>,
+    /// arg1:_:arg3
+    pub args_key: FnArgsKey,
     pub node: NodeId,
 }
 
@@ -21,18 +35,62 @@ impl Scope {
     pub fn insert(&mut self, name: S<Ident>, node: NodeId) {
         match self.items.entry(name.value.clone()) {
             Entry::Occupied(e) => {
-                let first = e.get().name.span;
-                let this = name.span;
-                panic!("name `{}` is defined multiple times: first at [{}:{}], redefined at [{}:{}]",
-                    e.key(), first.start, first.end, this.start, this.end);
+                Self::handle_conflict(e.get(), name.span);
             },
             Entry::Vacant(e) => {
-                e.insert(ScopeItem {
+                e.insert(ScopeItem::Single {
                     name,
                     node,
                 });
             },
         }
+    }
+
+    pub fn insert_fn(&mut self, name: S<Ident>, args_key: FnArgsKey, node: NodeId) {
+        match self.items.entry(name.value.clone()) {
+            Entry::Occupied(mut e) => {
+                if e.get().as_single().is_some() {
+                    Self::handle_conflict(e.get(), name.span);
+                }
+                match e.get_mut() {
+                    ScopeItem::Single { .. } => unreachable!(),
+                    ScopeItem::Fns(fns) => {
+                        match fns.iter().position(|s| s.args_key == args_key) {
+                            Some(i) => {
+                                let first = &fns[i].name;
+                                let new = name.span;
+                                panic!("function {}{} is defined multiple times: first at [{}:{}], redefined at [{}:{}]",
+                                    first.value, args_key, first.span.start, first.span.end, new.start, new.end);
+                            }
+                            None => {
+                                fns.push(ScopeFn {
+                                    name,
+                                    args_key,
+                                    node,
+                                });
+                            }
+                        }
+
+                    }
+                }
+            },
+            Entry::Vacant(e) => {
+                e.insert(ScopeItem::Fns(vec![ScopeFn {
+                    name,
+                    args_key,
+                    node,
+                }]));
+            },
+        }
+    }
+
+    fn handle_conflict(existing: &ScopeItem, new: Span) -> ! {
+        let first = match existing {
+            ScopeItem::Single { name, .. } => name,
+            ScopeItem::Fns(fns) => &fns.first().unwrap().name,
+        };
+        panic!("name `{}` is defined multiple times: first at [{}:{}], redefined at [{}:{}]",
+            first.value, first.span.start, first.span.end, new.start, new.end);
     }
 
     pub fn try_get(&self, name: &str) -> Option<&ScopeItem> {
@@ -78,6 +136,7 @@ pub struct DiscoverData {
     node_to_scope: NodeMap<NodeId>,
     child_to_parent: NodeMap<NodeId>,
     node_to_module: NodeMap<NodeId>,
+    fn_names: NodeMap<S<Ident>>,
 }
 
 impl DiscoverData {
@@ -102,7 +161,7 @@ impl DiscoverData {
         self.scopes.get(&scope).map(|s| &s[kind])
     }
 
-    pub fn scope_mut(&mut self, scope: NodeId, kind: NsKind) -> &mut Scope {
+    fn scope_mut(&mut self, scope: NodeId, kind: NsKind) -> &mut Scope {
         &mut self.scopes.entry(scope)
             .or_insert(Default::default())
             [kind]
@@ -112,7 +171,7 @@ impl DiscoverData {
         self.node_to_scope[&node]
     }
 
-    pub fn set_scope_of(&mut self, node: NodeId, scope: NodeId) {
+    fn set_scope_of(&mut self, node: NodeId, scope: NodeId) {
         assert!(self.node_to_scope.insert(node, scope).is_none());
     }
 
@@ -140,9 +199,13 @@ impl DiscoverData {
         self.node_to_module.get(&node).copied()
     }
 
-    pub fn set_module_of(&mut self, node: NodeId, module: NodeId) {
+    fn set_module_of(&mut self, node: NodeId, module: NodeId) {
         assert_ne!(node, module);
         assert!(self.node_to_module.insert(node, module).is_none());
+    }
+
+    pub fn fn_name(&self, node: NodeId) -> &S<Ident> {
+        &self.fn_names[&node]
     }
 
     pub fn print_scopes(&self, hir: &Hir) {
@@ -178,16 +241,34 @@ impl DiscoverData {
                         if !scope.is_empty() {
                             self.print_indent();
                             print!("| {:?}: ", kind);
-                            for (i, (ident, ScopeItem { node, name })) in
+                            for (i, (ident, scope_item)) in
                                 scope.items.iter().enumerate()
                             {
                                 if i > 0 {
                                     print!(", ");
                                 }
-                                let n = ctx.hir.node_kind(*node);
-                                print!("`{}` {}:{} -> {:?} {:?} {}:{}", ident,
-                                    name.span.start, name.span.end,
-                                    n.value, node, n.span.start, n.span.end);
+                                match scope_item {
+                                    ScopeItem::Single { name, node } => {
+                                        let n = ctx.hir.node_kind(*node);
+                                        print!("`{}` {}:{} -> {:?} {:?} {}:{}", ident,
+                                            name.span.start, name.span.end,
+                                            n.value, node, n.span.start, n.span.end);
+                                    }
+                                    ScopeItem::Fns(fns) => {
+                                        for (i, ScopeFn { name, args_key: key, node }) in fns.iter().enumerate() {
+                                            let n = ctx.hir.node_kind(*node);
+                                            assert_eq!(n.value, NodeKind::FnDecl);
+                                            if i > 0 {
+                                                print!(", ");
+                                            }
+                                            print!("`{}::{}` {}:{} -> {:?} {:?} {}:{}",
+                                                ident, key,
+                                                name.span.start, name.span.end,
+                                                n.value, node, n.span.start, n.span.end);
+                                        }
+                                    }
+                                }
+
                             }
                             println!()
                         }
@@ -227,6 +308,11 @@ impl Build<'_> {
         self.data.scope_mut(scope, ns).insert(name, node);
     }
 
+    fn insert_fn(&mut self, ns: NsKind, name: S<Ident>, args_key: FnArgsKey, node: NodeId) {
+        let scope = self.cur_scope();
+        self.data.scope_mut(scope, ns).insert_fn(name, args_key, node);
+    }
+
     fn insert_all_namespaces(&mut self, name: S<Ident>, node: NodeId) {
         for ns in NsKind::iter() {
             self.insert(ns, name.clone(), node);
@@ -259,16 +345,13 @@ impl HirVisitor for Build<'_> {
         match ctx.kind {
             NodeKind::FnDecl => {
                 let name = ctx.hir.fn_decl(ctx.node).name.clone();
-                self.insert(NsKind::Value, name, ctx.node);
+                let args_key = FnArgsKey::from_decl(ctx.node, ctx.hir);
+                self.insert_fn(NsKind::Value, name.clone(), args_key, ctx.node);
+                self.data.fn_names.insert(ctx.node, name);
                 self.fn_decl_stack.push(ctx.node);
             },
             NodeKind::FnDeclArg => {
-                let FnDeclArg { pub_name, priv_name, .. } = ctx.hir.fn_decl_arg(ctx.node);
-
-                let _pub_name = pub_name.value.as_ref()
-                    .map(|v| pub_name.span.spanned(v.clone()))
-                    .unwrap_or_else(|| priv_name.clone());
-
+                let priv_name = ctx.hir.fn_decl_arg(ctx.node).priv_name.clone();
                 self.insert(NsKind::Value, priv_name.clone(), ctx.node);
             },
             NodeKind::Let => {},

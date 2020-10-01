@@ -228,6 +228,7 @@ impl TypeCheck<'_> {
     pub fn run(self) -> Types {
         let mut types = Types::default();
         let tc = &mut Impl {
+            discover_data: self.discover_data,
             resolve_data: self.resolve_data,
             types: &mut types,
             unknown_num_types: Default::default(),
@@ -238,7 +239,7 @@ impl TypeCheck<'_> {
             type_id_set: Default::default(),
         };
         if self.package_id.is_std() {
-            tc.build_primitive_types(self.discover_data, self.hir);
+            tc.build_primitive_types(self.hir);
         }
         self.hir.traverse(tc);
         if let Some(entry_point) = self.resolve_data.entry_point() {
@@ -279,6 +280,7 @@ enum ResoCtx {
 }
 
 struct Impl<'a> {
+    discover_data: &'a DiscoverData,
     resolve_data: &'a ResolveData,
     types: &'a mut Types,
     unknown_num_types: HashSet<LocalTypeId>,
@@ -290,9 +292,9 @@ struct Impl<'a> {
 }
 
 impl Impl<'_> {
-    pub fn build_primitive_types(&mut self, discover_data: &DiscoverData, hir: &Hir) {
+    pub fn build_primitive_types(&mut self, hir: &Hir) {
         let resolver = Resolver {
-            discover_data,
+            discover_data: self.discover_data,
             resolve_data: &Default::default(),
             hir,
             package_id: PackageId::std(),
@@ -318,7 +320,7 @@ impl Impl<'_> {
                 USize => &["usize", "usize"][..],
                 Unit => &["Unit"][..],
             };
-            let node = resolver.resolve_in_package(path)
+            let node = resolver.resolve_in_package(path, None)
                 .node(NsKind::Type)
                 .unwrap();
             assert!(node.0.is_std());
@@ -414,14 +416,21 @@ impl Impl<'_> {
         }
     }
 
-    fn hir<'a>(&'a self, this_hir: &'a Hir, package_id: PackageId) -> &'a Hir {
+    fn hir<'a>(&'a self, this: &'a Hir, package_id: PackageId) -> &'a Hir {
         if package_id == self.package_id {
-            this_hir
+            this
         } else {
             &self.packages[package_id].hir
         }
     }
 
+    fn discover_data(&self, package_id: PackageId) -> &DiscoverData {
+        if package_id == self.package_id {
+            self.discover_data
+        } else {
+            &self.packages[package_id].discover_data
+        }
+    }
 
     fn reso_ctx(&self) -> ResoCtx {
         *self.reso_ctxs.last().unwrap()
@@ -547,7 +556,7 @@ impl Impl<'_> {
                 let formal_args = self.hir(ctx.hir, callee_node.0).fn_decl(callee_node.1).args.clone();
 
                 if actual_args.len() != formal_args.len() {
-                    let name = &self.hir(ctx.hir, callee_node.0).fn_decl(callee_node.1).name.value;
+                    let name = &self.discover_data(callee_node.0).fn_name(callee_node.1).value;
                     fatal(ctx.hir.node_kind(ctx.node).span, format!(
                         "`fn`: `{}`: invalid number of actual parameters: expected {}, found {}",
                         name,

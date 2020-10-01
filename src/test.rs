@@ -36,7 +36,7 @@ fn end_to_end() {
         .arg("-o")
         .arg(glue_obj_path.path().to_str().unwrap()));
 
-    let tp = ThreadPool::new(num_cpus::get());
+    let tp = ThreadPool::new(1);
 
     let errors = Arc::new(Mutex::new(Vec::new()));
 

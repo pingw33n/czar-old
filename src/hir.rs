@@ -450,6 +450,7 @@ pub struct Ident(String);
 impl Ident {
     const SELF_LOWER: &'static str = "self";
     const SELF_UPPER: &'static str = "Self";
+    const UNDERSCORE: &'static str = "_";
 
     pub fn as_str(&self) -> &str {
         &self.0
@@ -463,12 +464,20 @@ impl Ident {
         Self(Ident::SELF_UPPER.into())
     }
 
+    pub fn underscore() -> Self {
+        Self(Ident::UNDERSCORE.into())
+    }
+
     pub fn is_self_lower(&self) -> bool {
         &self.0 == Ident::SELF_LOWER
     }
 
     pub fn is_self_upper(&self) -> bool {
         &self.0 == Ident::SELF_UPPER
+    }
+
+    pub fn is_underscore(&self) -> bool {
+        &self.0 == Ident::UNDERSCORE
     }
 }
 

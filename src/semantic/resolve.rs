@@ -5,10 +5,10 @@ use std::collections::HashSet;
 use crate::hir::*;
 use crate::hir::traverse::*;
 use crate::package::{GlobalNodeId, PackageId, PackageKind, Packages};
+use crate::util::enums::EnumExt;
 
 use super::*;
-use super::discover::{DiscoverData, NsKind};
-use crate::util::enums::EnumExt;
+use super::discover::{DiscoverData, NsKind, ScopeItem};
 
 #[derive(Debug, Default)]
 pub struct ResolveData {
@@ -30,6 +30,7 @@ impl ResolveData {
             resolve_data: &mut resolve_data,
             package_id,
             packages,
+            fn_calls: Vec::new(),
         });
         if package_kind == PackageKind::Exe {
             let resolver = Resolver {
@@ -39,7 +40,7 @@ impl ResolveData {
                 package_id,
                 packages,
             };
-            let reso = resolver.resolve_in_package(&["main"]);
+            let reso = resolver.resolve_in_package(&["main"], Some(&FnArgsKey::from_idents(&[])));
             let node = reso.type_or_other().unwrap();
             if node.0 != package_id {
                 let span = packages[node.0].hir.node_kind(node.1).span;
@@ -72,11 +73,15 @@ struct Build<'a> {
     resolve_data: &'a mut ResolveData,
     package_id: PackageId,
     packages: &'a Packages,
+    fn_calls: Vec<NodeId>,
 }
 
 impl HirVisitor for Build<'_> {
     fn before_node(&mut self, ctx: HirVisitorCtx) {
         match ctx.kind {
+            NodeKind::FnCall => {
+                self.fn_calls.push(ctx.node);
+            }
             NodeKind::PathEndIdent | NodeKind::PathEndStar => {
                 let target = Resolver {
                     discover_data: self.discover_data,
@@ -92,6 +97,15 @@ impl HirVisitor for Build<'_> {
                         "wildcard imports can only reference symbols from the same package")
                 }
                 self.resolve_data.insert(ctx.node, target);
+            }
+            _ => {}
+        }
+    }
+
+    fn after_node(&mut self, ctx: HirVisitorCtx) {
+        match ctx.kind {
+            NodeKind::FnCall => {
+                assert_eq!(self.fn_calls.pop().unwrap(), ctx.node);
             }
             _ => {}
         }
@@ -174,6 +188,7 @@ impl<'a> Resolver<'a> {
 
     pub fn resolve_in_package(&self,
         path: &[&str],
+        fn_args_key: Option<&FnArgsKey>,
     ) -> Resolution {
         let path_idents: Vec<_> = path
             .iter()
@@ -183,6 +198,7 @@ impl<'a> Resolver<'a> {
             self.hir.root,
             Some(PathAnchor::Package),
             &path_idents,
+            fn_args_key,
             &mut HashSet::new(),
         )
     }
@@ -235,13 +251,21 @@ impl<'a> Resolver<'a> {
             }
             _ => unreachable!(),
         };
-        let (anchor, path_span) = loop {
+        let (anchor, path_span, fn_args_key) = loop {
             path_node = self.discover_data.parent_of(path_node);
             let S { value, span } = self.hir.node_kind(path_node);
             match value {
                 NodeKind::Path => {
                     let Path { anchor, segment: _ } = self.hir.path(path_node);
-                    break (anchor.map(|v| v.value), span);
+
+                    let parent = self.discover_data.parent_of(path_node);
+                    let fn_args_key = if self.hir.node_kind(parent).value == NodeKind::FnCall {
+                        Some(FnArgsKey::from_call(parent, self.hir))
+                    } else {
+                        None
+                    };
+
+                    break (anchor.map(|v| v.value), span, fn_args_key);
                 }
                 NodeKind::PathSegment => {
                     let PathSegment { prefix, suffix: _ } = self.hir.path_segment(path_node);
@@ -252,6 +276,7 @@ impl<'a> Resolver<'a> {
                 _ => unreachable!(),
             }
         };
+        let fn_args_key = fn_args_key.as_ref();
 
         path_idents.reverse();
 
@@ -276,7 +301,7 @@ impl<'a> Resolver<'a> {
             let scope = self.discover_data.scope_of(path);
             let first = path_idents.first().unwrap();
             let first = first.as_ref().map(|v| v.as_str());
-            if let Some(reso) = self.resolve_in_scopes(scope, first, paths).non_empty() {
+            if let Some(reso) = self.resolve_in_scopes(scope, first, fn_args_key, paths).non_empty() {
                 reso
             } else if let Some(package) = self.packages.try_by_name(&first.value) {
                 Resolution::single(NsKind::Type, (package.id, package.hir.root))
@@ -284,16 +309,24 @@ impl<'a> Resolver<'a> {
                 let std_resolver = self.with_package(PackageId::std());
                 // TODO cache this
                 let std_prelude = std_resolver
-                    .resolve_in_package(&["prelude", "v1"])
+                    .resolve_in_package(&["prelude", "v1"], None)
                     .node(NsKind::Type)
                     .unwrap();
                 if_chain! {
                     if !paths.contains(&std_prelude);
-                    if let Some(reso) = std_resolver.resolve_in_scope(std_prelude.1, first, paths).non_empty();
+                    if let Some(reso) = std_resolver.resolve_in_scope(std_prelude.1, first, fn_args_key, paths).non_empty();
                     then {
                         reso
                     } else {
-                        fatal(first.span, format_args!("could find `{}` in current scope", first.value));
+                        if_chain! {
+                            if path_idents.len() == 1;
+                            if let Some(key) = fn_args_key;
+                            then {
+                                fatal(first.span, format_args!("could find function `{}::{}` in current scope", first.value, key));
+                            } else {
+                                fatal(first.span, format_args!("could find `{}` in current scope", first.value));
+                            }
+                        }
                     }
                 }
             }
@@ -303,7 +336,7 @@ impl<'a> Resolver<'a> {
         let reso = if more {
             let (pkg, scope) = reso.type_or_other().unwrap();
             self.with_package(pkg)
-                .resolve_path_idents(scope, anchor, &path_idents, paths)
+                .resolve_path_idents(scope, anchor, &path_idents, fn_args_key, paths)
         } else {
             reso
         };
@@ -319,6 +352,7 @@ impl<'a> Resolver<'a> {
         mut scope: NodeId,
         anchor: Option<PathAnchor>,
         path_idents: &[S<Ident>],
+        fn_args_key: Option<&FnArgsKey>,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Resolution {
         let mut r = Resolution::default();
@@ -327,6 +361,7 @@ impl<'a> Resolver<'a> {
             r = self.resolve_in_scope(
                 scope,
                 ident.as_ref().map(|v| v.as_str()),
+                fn_args_key,
                 paths,
             );
             if let Some((pkg, sc)) = r.type_or_other() {
@@ -342,7 +377,15 @@ impl<'a> Resolver<'a> {
                 } else {
                     path_idents[i - 1].value.as_str()
                 };
-                fatal(ident.span, format_args!("could not find `{}` in `{}`", ident.value, s));
+                if_chain! {
+                    if i == path_idents.len() - 1;
+                    if let Some(key) = fn_args_key;
+                    then {
+                        fatal(ident.span, format_args!("could find function `{}::{}` in `{}`", ident.value, key, s));
+                    } else {
+                        fatal(ident.span, format_args!("could not find `{}` in `{}`", ident.value, s));
+                    }
+                }
             }
         }
         assert!(!r.is_empty());
@@ -352,10 +395,11 @@ impl<'a> Resolver<'a> {
     fn resolve_in_scopes(&self,
         mut scope: NodeId,
         name: S<&str>,
+        fn_args_key: Option<&FnArgsKey>,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Resolution {
         loop {
-            if let Some(r) = self.resolve_in_scope(scope, name, paths).non_empty() {
+            if let Some(r) = self.resolve_in_scope(scope, name, fn_args_key, paths).non_empty() {
                 break r;
             }
             if self.hir.node_kind(scope).value == NodeKind::Module {
@@ -372,22 +416,33 @@ impl<'a> Resolver<'a> {
     fn resolve_in_scope(&self,
         scope: NodeId,
         name: S<&str>,
+        fn_args_key: Option<&FnArgsKey>,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Resolution {
         let mut r = Resolution::default();
         for ns_kind in NsKind::iter() {
             if let Some(scope_) = self.discover_data.try_scope(scope, ns_kind) {
-                let node = scope_.try_get(name.value).map(|v| v.node);
-                if let Some(node) = node {
-                    if paths.contains(&(self.package_id, node)) {
-                        break;
-                    }
-                    if self.hir.node_kind(node).value == NodeKind::PathEndIdent {
-                        return self.resolve(node, paths);
-                    } else {
-                        r.set_node(ns_kind, (self.package_id, node));
-                    }
+                match scope_.try_get(name.value) {
+                    Some(&ScopeItem::Single { node, .. }) => {
+                        if paths.contains(&(self.package_id, node)) {
+                            break;
+                        }
+                        if self.hir.node_kind(node).value == NodeKind::PathEndIdent {
+                            return self.resolve(node, paths);
+                        } else {
+                            r.set_node(ns_kind, (self.package_id, node));
+                        }
+                    },
+                    Some(ScopeItem::Fns(fns)) => {
+                        if let Some(key) = fn_args_key {
+                            if let Some(fn_) = fns.iter().find(|f| &f.args_key == key) {
+                                r.set_node(ns_kind, (self.package_id, fn_.node));
+                            }
+                        }
+                    },
+                    None => {}
                 }
+
             } else {
                 return r;
             }
@@ -404,7 +459,7 @@ impl<'a> Resolver<'a> {
                 }
                 if let Some((pkg, scope)) = self.resolve(path, paths).type_or_other() {
                     let r = self.with_package(pkg)
-                        .resolve_in_scope(scope, name, paths);
+                        .resolve_in_scope(scope, name, fn_args_key, paths);
                     if !r.is_empty() {
                         found_in_wc_imports.push(r);
                     }
