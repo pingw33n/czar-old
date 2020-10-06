@@ -238,8 +238,8 @@ impl<'a> Codegen<'a> {
                 let lit = ctx.package.hir.literal(node);
                 match lit {
                     &Literal::Bool(v) => self.bool_literal(v),
-                    Literal::Char(_) => todo!(),
-                    Literal::String(_) => todo!(),
+                    &Literal::Char(v) => self.char_literal(v),
+                    Literal::String(v) => self.string_literal(v),
                     &Literal::Int(IntLiteral { value, .. }) => {
                         let ty = self.typing((ctx.package.id, node));
                         ty.const_int(value)
@@ -407,9 +407,19 @@ impl<'a> Codegen<'a> {
     }
 
     fn bool_literal(&mut self, v: bool) -> llvm::ValueRef {
-        let ty = self.type_((PackageId::std(), self.packages[PackageId::std()].types.primitive(PrimitiveType::Bool)));
         let v = if v { 1 } else { 0 };
-        ty.const_int(v)
+        self.prim_type(PrimitiveType::Bool).const_int(v)
+    }
+
+    fn char_literal(&mut self, v: char) -> llvm::ValueRef {
+        self.prim_type(PrimitiveType::Char).const_int(v as u128)
+    }
+
+    fn string_literal(&mut self, v: &str) -> llvm::ValueRef {
+        let g = self.llvm.add_global_const(self.llvm.const_string(v));
+        let ptr = self.llvm.const_pointer_cast(g, self.llvm.pointer_type(self.llvm.int_type(8)));
+        let len = self.prim_type(PrimitiveType::USize).const_int(v.len() as u128);
+        self.llvm.const_struct(&mut [ptr, len])
     }
 
     fn unit_literal(&self) -> llvm::ValueRef {
@@ -454,19 +464,7 @@ impl<'a> Codegen<'a> {
                 TypeRef::function(res_ty, args_ty)
             }
             &TypeData::Primitive(prim) => {
-                use PrimitiveType::*;
-                match prim {
-                    Bool => self.llvm.int_type(1),
-                    F32 => self.llvm.float_type(),
-                    F64 => self.llvm.double_type(),
-                    I8 | U8 => self.llvm.int_type(8),
-                    I16 | U16 => self.llvm.int_type(16),
-                    I32 | U32 => self.llvm.int_type(32),
-                    I64 | U64 => self.llvm.int_type(64),
-                    I128 | U128 => self.llvm.int_type(128),
-                    ISize | USize => self.llvm.int_type(self.llvm.pointer_size_bits()),
-                    Unit => self.llvm.struct_type(&mut []),
-                }
+                self.make_prim_type(prim)
             }
             TypeData::UnknownNumber(_) => unreachable!(),
             _ => todo!(),
@@ -478,6 +476,30 @@ impl<'a> Codegen<'a> {
         }
 
         ty_ll
+    }
+
+    fn make_prim_type(&self, ty: PrimitiveType) -> TypeRef {
+        use PrimitiveType::*;
+        match ty {
+            Bool => self.llvm.int_type(1),
+            F32 => self.llvm.float_type(),
+            F64 => self.llvm.double_type(),
+            I8 | U8 => self.llvm.int_type(8),
+            I16 | U16 => self.llvm.int_type(16),
+            I32 | U32 | Char => self.llvm.int_type(32),
+            I64 | U64 => self.llvm.int_type(64),
+            I128 | U128 => self.llvm.int_type(128),
+            ISize | USize => self.llvm.int_type(self.llvm.pointer_size_bits()),
+            Unit => self.llvm.struct_type(&mut []),
+            String => self.llvm.struct_type(&mut [
+                self.llvm.pointer_type(self.llvm.int_type(8)),
+                self.llvm.int_type(self.llvm.pointer_size_bits()),
+            ]),
+        }
+    }
+
+    fn prim_type(&mut self, ty: PrimitiveType) -> TypeRef {
+        self.type_((PackageId::std(), self.packages[PackageId::std()].types.primitive(ty)))
     }
 }
 

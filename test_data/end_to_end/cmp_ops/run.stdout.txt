@@ -1,406 +1,406 @@
-***************************************
-true
-false
-false
-true
-false
-true
+============== f32
+0.00 == 0.00: true
+0.00 != 0.00: false
+0.00 < 0.00: false
+0.00 <= 0.00: true
+0.00 > 0.00: false
+0.00 >= 0.00: true
 
-true
-false
-false
-true
-false
-true
+-1.00 == -1.00: true
+-1.00 != -1.00: false
+-1.00 < -1.00: false
+-1.00 <= -1.00: true
+-1.00 > -1.00: false
+-1.00 >= -1.00: true
 
-false
-true
-true
-true
-false
-false
+0.00 == 1.00: false
+0.00 != 1.00: true
+0.00 < 1.00: true
+0.00 <= 1.00: true
+0.00 > 1.00: false
+0.00 >= 1.00: false
 
-false
-true
-false
-false
-true
-true
+1.00 == -1.00: false
+1.00 != -1.00: true
+1.00 < -1.00: false
+1.00 <= -1.00: false
+1.00 > -1.00: true
+1.00 >= -1.00: true
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== f64
+0.00 == 0.00: true
+0.00 != 0.00: false
+0.00 < 0.00: false
+0.00 <= 0.00: true
+0.00 > 0.00: false
+0.00 >= 0.00: true
 
-true
-false
-false
-true
-false
-true
+-1.00 == -1.00: true
+-1.00 != -1.00: false
+-1.00 < -1.00: false
+-1.00 <= -1.00: true
+-1.00 > -1.00: false
+-1.00 >= -1.00: true
 
-false
-true
-true
-true
-false
-false
+0.00 == 1.00: false
+0.00 != 1.00: true
+0.00 < 1.00: true
+0.00 <= 1.00: true
+0.00 > 1.00: false
+0.00 >= 1.00: false
 
-false
-true
-false
-false
-true
-true
+1.00 == -1.00: false
+1.00 != -1.00: true
+1.00 < -1.00: false
+1.00 <= -1.00: false
+1.00 > -1.00: true
+1.00 >= -1.00: true
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== i8
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+-128 == -128: true
+-128 != -128: false
+-128 < -128: false
+-128 <= -128: true
+-128 > -128: false
+-128 >= -128: true
 
-true
-false
-false
-true
-false
-true
+127 == 127: true
+127 != 127: false
+127 < 127: false
+127 <= 127: true
+127 > 127: false
+127 >= 127: true
 
-false
-true
-true
-true
-false
-false
+-128 == -127: false
+-128 != -127: true
+-128 < -127: true
+-128 <= -127: true
+-128 > -127: false
+-128 >= -127: false
 
-false
-true
-true
-true
-false
-false
+126 == 127: false
+126 != 127: true
+126 < 127: true
+126 <= 127: true
+126 > 127: false
+126 >= 127: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== u8
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+255 == 255: true
+255 != 255: false
+255 < 255: false
+255 <= 255: true
+255 > 255: false
+255 >= 255: true
 
-false
-true
-true
-true
-false
-false
+254 == 255: false
+254 != 255: true
+254 < 255: true
+254 <= 255: true
+254 > 255: false
+254 >= 255: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== i16
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+-32768 == -32768: true
+-32768 != -32768: false
+-32768 < -32768: false
+-32768 <= -32768: true
+-32768 > -32768: false
+-32768 >= -32768: true
 
-true
-false
-false
-true
-false
-true
+32767 == 32767: true
+32767 != 32767: false
+32767 < 32767: false
+32767 <= 32767: true
+32767 > 32767: false
+32767 >= 32767: true
 
-false
-true
-true
-true
-false
-false
+-32768 == -32767: false
+-32768 != -32767: true
+-32768 < -32767: true
+-32768 <= -32767: true
+-32768 > -32767: false
+-32768 >= -32767: false
 
-false
-true
-true
-true
-false
-false
+32766 == 32767: false
+32766 != 32767: true
+32766 < 32767: true
+32766 <= 32767: true
+32766 > 32767: false
+32766 >= 32767: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== u16
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+65535 == 65535: true
+65535 != 65535: false
+65535 < 65535: false
+65535 <= 65535: true
+65535 > 65535: false
+65535 >= 65535: true
 
-false
-true
-true
-true
-false
-false
+65534 == 65535: false
+65534 != 65535: true
+65534 < 65535: true
+65534 <= 65535: true
+65534 > 65535: false
+65534 >= 65535: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== i32
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+-2147483648 == -2147483648: true
+-2147483648 != -2147483648: false
+-2147483648 < -2147483648: false
+-2147483648 <= -2147483648: true
+-2147483648 > -2147483648: false
+-2147483648 >= -2147483648: true
 
-true
-false
-false
-true
-false
-true
+2147483647 == 2147483647: true
+2147483647 != 2147483647: false
+2147483647 < 2147483647: false
+2147483647 <= 2147483647: true
+2147483647 > 2147483647: false
+2147483647 >= 2147483647: true
 
-false
-true
-true
-true
-false
-false
+-2147483648 == -2147483647: false
+-2147483648 != -2147483647: true
+-2147483648 < -2147483647: true
+-2147483648 <= -2147483647: true
+-2147483648 > -2147483647: false
+-2147483648 >= -2147483647: false
 
-false
-true
-true
-true
-false
-false
+2147483646 == 2147483647: false
+2147483646 != 2147483647: true
+2147483646 < 2147483647: true
+2147483646 <= 2147483647: true
+2147483646 > 2147483647: false
+2147483646 >= 2147483647: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== u32
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+4294967295 == 4294967295: true
+4294967295 != 4294967295: false
+4294967295 < 4294967295: false
+4294967295 <= 4294967295: true
+4294967295 > 4294967295: false
+4294967295 >= 4294967295: true
 
-false
-true
-true
-true
-false
-false
+4294967294 == 4294967295: false
+4294967294 != 4294967295: true
+4294967294 < 4294967295: true
+4294967294 <= 4294967295: true
+4294967294 > 4294967295: false
+4294967294 >= 4294967295: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== i64
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+-9223372036854775808 == -9223372036854775808: true
+-9223372036854775808 != -9223372036854775808: false
+-9223372036854775808 < -9223372036854775808: false
+-9223372036854775808 <= -9223372036854775808: true
+-9223372036854775808 > -9223372036854775808: false
+-9223372036854775808 >= -9223372036854775808: true
 
-true
-false
-false
-true
-false
-true
+9223372036854775807 == 9223372036854775807: true
+9223372036854775807 != 9223372036854775807: false
+9223372036854775807 < 9223372036854775807: false
+9223372036854775807 <= 9223372036854775807: true
+9223372036854775807 > 9223372036854775807: false
+9223372036854775807 >= 9223372036854775807: true
 
-false
-true
-true
-true
-false
-false
+-9223372036854775808 == -9223372036854775807: false
+-9223372036854775808 != -9223372036854775807: true
+-9223372036854775808 < -9223372036854775807: true
+-9223372036854775808 <= -9223372036854775807: true
+-9223372036854775808 > -9223372036854775807: false
+-9223372036854775808 >= -9223372036854775807: false
 
-false
-true
-true
-true
-false
-false
+9223372036854775806 == 9223372036854775807: false
+9223372036854775806 != 9223372036854775807: true
+9223372036854775806 < 9223372036854775807: true
+9223372036854775806 <= 9223372036854775807: true
+9223372036854775806 > 9223372036854775807: false
+9223372036854775806 >= 9223372036854775807: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== u64
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+18446744073709551615 == 18446744073709551615: true
+18446744073709551615 != 18446744073709551615: false
+18446744073709551615 < 18446744073709551615: false
+18446744073709551615 <= 18446744073709551615: true
+18446744073709551615 > 18446744073709551615: false
+18446744073709551615 >= 18446744073709551615: true
 
-false
-true
-true
-true
-false
-false
+18446744073709551614 == 18446744073709551615: false
+18446744073709551614 != 18446744073709551615: true
+18446744073709551614 < 18446744073709551615: true
+18446744073709551614 <= 18446744073709551615: true
+18446744073709551614 > 18446744073709551615: false
+18446744073709551614 >= 18446744073709551615: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== i128
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+0x80000000000000000000000000000000_i128 == 0x80000000000000000000000000000000_i128: true
+0x80000000000000000000000000000000_i128 != 0x80000000000000000000000000000000_i128: false
+0x80000000000000000000000000000000_i128 < 0x80000000000000000000000000000000_i128: false
+0x80000000000000000000000000000000_i128 <= 0x80000000000000000000000000000000_i128: true
+0x80000000000000000000000000000000_i128 > 0x80000000000000000000000000000000_i128: false
+0x80000000000000000000000000000000_i128 >= 0x80000000000000000000000000000000_i128: true
 
-true
-false
-false
-true
-false
-true
+0x7fffffffffffffffffffffffffffffff_i128 == 0x7fffffffffffffffffffffffffffffff_i128: true
+0x7fffffffffffffffffffffffffffffff_i128 != 0x7fffffffffffffffffffffffffffffff_i128: false
+0x7fffffffffffffffffffffffffffffff_i128 < 0x7fffffffffffffffffffffffffffffff_i128: false
+0x7fffffffffffffffffffffffffffffff_i128 <= 0x7fffffffffffffffffffffffffffffff_i128: true
+0x7fffffffffffffffffffffffffffffff_i128 > 0x7fffffffffffffffffffffffffffffff_i128: false
+0x7fffffffffffffffffffffffffffffff_i128 >= 0x7fffffffffffffffffffffffffffffff_i128: true
 
-false
-true
-true
-true
-false
-false
+0x80000000000000000000000000000000_i128 == 0x80000000000000000000000000000001_i128: false
+0x80000000000000000000000000000000_i128 != 0x80000000000000000000000000000001_i128: true
+0x80000000000000000000000000000000_i128 < 0x80000000000000000000000000000001_i128: true
+0x80000000000000000000000000000000_i128 <= 0x80000000000000000000000000000001_i128: true
+0x80000000000000000000000000000000_i128 > 0x80000000000000000000000000000001_i128: false
+0x80000000000000000000000000000000_i128 >= 0x80000000000000000000000000000001_i128: false
 
-false
-true
-true
-true
-false
-false
+0x7ffffffffffffffffffffffffffffffe_i128 == 0x7fffffffffffffffffffffffffffffff_i128: false
+0x7ffffffffffffffffffffffffffffffe_i128 != 0x7fffffffffffffffffffffffffffffff_i128: true
+0x7ffffffffffffffffffffffffffffffe_i128 < 0x7fffffffffffffffffffffffffffffff_i128: true
+0x7ffffffffffffffffffffffffffffffe_i128 <= 0x7fffffffffffffffffffffffffffffff_i128: true
+0x7ffffffffffffffffffffffffffffffe_i128 > 0x7fffffffffffffffffffffffffffffff_i128: false
+0x7ffffffffffffffffffffffffffffffe_i128 >= 0x7fffffffffffffffffffffffffffffff_i128: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== u128
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+0xffffffffffffffffffffffffffffffff == 0xffffffffffffffffffffffffffffffff: true
+0xffffffffffffffffffffffffffffffff != 0xffffffffffffffffffffffffffffffff: false
+0xffffffffffffffffffffffffffffffff < 0xffffffffffffffffffffffffffffffff: false
+0xffffffffffffffffffffffffffffffff <= 0xffffffffffffffffffffffffffffffff: true
+0xffffffffffffffffffffffffffffffff > 0xffffffffffffffffffffffffffffffff: false
+0xffffffffffffffffffffffffffffffff >= 0xffffffffffffffffffffffffffffffff: true
 
-false
-true
-true
-true
-false
-false
+0xfffffffffffffffffffffffffffffffe == 0xffffffffffffffffffffffffffffffff: false
+0xfffffffffffffffffffffffffffffffe != 0xffffffffffffffffffffffffffffffff: true
+0xfffffffffffffffffffffffffffffffe < 0xffffffffffffffffffffffffffffffff: true
+0xfffffffffffffffffffffffffffffffe <= 0xffffffffffffffffffffffffffffffff: true
+0xfffffffffffffffffffffffffffffffe > 0xffffffffffffffffffffffffffffffff: false
+0xfffffffffffffffffffffffffffffffe >= 0xffffffffffffffffffffffffffffffff: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== isize
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+-42 == -42: true
+-42 != -42: false
+-42 < -42: false
+-42 <= -42: true
+-42 > -42: false
+-42 >= -42: true
 
-true
-false
-false
-true
-false
-true
+42 == 42: true
+42 != 42: false
+42 < 42: false
+42 <= 42: true
+42 > 42: false
+42 >= 42: true
 
-false
-true
-true
-true
-false
-false
+-42 == -41: false
+-42 != -41: true
+-42 < -41: true
+-42 <= -41: true
+-42 > -41: false
+-42 >= -41: false
 
-false
-true
-true
-true
-false
-false
+41 == 42: false
+41 != 42: true
+41 < 42: true
+41 <= 42: true
+41 > 42: false
+41 >= 42: false
 
-***************************************
-true
-false
-false
-true
-false
-true
+============== usize
+0 == 0: true
+0 != 0: false
+0 < 0: false
+0 <= 0: true
+0 > 0: false
+0 >= 0: true
 
-true
-false
-false
-true
-false
-true
+256 == 256: true
+256 != 256: false
+256 < 256: false
+256 <= 256: true
+256 > 256: false
+256 >= 256: true
 
-false
-true
-true
-true
-false
-false
+255 == 256: false
+255 != 256: true
+255 < 256: true
+255 <= 256: true
+255 > 256: false
+255 >= 256: false
 

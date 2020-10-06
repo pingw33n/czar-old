@@ -44,6 +44,8 @@ pub enum PrimitiveType {
     ISize,
     USize,
     Unit,
+    Char,
+    String,
 }
 
 impl PrimitiveType {
@@ -69,6 +71,8 @@ impl PrimitiveType {
             => Some(NumberType::Float),
 
             | Bool
+            | Char
+            | String
             | Unit
             => None,
         }
@@ -94,8 +98,10 @@ impl PrimitiveType {
             => Some(Sign::Signed),
 
             | Bool
+            | Char
             | F32
             | F64
+            | String
             | Unit
             => None,
         }
@@ -128,6 +134,7 @@ impl Type {
 pub enum TypeData {
     Fn(FnType),
     Primitive(PrimitiveType),
+    Ptr(TypeId),
     Struct(StructType),
     Type(TypeId),
     UnknownNumber(NumberType)
@@ -304,6 +311,7 @@ impl Impl<'_> {
             use PrimitiveType::*;
             let path = match ty {
                 Bool => &["bool", "bool"][..],
+                Char => &["char", "char"][..],
                 F32 => &["f32", "f32"][..],
                 F64 => &["f64", "f64"][..],
                 I8 => &["i8", "i8"][..],
@@ -318,6 +326,7 @@ impl Impl<'_> {
                 U128 => &["u128", "u128"][..],
                 ISize => &["isize", "isize"][..],
                 USize => &["usize", "usize"][..],
+                String => &["string", "String"][..],
                 Unit => &["Unit"][..],
             };
             let node = resolver.resolve_in_package(path, None)
@@ -659,8 +668,9 @@ impl Impl<'_> {
                             self.insert_type(ctx.node, TypeData::UnknownNumber(NumberType::Float))
                         }
                     }
-                    &Literal::Unit => self.primitive_type(PrimitiveType::Unit),
-                    _ => unimplemented!()
+                    Literal::Unit => self.primitive_type(PrimitiveType::Unit),
+                    Literal::String(_) => self.primitive_type(PrimitiveType::String),
+                    Literal::Char(_) => self.primitive_type(PrimitiveType::Char),
                 }
             }
             NodeKind::Module => return,
@@ -759,7 +769,10 @@ impl Impl<'_> {
                 let TyExpr { muta: _, data } = ctx.hir.ty_expr(ctx.node);
                 match &data.value {
                     TyData::Array(_) => unimplemented!(),
-                    TyData::Ptr(_) => unimplemented!(),
+                    &TyData::Ptr(node) => {
+                        let ty = self.types.typing(node);
+                        self.insert_type(ctx.node, TypeData::Ptr(ty))
+                    },
                     TyData::Ref(_) => unimplemented!(),
                     TyData::Slice(_) => unimplemented!(),
                     &TyData::Path(node) => {

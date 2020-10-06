@@ -1,4 +1,11 @@
 struct Foo {}
 
+struct Bar {
+    a: u32,
+    pub b: String,
+}
+
 fn main() {
+    let s = "test string";
+    prints(s); println();
 }

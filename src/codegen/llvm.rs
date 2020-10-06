@@ -217,7 +217,44 @@ impl Llvm {
 
     pub fn const_struct(&self, fields: &mut [ValueRef]) -> ValueRef {
         NonNull::new(unsafe {
-            LLVMConstStructInContext(self.c.as_ptr(), fields.as_mut_ptr() as *mut _, 0, 0)
+            LLVMConstStructInContext(self.c.as_ptr(), fields.as_mut_ptr() as *mut _, fields.len() as u32, 0)
+        }).unwrap().into()
+    }
+
+    pub fn const_string(&self, s: &str) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMConstStringInContext(self.c.as_ptr(), s.as_ptr() as *const i8, s.len() as u32, 1)
+        }).unwrap().into()
+    }
+
+    pub fn add_global_const(&self, value: ValueRef) -> ValueRef {
+        let g = self.add_global(value.type_());
+        self.set_initializer(g, value);
+        self.set_constant(g, true);
+        g
+    }
+
+    fn add_global(&self, ty: TypeRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMAddGlobal(self.m.as_ptr(), ty.0.as_ptr(), empty_cstr())
+        }).unwrap().into()
+    }
+
+    fn set_initializer(&self, global: ValueRef, const_value: ValueRef) {
+        unsafe {
+            LLVMSetInitializer(global.0.as_ptr(), const_value.0.as_ptr())
+        }
+    }
+
+    fn set_constant(&self, global: ValueRef, constant: bool) {
+        unsafe {
+            LLVMSetGlobalConstant(global.0.as_ptr(), constant as i32)
+        }
+    }
+
+    pub fn const_pointer_cast(&self, v: ValueRef, to_ty: TypeRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMConstPointerCast(v.0.as_ptr(), to_ty.0.as_ptr())
         }).unwrap().into()
     }
 
@@ -249,6 +286,12 @@ impl Llvm {
         NonNull::new(unsafe {
             LLVMStructTypeInContext(self.c.as_ptr(),
                 field_tys.as_mut_ptr() as *mut _, field_tys.len() as u32, 0)
+        }).unwrap().into()
+    }
+
+    pub fn pointer_type(&self, inner: TypeRef) -> TypeRef {
+        NonNull::new(unsafe {
+            LLVMPointerType(inner.0.as_ptr(), 0)
         }).unwrap().into()
     }
 

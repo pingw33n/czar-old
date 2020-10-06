@@ -9,7 +9,7 @@ fn fib(_ v: i32) -> i32 {
 }
 
 fn print_fib(_ v: i32) {
-    print_i32(fib(v));
+    prints("fib("); print_i32(v); prints("): "); print_i32(fib(v)); println();
 }
 
 fn main() {

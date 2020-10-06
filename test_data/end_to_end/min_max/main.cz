@@ -7,8 +7,8 @@ fn max(_ a: i32, _ b: i32) -> i32 {
 }
 
 fn print_min_max(_ a: i32, _ b: i32) {
-    print_i32(min(a, b));
-    print_i32(max(a, b));
+    prints("min("); print_i32(a); prints(", "); print_i32(b); prints("): "); print_i32(min(a, b)); println();
+    prints("max("); print_i32(a); prints(", "); print_i32(b); prints("): "); print_i32(max(a, b)); println();
 }
 
 fn main() {

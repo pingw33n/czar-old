@@ -1,0 +1,5 @@
+fn main() {
+    print_char_hex(' '); println();
+    print_char_hex('a'); println();
+    print_char_hex('😋'); println();
+}

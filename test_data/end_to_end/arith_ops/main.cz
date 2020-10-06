@@ -1,195 +1,195 @@
 fn do_i8(_ a: i8, _ b: i8) {
-    print_i8(a + b);
-    print_i8(a - b);
-    print_i8(-a);
-    print_i8(-b);
-    print_i8(a * b);
-    if b > 0 {
-        print_i8(a / b);
+    print_i8(a); prints(" + "); print_i8(b); prints(" = "); print_i8(a + b); println();
+    print_i8(a); prints(" - "); print_i8(b); prints(" = "); print_i8(a - b); println();
+    prints("-"); print_i8(a); prints(" = "); print_i8(-a); println();
+    prints("-"); print_i8(b); prints(" = "); print_i8(-b); println();
+    print_i8(a); prints(" * "); print_i8(b); prints(" = "); print_i8(a * b); println();
+    if b != 0 {
+        print_i8(a); prints(" / "); print_i8(b); prints(" = "); print_i8(a / b); println();
     }
-    if b > 0 {
-        print_i8(a % b);
+    if b != 0 {
+        print_i8(a); prints(" % "); print_i8(b); prints(" = "); print_i8(a % b); println();
     }
     println();
 }
 
 fn do_u8(_ a: u8, _ b: u8) {
-    print_u8(a + b);
-    print_u8(a - b);
-    print_u8(a * b);
-    if b > 0 {
-        print_u8(a / b);
+    print_u8(a); prints(" + "); print_u8(b); prints(" = "); print_u8(a + b); println();
+    print_u8(a); prints(" - "); print_u8(b); prints(" = "); print_u8(a - b); println();
+    print_u8(a); prints(" * "); print_u8(b); prints(" = "); print_u8(a * b); println();
+    if b != 0 {
+        print_u8(a); prints(" / "); print_u8(b); prints(" = "); print_u8(a / b); println();
     }
-    if b > 0 {
-        print_u8(a % b);
+    if b != 0 {
+        print_u8(a); prints(" % "); print_u8(b); prints(" = "); print_u8(a % b); println();
     }
     println();
 }
 
 fn do_i16(_ a: i16, _ b: i16) {
-    print_i16(a + b);
-    print_i16(a - b);
-    print_i16(-a);
-    print_i16(-b);
-    print_i16(a * b);
-    if b > 0 {
-        print_i16(a / b);
+    print_i16(a); prints(" + "); print_i16(b); prints(" = "); print_i16(a + b); println();
+    print_i16(a); prints(" - "); print_i16(b); prints(" = "); print_i16(a - b); println();
+    prints("-"); print_i16(a); prints(" = "); print_i16(-a); println();
+    prints("-"); print_i16(b); prints(" = "); print_i16(-b); println();
+    print_i16(a); prints(" * "); print_i16(b); prints(" = "); print_i16(a * b); println();
+    if b != 0 {
+        print_i16(a); prints(" / "); print_i16(b); prints(" = "); print_i16(a / b); println();
     }
-    if b > 0 {
-        print_i16(a % b);
+    if b != 0 {
+        print_i16(a); prints(" % "); print_i16(b); prints(" = "); print_i16(a % b); println();
     }
     println();
 }
 
 fn do_u16(_ a: u16, _ b: u16) {
-    print_u16(a + b);
-    print_u16(a - b);
-    print_u16(a * b);
-    if b > 0 {
-        print_u16(a / b);
+    print_u16(a); prints(" + "); print_u16(b); prints(" = "); print_u16(a + b); println();
+    print_u16(a); prints(" - "); print_u16(b); prints(" = "); print_u16(a - b); println();
+    print_u16(a); prints(" * "); print_u16(b); prints(" = "); print_u16(a * b); println();
+    if b != 0 {
+        print_u16(a); prints(" / "); print_u16(b); prints(" = "); print_u16(a / b); println();
     }
-    if b > 0 {
-        print_u16(a % b);
+    if b != 0 {
+        print_u16(a); prints(" % "); print_u16(b); prints(" = "); print_u16(a % b); println();
     }
     println();
 }
 
 fn do_i32(_ a: i32, _ b: i32) {
-    print_i32(a + b);
-    print_i32(a - b);
-    print_i32(-a);
-    print_i32(-b);
-    print_i32(a * b);
-    if b > 0 {
-        print_i32(a / b);
+    print_i32(a); prints(" + "); print_i32(b); prints(" = "); print_i32(a + b); println();
+    print_i32(a); prints(" - "); print_i32(b); prints(" = "); print_i32(a - b); println();
+    prints("-"); print_i32(a); prints(" = "); print_i32(-a); println();
+    prints("-"); print_i32(b); prints(" = "); print_i32(-b); println();
+    print_i32(a); prints(" * "); print_i32(b); prints(" = "); print_i32(a * b); println();
+    if b != 0 {
+        print_i32(a); prints(" / "); print_i32(b); prints(" = "); print_i32(a / b); println();
     }
-    if b > 0 {
-        print_i32(a % b);
+    if b != 0 {
+        print_i32(a); prints(" % "); print_i32(b); prints(" = "); print_i32(a % b); println();
     }
     println();
 }
 
 fn do_u32(_ a: u32, _ b: u32) {
-    print_u32(a + b);
-    print_u32(a - b);
-    print_u32(a * b);
-    if b > 0 {
-        print_u32(a / b);
+    print_u32(a); prints(" + "); print_u32(b); prints(" = "); print_u32(a + b); println();
+    print_u32(a); prints(" - "); print_u32(b); prints(" = "); print_u32(a - b); println();
+    print_u32(a); prints(" * "); print_u32(b); prints(" = "); print_u32(a * b); println();
+    if b != 0 {
+        print_u32(a); prints(" / "); print_u32(b); prints(" = "); print_u32(a / b); println();
     }
-    if b > 0 {
-        print_u32(a % b);
+    if b != 0 {
+        print_u32(a); prints(" % "); print_u32(b); prints(" = "); print_u32(a % b); println();
     }
     println();
 }
 
 fn do_i64(_ a: i64, _ b: i64) {
-    print_i64(a + b);
-    print_i64(a - b);
-    print_i64(-a);
-    print_i64(-b);
-    print_i64(a * b);
-    if b > 0 {
-        print_i64(a / b);
+    print_i64(a); prints(" + "); print_i64(b); prints(" = "); print_i64(a + b); println();
+    print_i64(a); prints(" - "); print_i64(b); prints(" = "); print_i64(a - b); println();
+    prints("-"); print_i64(a); prints(" = "); print_i64(-a); println();
+    prints("-"); print_i64(b); prints(" = "); print_i64(-b); println();
+    print_i64(a); prints(" * "); print_i64(b); prints(" = "); print_i64(a * b); println();
+    if b != 0 {
+        print_i64(a); prints(" / "); print_i64(b); prints(" = "); print_i64(a / b); println();
     }
-    if b > 0 {
-        print_i64(a % b);
+    if b != 0 {
+        print_i64(a); prints(" % "); print_i64(b); prints(" = "); print_i64(a % b); println();
     }
     println();
 }
 
 fn do_u64(_ a: u64, _ b: u64) {
-    print_u64(a + b);
-    print_u64(a - b);
-    print_u64(a * b);
-    if b > 0 {
-        print_u64(a / b);
+    print_u64(a); prints(" + "); print_u64(b); prints(" = "); print_u64(a + b); println();
+    print_u64(a); prints(" - "); print_u64(b); prints(" = "); print_u64(a - b); println();
+    print_u64(a); prints(" * "); print_u64(b); prints(" = "); print_u64(a * b); println();
+    if b != 0 {
+        print_u64(a); prints(" / "); print_u64(b); prints(" = "); print_u64(a / b); println();
     }
-    if b > 0 {
-        print_u64(a % b);
+    if b != 0 {
+        print_u64(a); prints(" % "); print_u64(b); prints(" = "); print_u64(a % b); println();
     }
     println();
 }
 
 fn do_i128(_ a: i128, _ b: i128) {
-    print_i128(a + b);
-    print_i128(a - b);
-    print_i128(-a);
-    print_i128(-b);
-    print_i128(a * b);
-    if b > 0 {
-        print_i128(a / b);
+    print_i128(a); prints(" + "); print_i128(b); prints(" = "); print_i128(a + b); println();
+    print_i128(a); prints(" - "); print_i128(b); prints(" = "); print_i128(a - b); println();
+    prints("-"); print_i128(a); prints(" = "); print_i128(-a); println();
+    prints("-"); print_i128(b); prints(" = "); print_i128(-b); println();
+    print_i128(a); prints(" * "); print_i128(b); prints(" = "); print_i128(a * b); println();
+    if b != 0 {
+        print_i128(a); prints(" / "); print_i128(b); prints(" = "); print_i128(a / b); println();
     }
-    if b > 0 {
-        print_i128(a % b);
+    if b != 0 {
+        print_i128(a); prints(" % "); print_i128(b); prints(" = "); print_i128(a % b); println();
     }
     println();
 }
 
 fn do_u128(_ a: u128, _ b: u128) {
-    print_u128(a + b);
-    print_u128(a - b);
-    print_u128(a * b);
-    if b > 0 {
-        print_u128(a / b);
+    print_u128(a); prints(" + "); print_u128(b); prints(" = "); print_u128(a + b); println();
+    print_u128(a); prints(" - "); print_u128(b); prints(" = "); print_u128(a - b); println();
+    print_u128(a); prints(" * "); print_u128(b); prints(" = "); print_u128(a * b); println();
+    if b != 0 {
+        print_u128(a); prints(" / "); print_u128(b); prints(" = "); print_u128(a / b); println();
     }
-    if b > 0 {
-        print_u128(a % b);
+    if b != 0 {
+        print_u128(a); prints(" % "); print_u128(b); prints(" = "); print_u128(a % b); println();
     }
     println();
 }
 
 fn do_isize(_ a: isize, _ b: isize) {
-    print_isize(a + b);
-    print_isize(a - b);
-    print_isize(-a);
-    print_isize(-b);
-    print_isize(a * b);
-    if b > 0 {
-        print_isize(a / b);
+    print_isize(a); prints(" + "); print_isize(b); prints(" = "); print_isize(a + b); println();
+    print_isize(a); prints(" - "); print_isize(b); prints(" = "); print_isize(a - b); println();
+    prints("-"); print_isize(a); prints(" = "); print_isize(-a); println();
+    prints("-"); print_isize(b); prints(" = "); print_isize(-b); println();
+    print_isize(a); prints(" * "); print_isize(b); prints(" = "); print_isize(a * b); println();
+    if b != 0 {
+        print_isize(a); prints(" / "); print_isize(b); prints(" = "); print_isize(a / b); println();
     }
-    if b > 0 {
-        print_isize(a % b);
+    if b != 0 {
+        print_isize(a); prints(" % "); print_isize(b); prints(" = "); print_isize(a % b); println();
     }
     println();
 }
 
 fn do_usize(_ a: usize, _ b: usize) {
-    print_usize(a + b);
-    print_usize(a - b);
-    print_usize(a * b);
-    if b > 0 {
-        print_usize(a / b);
+    print_usize(a); prints(" + "); print_usize(b); prints(" = "); print_usize(a + b); println();
+    print_usize(a); prints(" - "); print_usize(b); prints(" = "); print_usize(a - b); println();
+    print_usize(a); prints(" * "); print_usize(b); prints(" = "); print_usize(a * b); println();
+    if b != 0 {
+        print_usize(a); prints(" / "); print_usize(b); prints(" = "); print_usize(a / b); println();
     }
-    if b > 0 {
-        print_usize(a % b);
+    if b != 0 {
+        print_usize(a); prints(" % "); print_usize(b); prints(" = "); print_usize(a % b); println();
     }
     println();
 }
 
 fn do_f32(_ a: f32, _ b: f32) {
-    print_f32(a + b);
-    print_f32(a - b);
-    print_f32(-a);
-    print_f32(-b);
-    print_f32(a * b);
-    print_f32(a / b);
-    print_f32(a % b);
+    print_f32(a); prints(" + "); print_f32(b); prints(" = "); print_f32(a + b); println();
+    print_f32(a); prints(" - "); print_f32(b); prints(" = "); print_f32(a - b); println();
+    prints("-"); print_f32(a); prints(" = "); print_f32(-a); println();
+    prints("-"); print_f32(b); prints(" = "); print_f32(-b); println();
+    print_f32(a); prints(" * "); print_f32(b); prints(" = "); print_f32(a * b); println();
+    print_f32(a); prints(" / "); print_f32(b); prints(" = "); print_f32(a / b); println();
+    print_f32(a); prints(" % "); print_f32(b); prints(" = "); print_f32(a % b); println();
     println();
 }
 
 fn do_f64(_ a: f64, _ b: f64) {
-    print_f64(a + b);
-    print_f64(a - b);
-    print_f64(-a);
-    print_f64(-b);
-    print_f64(a * b);
-    print_f64(a / b);
-    print_f64(a % b);
+    print_f64(a); prints(" + "); print_f64(b); prints(" = "); print_f64(a + b); println();
+    print_f64(a); prints(" - "); print_f64(b); prints(" = "); print_f64(a - b); println();
+    prints("-"); print_f64(a); prints(" = "); print_f64(-a); println();
+    prints("-"); print_f64(b); prints(" = "); print_f64(-b); println();
+    print_f64(a); prints(" * "); print_f64(b); prints(" = "); print_f64(a * b); println();
+    print_f64(a); prints(" / "); print_f64(b); prints(" = "); print_f64(a / b); println();
+    print_f64(a); prints(" % "); print_f64(b); prints(" = "); print_f64(a % b); println();
     println();
 }
 
 fn main() {
-    print_sep();
+    prints("==================== i8\n");
     do_i8(0, 0);
     do_i8(0, 1);
     do_i8(126, 127);
@@ -197,14 +197,14 @@ fn main() {
     do_i8(42, 2);
     do_i8(42, -3);
 
-    print_sep();
+    prints("==================== u8\n");
     do_u8(0, 0);
     do_u8(0, 1);
     do_u8(254, 255);
     do_u8(126, 2);
     do_u8(254, 2);
 
-    print_sep();
+    prints("==================== i16\n");
     do_i16(0, 0);
     do_i16(0, 1);
     do_i16(32766, 32767);
@@ -212,14 +212,14 @@ fn main() {
     do_i16(420, 2);
     do_i16(420, -3);
 
-    print_sep();
+    prints("==================== u16\n");
     do_u16(0, 0);
     do_u16(0, 1);
     do_u16(65534, 65535);
     do_u16(32766, 2);
     do_u16(65534, 2);
 
-    print_sep();
+    prints("==================== i32\n");
     do_i32(0, 0);
     do_i32(0, 1);
     do_i32(0x7fff_fffe, 0x7fff_ffff);
@@ -227,14 +227,14 @@ fn main() {
     do_i32(420000, 2);
     do_i32(420000, -3);
 
-    print_sep();
+    prints("==================== u32\n");
     do_u32(0, 0);
     do_u32(0, 1);
     do_u32(0xffff_fffe, 0xffff_ffff);
     do_u32(0x7fff_fffe, 2);
     do_u32(0xffff_fffe, 2);
 
-    print_sep();
+    prints("==================== i64\n");
     do_i64(0, 0);
     do_i64(0, 1);
     do_i64(0x7fff_ffff_ffff_fffe, 0x7fff_ffff_ffff_ffff);
@@ -242,14 +242,14 @@ fn main() {
     do_i64(420_000_000_000, 2);
     do_i64(420_000_000_000, -3);
 
-    print_sep();
+    prints("==================== u64\n");
     do_u64(0, 0);
     do_u64(0, 1);
     do_u64(0xffff_ffff_ffff_fffe, 0xffff_ffff_ffff_ffff);
     do_u64(0x7fff_ffff_ffff_fffe, 2);
     do_u64(0xffff_ffff_ffff_fffe, 2);
 
-    print_sep();
+    prints("==================== i128\n");
     do_i128(0, 0);
     do_i128(0, 1);
     do_i128(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_fffe, 0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
@@ -257,30 +257,30 @@ fn main() {
     do_i128(420_000_000_000_000_000_000_000_000_000, 2);
     do_i128(420_000_000_000_000_000_000_000_000_000, -3);
 
-    print_sep();
+    prints("==================== u128\n");
     do_u128(0, 0);
     do_u128(0, 1);
     do_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_fffe, 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
     do_u128(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_fffe, 2);
     do_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_fffe, 2);
 
-    print_sep();
+    prints("==================== isize\n");
     do_isize(0, 0);
     do_isize(0, 1);
     do_isize(42, 43);
     do_isize(-43, -42);
 
-    print_sep();
+    prints("==================== usize\n");
     do_usize(0, 0);
     do_usize(1, 0);
     do_usize(43, 42);
 
-    print_sep();
+    prints("==================== f32\n");
     do_f32(0.0, 0.0);
     do_f32(1.234, 0.234);
     do_f32(-42.345, 42.345);
 
-    print_sep();
+    prints("==================== f64\n");
     do_f64(0.0, 0.0);
     do_f64(1.234, 0.234);
     do_f64(-42.345, 42.345);

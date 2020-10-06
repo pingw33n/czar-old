@@ -9,10 +9,10 @@ fn f(arg1: i32, arg2: i32, arg3: i32) -> i32 { arg1 * 100 + arg2 * 10 + arg3 }
 fn f(arg1: i32, _ arg2: i32, arg3: i32) -> i32 { 1000 + arg1 * 100 + arg2 * 10 + arg3 }
 
 fn main() {
-    print_i32(f());
-    print_i32(f(42));
-    print_i32(f(arg: 42));
+    print_i32(f()); println();
+    print_i32(f(42)); println();
+    print_i32(f(arg: 42)); println();
 
-    print_i32(f(arg1: 1, arg2: 2, arg3: 3));
-    print_i32(f(arg1: 1, 2, arg3: 3));
+    print_i32(f(arg1: 1, arg2: 2, arg3: 3)); println();
+    print_i32(f(arg1: 1, 2, arg3: 3)); println();
 }

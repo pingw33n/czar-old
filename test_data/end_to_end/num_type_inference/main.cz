@@ -1,5 +1,5 @@
 fn arg_i32(_ v: i32) {
-    print_i32(v);
+    print_i32(v); println();
 }
 
 fn ret_i32() -> i32 {
@@ -7,7 +7,7 @@ fn ret_i32() -> i32 {
 }
 
 fn arg_u32(_ v: u32) {
-    print_u32(v);
+    print_u32(v); println();
 }
 
 fn ret_u32() -> u32 {
@@ -19,11 +19,11 @@ fn ret_u32() -> u32 {
 }
 
 fn arg_isize(_ v: isize) {
-    print_isize(v);
+    print_isize(v); println();
 }
 
 fn arg_usize(_ v: usize) {
-    print_usize(v);
+    print_usize(v); println();
 }
 
 fn ret_isize() -> isize {
@@ -44,8 +44,8 @@ fn expr1() {
     let c = b - 10isize;
     let b1 = c < b;
     let b2 = 0 > c;
-    print_bool(b1);
-    print_bool(b2);
+    print_bool(b1); println();
+    print_bool(b2); println();
 }
 
 fn let_() {
@@ -56,26 +56,26 @@ fn let_() {
 }
 
 fn main() {
-    print_i32(0x7fff_ffff);
+    print_i32(0x7fff_ffff); println();
     arg_i32(0x7fff_ffff);
     arg_i32(-0x8000_0000);
-    print_i32(ret_i32());
+    print_i32(ret_i32()); println();
 
     println();
-    print_u32(0xffff_ffff);
+    print_u32(0xffff_ffff); println();
     arg_u32(0xffff_ffff);
-    print_u32(ret_u32());
+    print_u32(ret_u32()); println();
 
     println();
-    print_isize(512);
+    print_isize(512); println();
     arg_isize(512);
     arg_isize(-512);
-    print_isize(ret_isize());
+    print_isize(ret_isize()); println();
 
     println();
-    print_usize(1024);
+    print_usize(1024); println();
     arg_usize(1024);
-    print_usize(ret_usize());
+    print_usize(ret_usize()); println();
 
     println();
     expr1();

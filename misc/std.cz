@@ -1,6 +1,7 @@
 pub mod prelude {
     pub mod v1 {
         pub use package::bool::bool;
+        pub use package::char::char;
         pub use package::i8::i8;
         pub use package::u8::u8;
         pub use package::i16::i16;
@@ -15,8 +16,10 @@ pub mod prelude {
         pub use package::usize::usize;
         pub use package::f32::f32;
         pub use package::f64::f64;
+        pub use package::string::String;
 
         pub unsafe fn print_bool(_ v: bool);
+        pub unsafe fn print_char_hex(_ v: char);
         pub unsafe fn print_i8(_ v: i8);
         pub unsafe fn print_u8(_ v: u8);
         pub unsafe fn print_i16(_ v: i16);
@@ -33,6 +36,7 @@ pub mod prelude {
         pub unsafe fn print_f64(_ v: f64);
         pub unsafe fn println();
         pub unsafe fn print_sep();
+        pub unsafe fn prints(_ s: String);
     }
 }
 
@@ -94,6 +98,17 @@ pub mod usize {
 
 pub mod bool {
     pub struct bool {}
+}
+
+pub mod char {
+    pub struct char {}
+}
+
+pub mod string {
+    pub /*FIXME ref */struct String {
+        ptr: *u8,
+        len: usize,
+    }
 }
 
 struct Unit {}
