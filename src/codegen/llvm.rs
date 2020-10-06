@@ -47,6 +47,12 @@ impl TypeRef {
         }).unwrap().into()
     }
 
+    pub fn const_struct(&self, fields: &mut [ValueRef]) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMConstNamedStruct(self.0.as_ptr(), fields.as_mut_ptr() as *mut _, fields.len() as u32)
+        }).unwrap().into()
+    }
+
     pub fn function(ret_ty: TypeRef, param_tys: &mut [TypeRef]) -> TypeRef {
         NonNull::new(unsafe {
             LLVMFunctionType(ret_ty.0.as_ptr(), param_tys.as_mut_ptr() as *mut _, param_tys.len() as u32, 0)
@@ -287,6 +293,14 @@ impl Llvm {
             LLVMStructTypeInContext(self.c.as_ptr(),
                 field_tys.as_mut_ptr() as *mut _, field_tys.len() as u32, 0)
         }).unwrap().into()
+    }
+
+    pub fn named_struct_type(&self, name: &str, field_tys: &mut [TypeRef]) -> TypeRef {
+        unsafe {
+            let ty = NonNull::new(LLVMStructCreateNamed(self.c.as_ptr(), cstring(name).as_ptr())).unwrap();
+            LLVMStructSetBody(ty.as_ptr(), field_tys.as_mut_ptr() as *mut _, field_tys.len() as u32, 0);
+            ty
+        }.into()
     }
 
     pub fn pointer_type(&self, inner: TypeRef) -> TypeRef {

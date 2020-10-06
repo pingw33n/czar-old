@@ -419,7 +419,7 @@ impl<'a> Codegen<'a> {
         let g = self.llvm.add_global_const(self.llvm.const_string(v));
         let ptr = self.llvm.const_pointer_cast(g, self.llvm.pointer_type(self.llvm.int_type(8)));
         let len = self.prim_type(PrimitiveType::USize).const_int(v.len() as u128);
-        self.llvm.const_struct(&mut [ptr, len])
+        self.prim_type(PrimitiveType::String).const_struct(&mut [ptr, len])
     }
 
     fn unit_literal(&self) -> llvm::ValueRef {
@@ -491,10 +491,12 @@ impl<'a> Codegen<'a> {
             I128 | U128 => self.llvm.int_type(128),
             ISize | USize => self.llvm.int_type(self.llvm.pointer_size_bits()),
             Unit => self.llvm.struct_type(&mut []),
-            String => self.llvm.struct_type(&mut [
-                self.llvm.pointer_type(self.llvm.int_type(8)),
-                self.llvm.int_type(self.llvm.pointer_size_bits()),
-            ]),
+            String => {
+                self.llvm.named_struct_type("String", &mut [
+                    self.llvm.pointer_type(self.llvm.int_type(8)),
+                    self.llvm.int_type(self.llvm.pointer_size_bits()),
+                ])
+            },
         }
     }
 
