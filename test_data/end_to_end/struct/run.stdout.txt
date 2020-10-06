@@ -1,1 +1,5 @@
-test string
+42
+123.400000
+outer
+47806
+inner

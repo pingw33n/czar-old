@@ -545,6 +545,13 @@ impl BuilderRef {
             LLVMBuildUnreachable(self.0.as_ptr())
         }).unwrap().into()
     }
+
+    pub fn gep(&self, ptr: ValueRef, indexes: &mut [ValueRef]) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildGEP(self.0.as_ptr(), ptr.0.as_ptr(),
+                indexes.as_mut_ptr() as *mut _, indexes.len() as u32, empty_cstr())
+        }).unwrap().into()
+    }
 }
 
 fn cstring(s: &str) -> CString {

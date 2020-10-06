@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::hir::*;
 use crate::package::{Package, Packages, GlobalNodeId, PackageId};
-use crate::semantic::type_check::*;
+use crate::semantic::type_check::{self, *};
 use crate::syntax::*;
 
 use llvm::*;
@@ -144,6 +144,18 @@ impl<'a> Codegen<'a> {
                 }
                 r.unwrap_or_else(|| self.unit_literal())
             }
+            NodeKind::FieldAccess => {
+                let receiver = ctx.package.hir.field_access(node).receiver;
+                let receiver = self.expr(receiver, &mut ctx.lvalue());
+                let idx = ctx.package.types.field_access(node).idx;
+                let v = self.bodyb.gep(receiver, &mut [self.llvm.int_type(32).const_int(0),
+                    self.llvm.int_type(32).const_int(idx as u128)]);
+                if ctx.rvalue {
+                    self.bodyb.load(v)
+                } else {
+                    v
+                }
+            }
             NodeKind::FnCall => {
                 let FnCall { callee, kind, args } = ctx.package.hir.fn_call(node);
                 if *kind != FnCallKind::Free {
@@ -255,7 +267,11 @@ impl<'a> Codegen<'a> {
                 let op = ctx.package.hir.op(node);
                 match op {
                     &Op::Binary(BinaryOp { kind, left, right }) => {
-                        let leftv = self.expr(left, ctx);
+                        let leftv = if kind.value == Assign {
+                            self.expr(left, &mut ctx.lvalue())
+                        } else {
+                            self.expr(left, ctx)
+                        };
                         let rightv = self.expr(right, ctx);
                         use BinaryOpKind::*;
                         match kind.value {
@@ -265,6 +281,10 @@ impl<'a> Codegen<'a> {
                                     NumberType::Int => self.bodyb.add(leftv, rightv),
                                 }
                             },
+                            Assign => {
+                                self.bodyb.store(rightv, leftv);
+                                self.unit_literal()
+                            }
                             | Eq
                             | Gt
                             | GtEq
@@ -365,6 +385,9 @@ impl<'a> Codegen<'a> {
                     })
                 }
             }
+            NodeKind::Struct => {
+                self.unit_literal()
+            }
             NodeKind::StructValue => {
                 let StructValue { name, anonymous_fields, fields } = ctx.package.hir.struct_value(node);
                 if !(name.is_none() && anonymous_fields.is_none() && fields.is_empty()) {
@@ -454,7 +477,8 @@ impl<'a> Codegen<'a> {
             assert!(self.types.insert(ty, v).is_none());
             return v;
         }
-        let ty_ll = match self.packages[unaliased.0].types.type_(unaliased.1).data() {
+        let package = &self.packages[unaliased.0];
+        let ty_ll = match package.types.type_(unaliased.1).data() {
             TypeData::Fn(FnType { args, result, .. }) => {
                 let args_ty = &mut Vec::with_capacity(args.len());
                 for &arg in args {
@@ -467,6 +491,17 @@ impl<'a> Codegen<'a> {
                 self.make_prim_type(prim)
             }
             TypeData::UnknownNumber(_) => unreachable!(),
+            TypeData::Struct(type_check::StructType { fields }) => {
+                let package = &self.packages[unaliased.0];
+                let node = package.types.type_(unaliased.1).node().1;
+                // FIXME node might be StructValue for anon struct.
+                let name = package.hir.struct_(package.discover_data.parent_of(node)).name.value.as_str();
+                let tys = &mut Vec::new();
+                for &field_ty in fields {
+                    tys.push(self.type_(field_ty));
+                }
+                self.llvm.named_struct_type(name, tys)
+            }
             _ => todo!(),
         };
 

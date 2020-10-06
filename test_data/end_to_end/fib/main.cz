@@ -3,7 +3,8 @@ fn fib(_ v: i32) -> i32 {
       v
     } else {
         let a = v - 1;
-        let b = v - 2;
+        let b: i32;
+        b = v - 2;
         fib(a) + fib(b)
     }
 }

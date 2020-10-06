@@ -1,11 +1,28 @@
-struct Foo {}
-
-struct Bar {
-    a: u32,
-    pub b: String,
-}
-
 fn main() {
-    let s = "test string";
-    prints(s); println();
+    struct Outer {
+        x: i32,
+        y: f64,
+        z: String,
+        inner: Inner,
+    }
+
+    struct Inner {
+        foobar: u32,
+        s: String,
+    }
+
+    let s: String = "inner";
+
+    let x: Outer;
+    x.x = 42;
+    x.y = 123.4;
+    x.z = "outer";
+    x.inner.foobar = 0xbabe;
+    x.inner.s = s;
+
+    print_i32(x.x); println();
+    print_f64(x.y); println();
+    prints(x.z); println();
+    print_u32(x.inner.foobar); println();
+    prints(x.inner.s); println();
 }

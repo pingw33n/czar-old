@@ -6,7 +6,7 @@ use slab::Slab;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-use crate::hir::*;
+use crate::hir::{self, *};
 use crate::hir::traverse::*;
 use crate::package::{GlobalNodeId, PackageId, Packages};
 
@@ -164,6 +164,11 @@ pub struct StructType {
     pub fields: Vec<TypeId>,
 }
 
+#[derive(Debug)]
+pub struct FieldAccess {
+    pub idx: u32,
+}
+
 pub type LocalTypeId = usize;
 
 pub type TypeId = (PackageId, LocalTypeId);
@@ -174,6 +179,7 @@ pub struct Types {
     typings: NodeMap<TypeId>,
     primitive_types: Option<Box<EnumMap<PrimitiveType, Option<LocalTypeId>>>>,
     path_to_target: NodeMap<GlobalNodeId>,
+    field_accesses: NodeMap<FieldAccess>
 }
 
 impl Types {
@@ -220,6 +226,10 @@ impl Types {
 
     fn insert_path_to_target(&mut self, path: NodeId, target: GlobalNodeId) {
         assert!(self.path_to_target.insert(path, target).is_none());
+    }
+
+    pub fn field_access(&self, node: NodeId) -> &FieldAccess {
+        &self.field_accesses[&node]
     }
 }
 
@@ -471,6 +481,7 @@ impl Impl<'_> {
                 self.begin_typing(ctx.node);
             }
             | NodeKind::Block
+            | NodeKind::FieldAccess
             | NodeKind::FnCall
             | NodeKind::FnDeclArg
             | NodeKind::IfExpr
@@ -540,6 +551,48 @@ impl Impl<'_> {
                 } else {
                     self.primitive_type(PrimitiveType::Unit)
                 }
+            }
+            NodeKind::FieldAccess => {
+                let hir::FieldAccess { receiver, field } = ctx.hir.field_access(ctx.node);
+                let (idx, ty) = {
+                    let receiver_ty = self.unaliased_typing(*receiver);
+                    let field_tys = if let Some(StructType { fields }) = receiver_ty.data().as_struct() {
+                        fields
+                    } else {
+                        let span = self.hir(ctx.hir, receiver_ty.package_id).node_kind(receiver_ty.node).span;
+                        fatal(span, format_args!("expected struct, found `{:?}`", receiver_ty));
+                    };
+                    let struct_hir = self.hir(ctx.hir, receiver_ty.package_id);
+                    let fields = &struct_hir.struct_type(receiver_ty.node).fields;
+
+                    let struct_node = self.discover_data(receiver_ty.package_id).parent_of(receiver_ty.node);
+                    let name = &struct_hir.struct_(struct_node).name;
+
+                    let idx = match &field.value {
+                        Field::Ident(ident) => {
+                            if fields.len() > 0 && fields[0].name.is_none() {
+                                fatal(field.span, format_args!("`{}` is a tuple struct", name.value));
+                            }
+                            if let Some(i) = fields.iter().position(|f| f.name.as_ref().map(|v| &v.value) == Some(ident)) {
+                                i as u32
+                            } else {
+                                fatal(field.span, format_args!("unknown struct field `{}` in `{}`", ident, name.value));
+                            }
+                        }
+                        &Field::Index(i) => {
+                            if fields.len() > 0 && fields[0].name.is_some() {
+                                fatal(field.span, format_args!("`{}` is not a tuple struct", name.value));
+                            }
+                            if i as usize >= fields.len() {
+                                fatal(field.span, format_args!("unknown field `{}` in `{}`", i, name.value));
+                            }
+                            i
+                        }
+                    };
+                    (idx, field_tys[idx as usize])
+                };
+                assert!(self.types.field_accesses.insert(ctx.node, FieldAccess { idx }).is_none());
+                ty
             }
             NodeKind::FnCall => {
                 let FnCall {
@@ -799,6 +852,14 @@ impl Impl<'_> {
         let right_ty = self.unaliased_typing(right);
         use BinaryOpKind::*;
         match kind.value {
+            Assign => {
+                if left_ty.id != right_ty.id {
+                    let op_span = ctx.hir.node_kind(ctx.node).span;
+                    fatal(op_span, format_args!("can't assign `{:?}` to `{:?}`",
+                        right_ty, left_ty));
+                }
+                self.primitive_type(PrimitiveType::Unit)
+            }
             | Eq
             | Gt
             | GtEq
