@@ -66,11 +66,11 @@ void print_usize(uintptr_t v) {
 }
 
 void print_f64(double v) {
-    printf("%.2f", v);
+    printf("%.6f", v);
 }
 
 void print_f32(float v) {
-    print_f64(v);
+    printf("%.2f", v);
 }
 
 void print_bool(int8_t v) {
