@@ -32,6 +32,7 @@ pub enum NodeLink {
     Root,
     StructDecl(StructDeclLink),
     StructTypeFieldType,
+    StructValueName,
     StructValueValue,
     TyExpr(TyExprLink),
     UsePath,
@@ -295,7 +296,10 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 }
             },
             NodeKind::StructValue => {
-                let StructValue { fields, .. } = self.hir.struct_value(node);
+                let StructValue { name, fields, .. } = self.hir.struct_value(node);
+                if let Some(name) = *name {
+                    self.traverse0(name, NodeLink::StructValueName);
+                }
                 for &StructValueField { value, .. } in fields {
                     self.traverse0(value, NodeLink::StructValueValue);
                 }

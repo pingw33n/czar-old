@@ -179,6 +179,8 @@ pub struct CheckData {
     typings: NodeMap<TypeId>,
     primitive_types: Option<Box<EnumMap<PrimitiveType, Option<LocalTypeId>>>>,
     path_to_target: NodeMap<GlobalNodeId>,
+    /// Maps `FieldAccess` and `StructValueField::value` nodes to the field index on a named
+    /// struct/tuple type.
     field_accesses: NodeMap<FieldAccess>
 }
 
@@ -554,45 +556,7 @@ impl Impl<'_> {
             }
             NodeKind::FieldAccess => {
                 let hir::FieldAccess { receiver, field } = ctx.hir.field_access(ctx.node);
-                let (idx, ty) = {
-                    let receiver_ty = self.unaliased_typing(*receiver);
-                    let field_tys = if let Some(StructType { fields }) = receiver_ty.data().as_struct() {
-                        fields
-                    } else {
-                        let span = self.hir(ctx.hir, receiver_ty.package_id).node_kind(receiver_ty.node).span;
-                        fatal(span, format_args!("expected struct, found `{:?}`", receiver_ty));
-                    };
-                    let struct_hir = self.hir(ctx.hir, receiver_ty.package_id);
-                    let fields = &struct_hir.struct_type(receiver_ty.node).fields;
-
-                    let struct_node = self.discover_data(receiver_ty.package_id).parent_of(receiver_ty.node);
-                    let name = &struct_hir.struct_(struct_node).name;
-
-                    let idx = match &field.value {
-                        Field::Ident(ident) => {
-                            if fields.len() > 0 && fields[0].name.is_none() {
-                                fatal(field.span, format_args!("`{}` is a tuple struct", name.value));
-                            }
-                            if let Some(i) = fields.iter().position(|f| f.name.as_ref().map(|v| &v.value) == Some(ident)) {
-                                i as u32
-                            } else {
-                                fatal(field.span, format_args!("unknown struct field `{}` in `{}`", ident, name.value));
-                            }
-                        }
-                        &Field::Index(i) => {
-                            if fields.len() > 0 && fields[0].name.is_some() {
-                                fatal(field.span, format_args!("`{}` is not a tuple struct", name.value));
-                            }
-                            if i as usize >= fields.len() {
-                                fatal(field.span, format_args!("unknown field `{}` in `{}`", i, name.value));
-                            }
-                            i
-                        }
-                    };
-                    (idx, field_tys[idx as usize])
-                };
-                assert!(self.check_data.field_accesses.insert(ctx.node, FieldAccess { idx }).is_none());
-                ty
+                self.resolve_struct_field(*receiver, ctx.node, field, ctx.hir)
             }
             NodeKind::FnCall => {
                 let FnCall {
@@ -753,10 +717,22 @@ impl Impl<'_> {
             NodeKind::StructValue => {
                 let StructValue { name, explicit_tuple, fields } = ctx.hir.struct_value(ctx.node);
                 assert!(explicit_tuple.is_none() || !fields.is_empty());
-                if name.is_some() || !fields.is_empty() {
-                    unimplemented!();
+                if let Some(name) = *name {
+                    for (i, field) in fields.iter().enumerate() {
+                        let f = if let Some(n) = &field.name {
+                            n.span.spanned(Field::Ident(n.value.clone()))
+                        } else {
+                            ctx.hir.node_kind(field.value).span.spanned(Field::Index(i as u32))
+                        };
+                        self.resolve_struct_field(name, field.value, &f, ctx.hir);
+                    }
+                    self.check_data.typing(name)
+                } else {
+                    if !fields.is_empty() {
+                        todo!();
+                    }
+                    self.primitive_type(PrimitiveType::Unit)
                 }
-                self.primitive_type(PrimitiveType::Unit)
             }
             NodeKind::Path => {
                 if self.reso_ctx() == ResoCtx::Import {
@@ -975,6 +951,53 @@ impl Impl<'_> {
             true
         }
     }
+
+    fn resolve_struct_field(&mut self,
+        struct_ty: NodeId,
+        field_node: NodeId,
+        field: &S<Field>,
+        hir: &Hir,
+    ) -> TypeId {
+        let (idx, ty) = {
+            let struct_ty = self.unaliased_typing(struct_ty);
+            let field_tys = if let Some(StructType { fields }) = struct_ty.data().as_struct() {
+                fields
+            } else {
+                let span = self.hir(hir, struct_ty.package_id).node_kind(struct_ty.node).span;
+                fatal(span, format_args!("expected struct, found `{:?}`", struct_ty));
+            };
+            let struct_hir = self.hir(hir, struct_ty.package_id);
+            let fields = &struct_hir.struct_type(struct_ty.node).fields;
+
+            let struct_node = self.discover_data(struct_ty.package_id).parent_of(struct_ty.node);
+            let name = &struct_hir.struct_(struct_node).name;
+
+            let idx = match &field.value {
+                Field::Ident(ident) => {
+                    if fields.len() > 0 && fields[0].name.is_none() {
+                        fatal(field.span, format_args!("`{}` is a tuple struct", name.value));
+                    }
+                    if let Some(i) = fields.iter().position(|f| f.name.as_ref().map(|v| &v.value) == Some(ident)) {
+                        i as u32
+                    } else {
+                        fatal(field.span, format_args!("unknown struct field `{}` in `{}`", ident, name.value));
+                    }
+                }
+                &Field::Index(i) => {
+                    if fields.len() > 0 && fields[0].name.is_some() {
+                        fatal(field.span, format_args!("`{}` is not a tuple struct", name.value));
+                    }
+                    if i as usize >= fields.len() {
+                        fatal(field.span, format_args!("unknown field `{}` in `{}`", i, name.value));
+                    }
+                    i
+                }
+            };
+            (idx, field_tys[idx as usize])
+        };
+        assert!(self.check_data.field_accesses.insert(field_node, FieldAccess { idx }).is_none());
+        ty
+    }
 }
 
 impl HirVisitor for Impl<'_> {
@@ -1029,6 +1052,7 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | Path(PathLink::SegmentItemTyArgs)
         | StructDecl(_)
         | StructTypeFieldType
+        | StructValueName
         | TyExpr(_)
         => ResoCtx::Type,
 

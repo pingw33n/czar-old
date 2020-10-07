@@ -1,0 +1,6 @@
+foo: f=42 s='test' s2='hello world'
+foo2: f=4242 s='testtest' s2='hello world 2'
+foo: f=42 s='test' s2='hello world'
+foo2: f=42 s='test' s2='hello world'
+foo: f=12345 s='test' s2='hello world'
+foo2: f=42 s='this is a copy' s2='hello world'

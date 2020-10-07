@@ -11,6 +11,10 @@ fn main() {
         s: String,
     }
 
+    struct Tuple1 { String, }
+
+    struct Tuple2 { String, i32 }
+
     let s: String = "inner";
 
     let x: Outer;
@@ -20,9 +24,19 @@ fn main() {
     x.inner.foobar = 0xbabe;
     x.inner.s = s;
 
+    let tuple1: Tuple1;
+    tuple1.0 = "tuple1";
+
+    let tuple2: Tuple2;
+    tuple2.0 = "tuple2";
+    tuple2.1 = 42;
+
     print_i32(x.x); println();
     print_f64(x.y); println();
     prints(x.z); println();
     print_u32(x.inner.foobar); println();
     prints(x.inner.s); println();
+    prints(tuple1.0); println();
+    prints(tuple2.0); println();
+    print_i32(tuple2.1); println();
 }

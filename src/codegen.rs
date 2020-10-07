@@ -383,11 +383,24 @@ impl<'a> Codegen<'a> {
                 self.unit_literal().into()
             }
             NodeKind::StructValue => {
-                let StructValue { name, explicit_tuple, fields } = ctx.package.hir.struct_value(node);
-                if !(name.is_none() && explicit_tuple.is_none() && fields.is_empty()) {
-                    todo!();
+                let StructValue { name, fields, .. } = ctx.package.hir.struct_value(node);
+                if name.is_some() {
+                    let struct_var = self.alloca(ctx.fn_, (ctx.package.id, node), "struct_init"); // TODO use actual type name
+                    for &StructValueField { value, .. } in fields {
+                        let field_val = self.expr(value, ctx).to_direct(self.bodyb);
+                        let idx = ctx.package.check_data.field_access(value).idx;
+                        let field_ptr = self.bodyb.gep(struct_var, &mut [
+                            self.llvm.int_type(32).const_int(0),
+                            self.llvm.int_type(32).const_int(idx as u128)]);
+                        self.bodyb.store(field_val, field_ptr);
+                    }
+                    struct_var.into()
+                } else {
+                    if !fields.is_empty() {
+                        todo!();
+                    }
+                    self.unit_literal().into()
                 }
-                self.unit_literal().into()
             }
             _ => todo!("{:?}", ctx.package.hir.node_kind(node))
         }

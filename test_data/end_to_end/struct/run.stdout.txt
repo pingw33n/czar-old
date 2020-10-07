@@ -3,3 +3,6 @@
 outer
 47806
 inner
+tuple1
+tuple2
+42

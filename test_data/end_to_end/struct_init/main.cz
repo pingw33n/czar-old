@@ -1,0 +1,46 @@
+
+fn str() -> String {
+    "hello world"
+}
+
+fn str2() -> String {
+    "hello world 2"
+}
+
+struct Foo {
+    f: i32,
+    s: String,
+    s2: String,
+}
+
+fn new_foo(f: i32, s: String, s2: String) -> Foo {
+    Foo { s2: s2, f: f, s: s  }
+}
+
+fn print_foo(_ id: String, _ foo: Foo) {
+    prints(id); prints(": ");
+    prints("f="); print_i32(foo.f);
+    prints(" s='"); prints(foo.s); prints("'");
+    prints(" s2='"); prints(foo.s2); prints("'");
+    println();
+}
+
+fn named() {
+    let foo = Foo { f: 42, s: "test", s2: str() };
+    let foo2 = new_foo(f: 4242, s: "testtest", s2: str2());
+    print_foo("foo", foo);
+    print_foo("foo2", foo2);
+
+    foo2 = foo;
+    print_foo("foo", foo);
+    print_foo("foo2", foo2);
+
+    foo.f = 12345;
+    foo2.s = "this is a copy";
+    print_foo("foo", foo);
+    print_foo("foo2", foo2);
+}
+
+fn main() {
+    named();
+}
