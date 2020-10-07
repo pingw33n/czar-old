@@ -122,15 +122,13 @@ impl<'a> Codegen<'a> {
         let FnDecl { args, body, .. } = package.hir.fn_decl(fn_decl.1);
         if let Some(body) = *body {
             let fn_ = self.fn_decls[&fn_decl];
-            let header_bb = self.llvm.append_new_bb(fn_, "header");
-            self.headerb.position_at_end(header_bb);
+            self.llvm.append_new_bb(fn_, "header");
 
             let allocas = &mut HashMap::new();
 
             for (i, &arg) in args.iter().enumerate() {
                 let name = &package.hir.fn_decl_arg(arg).priv_name.value;
-                let ty = self.typing((package.id, arg));
-                let val = self.headerb.alloca(name, ty);
+                let val = self.alloca(fn_, (package.id, arg), name);
                 let param = fn_.param(i as u32);
                 self.headerb.store(param, val);
                 assert!(allocas.insert(arg, val).is_none());
@@ -216,10 +214,7 @@ impl<'a> Codegen<'a> {
 
                 let ret_var = *ctx.allocas.entry(node)
                     .or_insert_with(|| {
-                        let ty = package.check_data.typing(node);
-                        let ty = self.type_(ty);
-                        self.headerb.position_at_end(fn_.entry_bb());
-                        self.headerb.alloca("__if", ty)
+                        self.alloca(fn_, (package.id, node), "__if")
                     });
 
                 self.bodyb.position_at_end(if_true_bb);
@@ -244,10 +239,7 @@ impl<'a> Codegen<'a> {
                 Value::Indirect(*ctx.allocas.entry(node)
                     .or_insert_with(|| {
                         let name = package.hir.let_decl(node).name.value.as_str();
-                        let ty = package.check_data.typing(node);
-                        let ty = self.type_(ty);
-                        self.headerb.position_at_end(fn_.entry_bb());
-                        self.headerb.alloca(name, ty)
+                        self.alloca(fn_, (package.id, node), name)
                     }))
             }
             NodeKind::Literal => {
@@ -539,6 +531,13 @@ impl<'a> Codegen<'a> {
 
     fn prim_type(&mut self, ty: PrimitiveType) -> TypeRef {
         self.type_((PackageId::std(), self.packages[PackageId::std()].check_data.primitive(ty)))
+    }
+
+    fn alloca(&mut self, fn_: DValueRef, node: GlobalNodeId, name: &str) -> IValueRef {
+        let ty = self.packages[node.0].check_data.typing(node.1);
+        let ty = self.type_(ty);
+        self.headerb.position_at_end(fn_.entry_bb());
+        self.headerb.alloca(name, ty)
     }
 }
 
