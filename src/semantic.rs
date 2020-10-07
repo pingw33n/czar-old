@@ -1,6 +1,6 @@
+pub mod check;
 pub mod discover;
 pub mod resolve;
-pub mod type_check;
 
 use crate::hir::*;
 

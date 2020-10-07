@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::hir::*;
 use crate::package::{Package, Packages, GlobalNodeId, PackageId};
-use crate::semantic::type_check::{self, *};
+use crate::semantic::check::{self, *};
 use crate::syntax::*;
 
 use llvm::*;
@@ -147,7 +147,7 @@ impl<'a> Codegen<'a> {
             NodeKind::FieldAccess => {
                 let receiver = ctx.package.hir.field_access(node).receiver;
                 let receiver = self.expr(receiver, &mut ctx.lvalue());
-                let idx = ctx.package.types.field_access(node).idx;
+                let idx = ctx.package.check_data.field_access(node).idx;
                 let v = self.bodyb.gep(receiver, &mut [self.llvm.int_type(32).const_int(0),
                     self.llvm.int_type(32).const_int(idx as u128)]);
                 if ctx.rvalue {
@@ -200,7 +200,7 @@ impl<'a> Codegen<'a> {
 
                 let ret_var = *ctx.allocas.entry(node)
                     .or_insert_with(|| {
-                        let ty = package.types.typing(node);
+                        let ty = package.check_data.typing(node);
                         let ty = self.type_(ty);
                         self.headerb.position_at_end(fn_.entry_bb());
                         self.headerb.alloca("__if", ty)
@@ -235,7 +235,7 @@ impl<'a> Codegen<'a> {
                 let v = *ctx.allocas.entry(node)
                     .or_insert_with(|| {
                         let name = package.hir.let_decl(node).name.value.as_str();
-                        let ty = package.types.typing(node);
+                        let ty = package.check_data.typing(node);
                         let ty = self.type_(ty);
                         self.headerb.position_at_end(fn_.entry_bb());
                         self.headerb.alloca(name, ty)
@@ -372,7 +372,7 @@ impl<'a> Codegen<'a> {
                 }
             }
             NodeKind::Path => {
-                let reso = ctx.package.types.target_of(node);
+                let reso = ctx.package.check_data.target_of(node);
                 if reso.0 == ctx.package.id {
                     self.expr(reso.1, ctx)
                 } else {
@@ -450,7 +450,7 @@ impl<'a> Codegen<'a> {
     }
 
     fn unalias(&self, ty: TypeId) -> TypeId {
-        if let &TypeData::Type(ty) = self.packages[ty.0].types.type_(ty.1).data() {
+        if let &TypeData::Type(ty) = self.packages[ty.0].check_data.type_(ty.1).data() {
             self.unalias(ty)
         } else {
             ty
@@ -458,13 +458,13 @@ impl<'a> Codegen<'a> {
     }
 
     fn unaliased_typing(&self, node: GlobalNodeId) -> &Type {
-        let ty = self.packages[node.0].types.typing(node.1);
+        let ty = self.packages[node.0].check_data.typing(node.1);
         let unaliased = self.unalias(ty);
-        self.packages[unaliased.0].types.type_(unaliased.1)
+        self.packages[unaliased.0].check_data.type_(unaliased.1)
     }
 
     fn typing(&mut self, node: GlobalNodeId) -> llvm::TypeRef {
-        let ty = self.packages[node.0].types.typing(node.1);
+        let ty = self.packages[node.0].check_data.typing(node.1);
         self.type_(ty)
     }
 
@@ -478,7 +478,7 @@ impl<'a> Codegen<'a> {
             return v;
         }
         let package = &self.packages[unaliased.0];
-        let ty_ll = match package.types.type_(unaliased.1).data() {
+        let ty_ll = match package.check_data.type_(unaliased.1).data() {
             TypeData::Fn(FnType { args, result, .. }) => {
                 let args_ty = &mut Vec::with_capacity(args.len());
                 for &arg in args {
@@ -491,9 +491,9 @@ impl<'a> Codegen<'a> {
                 self.make_prim_type(prim)
             }
             TypeData::UnknownNumber(_) => unreachable!(),
-            TypeData::Struct(type_check::StructType { fields }) => {
+            TypeData::Struct(check::StructType { fields }) => {
                 let package = &self.packages[unaliased.0];
-                let node = package.types.type_(unaliased.1).node().1;
+                let node = package.check_data.type_(unaliased.1).node().1;
                 // FIXME node might be StructValue for anon struct.
                 let name = package.hir.struct_(package.discover_data.parent_of(node)).name.value.as_str();
                 let tys = &mut Vec::new();
@@ -536,7 +536,7 @@ impl<'a> Codegen<'a> {
     }
 
     fn prim_type(&mut self, ty: PrimitiveType) -> TypeRef {
-        self.type_((PackageId::std(), self.packages[PackageId::std()].types.primitive(ty)))
+        self.type_((PackageId::std(), self.packages[PackageId::std()].check_data.primitive(ty)))
     }
 }
 

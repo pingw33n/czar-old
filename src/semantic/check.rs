@@ -174,7 +174,7 @@ pub type LocalTypeId = usize;
 pub type TypeId = (PackageId, LocalTypeId);
 
 #[derive(Default)]
-pub struct Types {
+pub struct CheckData {
     types: Slab<Type>,
     typings: NodeMap<TypeId>,
     primitive_types: Option<Box<EnumMap<PrimitiveType, Option<LocalTypeId>>>>,
@@ -182,7 +182,7 @@ pub struct Types {
     field_accesses: NodeMap<FieldAccess>
 }
 
-impl Types {
+impl CheckData {
     pub fn type_(&self, id: LocalTypeId) -> &Type {
         &self.types[id]
     }
@@ -233,7 +233,7 @@ impl Types {
     }
 }
 
-pub struct TypeCheck<'a> {
+pub struct Check<'a> {
     pub package_id: PackageId,
     pub hir: &'a Hir,
     pub discover_data: &'a DiscoverData,
@@ -241,13 +241,13 @@ pub struct TypeCheck<'a> {
     pub packages: &'a Packages,
 }
 
-impl TypeCheck<'_> {
-    pub fn run(self) -> Types {
-        let mut types = Types::default();
+impl Check<'_> {
+    pub fn run(self) -> CheckData {
+        let mut check_data = CheckData::default();
         let tc = &mut Impl {
             discover_data: self.discover_data,
             resolve_data: self.resolve_data,
-            types: &mut types,
+            check_data: &mut check_data,
             unknown_num_types: Default::default(),
             package_id: self.package_id,
             packages: self.packages,
@@ -282,10 +282,10 @@ impl TypeCheck<'_> {
                 }
             }
         }
-        for (_, ty) in &types.types {
+        for (_, ty) in &check_data.types {
             assert!(ty.data.is_some(), "{:?} {:?}", ty, self.hir.node_kind(ty.node));
         }
-        types
+        check_data
     }
 }
 
@@ -299,7 +299,7 @@ enum ResoCtx {
 struct Impl<'a> {
     discover_data: &'a DiscoverData,
     resolve_data: &'a ResolveData,
-    types: &'a mut Types,
+    check_data: &'a mut CheckData,
     unknown_num_types: HashSet<LocalTypeId>,
     package_id: PackageId,
     packages: &'a Packages,
@@ -317,7 +317,7 @@ impl Impl<'_> {
             package_id: PackageId::std(),
             packages: &Packages::default(),
         };
-        self.types.primitive_types = Some(Box::new(EnumMap::from(|ty| {
+        self.check_data.primitive_types = Some(Box::new(EnumMap::from(|ty| {
             use PrimitiveType::*;
             let path = match ty {
                 Bool => &["bool", "bool"][..],
@@ -349,24 +349,24 @@ impl Impl<'_> {
     }
 
     fn build_type(&mut self, node: NodeId, hir: &Hir) -> TypeId {
-        if let Some(ty) = self.types.try_typing(node) {
+        if let Some(ty) = self.check_data.try_typing(node) {
             ty
         } else {
             hir.traverse_from(node, self);
-            self.types.typing(node)
+            self.check_data.typing(node)
         }
     }
 
-    fn types(&self, package_id: PackageId) -> &Types {
+    fn check_data(&self, package_id: PackageId) -> &CheckData {
         if package_id == self.package_id {
-            &self.types
+            &self.check_data
         } else {
-            &self.packages[package_id].types
+            &self.packages[package_id].check_data
         }
     }
 
     fn type_(&self, id: TypeId) -> &Type {
-        self.types(id.0).type_(id.1)
+        self.check_data(id.0).type_(id.1)
     }
 
     fn unalias_type(&self, mut id: TypeId) -> &Type {
@@ -392,7 +392,7 @@ impl Impl<'_> {
 
     fn insert_type(&mut self, node: NodeId, data: TypeData) -> TypeId {
         let unknown_number = data.as_unknown_number().is_some();
-        let ty = self.types.insert_type((self.package_id, node), Some(data));
+        let ty = self.check_data.insert_type((self.package_id, node), Some(data));
         if unknown_number {
             assert!(self.unknown_num_types.insert(ty.1));
         }
@@ -401,12 +401,12 @@ impl Impl<'_> {
 
     fn insert_typing(&mut self, node: NodeId, data: TypeData) -> TypeId {
         let ty = self.insert_type(node, data);
-        self.types.insert_typing(node, ty);
+        self.check_data.insert_typing(node, ty);
         ty
     }
 
     fn primitive_type(&self, ty: PrimitiveType) -> TypeId {
-        (PackageId::std(), self.types(PackageId::std()).primitive(ty))
+        (PackageId::std(), self.check_data(PackageId::std()).primitive(ty))
     }
 
     fn unaliased_typing(&self, node: NodeId) -> &Type {
@@ -414,24 +414,24 @@ impl Impl<'_> {
     }
 
     fn try_unaliased_typing(&self, node: NodeId) -> Option<&Type> {
-        let ty = self.types.try_typing(node)?;
+        let ty = self.check_data.try_typing(node)?;
         Some(self.unalias_type(ty))
     }
 
     fn begin_typing(&mut self, node: NodeId) -> TypeId {
-        let ty = self.types.insert_type((self.package_id, node), None);
-        self.types.insert_typing(node, ty);
+        let ty = self.check_data.insert_type((self.package_id, node), None);
+        self.check_data.insert_typing(node, ty);
         ty
     }
 
     fn finish_typing(&mut self, node: NodeId, ty: TypeId) {
-        if let Some(id) = self.types.try_typing(node) {
+        if let Some(id) = self.check_data.try_typing(node) {
             assert_eq!(id.0, self.package_id);
-            let typ = self.types.type_mut(id.1);
+            let typ = self.check_data.type_mut(id.1);
             assert_eq!(typ.node(), (self.package_id, node));
             assert!(typ.data.replace(TypeData::Type(ty)).is_none());
         } else {
-            self.types.insert_typing(node, ty)
+            self.check_data.insert_typing(node, ty)
         }
     }
 
@@ -517,7 +517,7 @@ impl Impl<'_> {
                     .map(|n| self.unaliased_typing(n).id())
                     .unwrap_or(self.primitive_type(PrimitiveType::Unit));
                 if let Some(body) = *body {
-                    self.unify(self.types.typing(body), formal_ret_ty);
+                    self.unify(self.check_data.typing(body), formal_ret_ty);
 
                     let actual_ret_ty = self.unaliased_typing(body);
                     if actual_ret_ty.id() != formal_ret_ty {
@@ -546,7 +546,7 @@ impl Impl<'_> {
                         | Use
                         | While
                         => self.primitive_type(PrimitiveType::Unit),
-                        _ => self.types.typing(expr)
+                        _ => self.check_data.typing(expr)
                     }
                 } else {
                     self.primitive_type(PrimitiveType::Unit)
@@ -591,7 +591,7 @@ impl Impl<'_> {
                     };
                     (idx, field_tys[idx as usize])
                 };
-                assert!(self.types.field_accesses.insert(ctx.node, FieldAccess { idx }).is_none());
+                assert!(self.check_data.field_accesses.insert(ctx.node, FieldAccess { idx }).is_none());
                 ty
             }
             NodeKind::FnCall => {
@@ -629,9 +629,9 @@ impl Impl<'_> {
                     .iter()
                     .zip(formal_args.iter())
                 {
-                    self.unify(self.types.typing(actual.value), self.types(callee_node.0).typing(formal));
+                    self.unify(self.check_data.typing(actual.value), self.check_data(callee_node.0).typing(formal));
 
-                    let formal_ty = self.unalias_type(self.types(callee_node.0).typing(formal));
+                    let formal_ty = self.unalias_type(self.check_data(callee_node.0).typing(formal));
                     let actual_ty = self.unaliased_typing(actual.value);
                     if actual_ty.id() != formal_ty.id() {
                         fatal(ctx.hir.node_kind(actual.value).span, format!(
@@ -646,7 +646,7 @@ impl Impl<'_> {
                 unreachable!()
             }
             NodeKind::FnDeclArg => {
-                self.types.typing(ctx.hir.fn_decl_arg(ctx.node).ty)
+                self.check_data.typing(ctx.hir.fn_decl_arg(ctx.node).ty)
             }
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
@@ -654,9 +654,9 @@ impl Impl<'_> {
                     let span = ctx.hir.node_kind(cond).span;
                     fatal(span, "expected bool expr");
                 }
-                let if_true_ty = self.types.typing(if_true);
+                let if_true_ty = self.check_data.typing(if_true);
                 if let Some(if_false) = if_false {
-                    if self.types.typing(if_false) != if_true_ty {
+                    if self.check_data.typing(if_false) != if_true_ty {
                         let span = ctx.hir.node_kind(cond).span;
                         fatal(span, "`if` arms have incompatible types");
                     }
@@ -670,10 +670,10 @@ impl Impl<'_> {
                 let &LetDecl { ty, init, .. } = ctx.hir.let_decl(ctx.node);
                 if let Some(ty) = ty {
                     if let Some(init) = init {
-                        self.unify(self.types.typing(ty), self.types.typing(init));
+                        self.unify(self.check_data.typing(ty), self.check_data.typing(init));
                     }
 
-                    let typ = self.types.typing(ty);
+                    let typ = self.check_data.typing(ty);
                     if let Some(init) = init {
                         if self.unaliased_typing(init).id() != self.unalias_type(typ).id() {
                             fatal(ctx.hir.node_kind(ty).span, "formal and actual variable types differ");
@@ -681,7 +681,7 @@ impl Impl<'_> {
                     }
                     typ
                 } else if let Some(init) = init {
-                    self.types.typing(init)
+                    self.check_data.typing(init)
                 } else {
                     fatal(ctx.hir.node_kind(ctx.node).span, "can't infer variable type");
                 }
@@ -738,13 +738,13 @@ impl Impl<'_> {
                 }
             }
             NodeKind::Struct => {
-                self.types.typing(ctx.hir.struct_(ctx.node).ty)
+                self.check_data.typing(ctx.hir.struct_(ctx.node).ty)
             }
             NodeKind::StructType => {
                 let fields = &ctx.hir.struct_type(ctx.node).fields;
                 let fields: Vec<_> = fields
                     .iter()
-                    .map(|f| self.types.typing(f.ty))
+                    .map(|f| self.check_data.typing(f.ty))
                     .collect();
                 self.insert_type(ctx.node, TypeData::Struct(StructType {
                     fields,
@@ -763,9 +763,9 @@ impl Impl<'_> {
                     return
                 } else {
                     let segment = ctx.hir.path(ctx.node).segment;
-                    let target = self.types.target_of(segment);
-                    self.types.insert_path_to_target(ctx.node, target);
-                    self.types.typing(segment)
+                    let target = self.check_data.target_of(segment);
+                    self.check_data.insert_path_to_target(ctx.node, target);
+                    self.check_data.typing(segment)
                 }
             }
             NodeKind::PathEndIdent => {
@@ -798,11 +798,11 @@ impl Impl<'_> {
                 if reso_ctx == ResoCtx::Import {
                     return;
                 }
-                self.types.insert_path_to_target(ctx.node, (pkg, node));
+                self.check_data.insert_path_to_target(ctx.node, (pkg, node));
                 if pkg == self.package_id {
                     self.build_type(node, ctx.hir)
                 } else {
-                    self.packages[pkg].types.typing(node)
+                    self.packages[pkg].check_data.typing(node)
                 }
             }
             NodeKind::PathSegment => {
@@ -810,9 +810,9 @@ impl Impl<'_> {
                     if self.reso_ctx() != ResoCtx::Import;
                     if let Some(&suffix) = ctx.hir.path_segment(ctx.node).suffix.first();
                     then {
-                        let target = self.types.target_of(suffix);
-                        self.types.insert_path_to_target(ctx.node, target);
-                        self.types.typing(suffix)
+                        let target = self.check_data.target_of(suffix);
+                        self.check_data.insert_path_to_target(ctx.node, target);
+                        self.check_data.typing(suffix)
                     } else {
                         return;
                     }
@@ -823,13 +823,13 @@ impl Impl<'_> {
                 match &data.value {
                     TyData::Array(_) => unimplemented!(),
                     &TyData::Ptr(node) => {
-                        let ty = self.types.typing(node);
+                        let ty = self.check_data.typing(node);
                         self.insert_type(ctx.node, TypeData::Ptr(ty))
                     },
                     TyData::Ref(_) => unimplemented!(),
                     TyData::Slice(_) => unimplemented!(),
                     &TyData::Path(node) => {
-                        self.types.typing(node)
+                        self.check_data.typing(node)
                     }
                     TyData::Struct(_) => unimplemented!(),
                 }
@@ -846,7 +846,7 @@ impl Impl<'_> {
     }
 
     fn type_binary_op(&mut self, BinaryOp { kind, left, right }: BinaryOp, ctx: HirVisitorCtx) -> TypeId {
-        self.unify(self.types.typing(left), self.types.typing(right));
+        self.unify(self.check_data.typing(left), self.check_data.typing(right));
 
         let left_ty = self.unaliased_typing(left);
         let right_ty = self.unaliased_typing(right);
@@ -940,7 +940,7 @@ impl Impl<'_> {
             }
         };
         assert_eq!(ty.0, self.package_id);
-        let typ = self.types.type_mut(ty.1);
+        let typ = self.check_data.type_mut(ty.1);
         assert!(typ.data().as_unknown_number().is_some());
         assert!(self.unknown_num_types.remove(&ty.1));
         typ.data = Some(TypeData::Type(to_type));
@@ -953,23 +953,23 @@ impl Impl<'_> {
         let i32 = self.primitive_type(PrimitiveType::I32);
         let f64 = self.primitive_type(PrimitiveType::F64);
         for ty in self.unknown_num_types.drain() {
-            let fallback = match self.types.type_(ty).data().as_unknown_number().unwrap() {
+            let fallback = match self.check_data.type_(ty).data().as_unknown_number().unwrap() {
                 NumberType::Int => i32,
                 NumberType::Float => f64,
             };
-            let typ = self.types.type_mut(ty);
+            let typ = self.check_data.type_mut(ty);
             typ.data = Some(TypeData::Type(fallback));
         }
     }
 
     fn has_complete_typing(&self, node: NodeId) -> bool {
-        let id = if let Some(v) = self.types.try_typing(node) {
+        let id = if let Some(v) = self.check_data.try_typing(node) {
             v
         } else {
             return false;
         };
         if id.0 == self.package_id {
-            self.types.type_(id.1).data.is_some()
+            self.check_data.type_(id.1).data.is_some()
         } else {
             debug_assert!(self.type_(id).data.is_some());
             true
@@ -982,7 +982,7 @@ impl HirVisitor for Impl<'_> {
         if let Some(v) = reso_ctx(ctx.link) {
             self.reso_ctxs.push(v);
         }
-        if self.types.try_typing(ctx.node).is_none() {
+        if self.check_data.try_typing(ctx.node).is_none() {
             self.do_pre_typing(ctx);
         }
     }

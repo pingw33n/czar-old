@@ -2,9 +2,9 @@ use std::path::Path;
 
 use crate::hir::Ident;
 use crate::package::*;
+use crate::semantic::check::Check;
 use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
-use crate::semantic::type_check::TypeCheck;
 use crate::syntax;
 use crate::diag::Diag;
 use crate::syntax::parse::ErrorKind;
@@ -64,7 +64,7 @@ pub fn compile(
         packages,
     );
 
-    let types = TypeCheck {
+    let check_data = Check {
         package_id: id,
         hir: &hir,
         discover_data: &discover_data,
@@ -78,6 +78,6 @@ pub fn compile(
         hir,
         discover_data,
         resolve_data,
-        types,
+        check_data,
     })
 }
