@@ -874,7 +874,7 @@ impl<'a> ParserImpl<'a> {
                 if expr.is_none() || end.is_some() {
                     exprs.push(self.hir.insert_struct_value(semi.span.spanned(StructValue {
                         name: None,
-                        anonymous_fields: None,
+                        explicit_tuple: None,
                         fields: Vec::new(),
                     })));
                 }
@@ -1607,7 +1607,7 @@ impl<'a> ParserImpl<'a> {
         enum Probe {
             StructStart {
                 first_field: StructValueField,
-                anonymous_fields: Option<S<()>>,
+                explicit_tuple: Option<S<()>>,
             },
             EmptyStruct {
                 end: usize,
@@ -1625,17 +1625,17 @@ impl<'a> ParserImpl<'a> {
                     name: Some(name),
                     value,
                 },
-                anonymous_fields: None,
+                explicit_tuple: None,
             }
         } else if self.lex.nth(0).value == Token::Literal(lex::Literal::Int)
             && self.lex.nth(1).value == Token::Colon
         {
-            let anonymous_fields = self.int_literal()?;
-            if anonymous_fields.value.ty.is_some() {
-                return self.error(anonymous_fields.span, "unexpected int literal type suffix".into());
+            let explicit_tuple = self.int_literal()?;
+            if explicit_tuple.value.ty.is_some() {
+                return self.error(explicit_tuple.span, "unexpected int literal type suffix".into());
             }
-            if anonymous_fields.value.value != 0 {
-                return self.error(anonymous_fields.span, "invalid tuple field number".into());
+            if explicit_tuple.value.value != 0 {
+                return self.error(explicit_tuple.span, "invalid tuple field number".into());
             }
             self.expect(Token::Colon).unwrap();
             let value = self.expr(Default::default())?;
@@ -1644,7 +1644,7 @@ impl<'a> ParserImpl<'a> {
                     name: None,
                     value,
                 },
-                anonymous_fields: Some(anonymous_fields.with_value({})),
+                explicit_tuple: Some(explicit_tuple.with_value({})),
             }
         } else if is_struct && self.lex.nth(0).value == Token::BlockClose(lex::Block::Brace) {
             let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
@@ -1661,7 +1661,7 @@ impl<'a> ParserImpl<'a> {
                             name: None,
                             value: expr
                         },
-                        anonymous_fields: None,
+                        explicit_tuple: None,
                     }
                 }
                 Err(err) if is_struct => {
@@ -1678,7 +1678,7 @@ impl<'a> ParserImpl<'a> {
             }
         };
         Ok(match probe {
-            Probe::StructStart { first_field , anonymous_fields } => {
+            Probe::StructStart { first_field , explicit_tuple } => {
                 let mut fields = Vec::new();
                 fields.push(first_field);
                 loop {
@@ -1694,7 +1694,7 @@ impl<'a> ParserImpl<'a> {
                     let name = if self.lex.nth(0).value == Token::Ident
                         && self.lex.nth(1).value == Token::Colon
                     {
-                        if anonymous_fields.is_some() {
+                        if explicit_tuple.is_some() {
                             let tok = self.lex.nth(0);
                             return self.error(tok.span, "unexpected field name".into());
                         }
@@ -1716,14 +1716,14 @@ impl<'a> ParserImpl<'a> {
 
                 self.hir.insert_struct_value(Span::new(start, end).spanned(StructValue {
                     name: struct_name,
-                    anonymous_fields,
+                    explicit_tuple,
                     fields,
                 }))
             }
             Probe::EmptyStruct { end } => {
                 self.hir.insert_struct_value(Span::new(start, end).spanned(StructValue {
                     name: struct_name,
-                    anonymous_fields: None,
+                    explicit_tuple: None,
                     fields: Vec::new(),
                 }))
             }

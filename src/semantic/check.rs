@@ -751,8 +751,8 @@ impl Impl<'_> {
                 }))
             }
             NodeKind::StructValue => {
-                let StructValue { name, anonymous_fields, fields } = ctx.hir.struct_value(ctx.node);
-                assert!(anonymous_fields.is_none() || !fields.is_empty());
+                let StructValue { name, explicit_tuple, fields } = ctx.hir.struct_value(ctx.node);
+                assert!(explicit_tuple.is_none() || !fields.is_empty());
                 if name.is_some() || !fields.is_empty() {
                     unimplemented!();
                 }

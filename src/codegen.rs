@@ -383,8 +383,8 @@ impl<'a> Codegen<'a> {
                 self.unit_literal().into()
             }
             NodeKind::StructValue => {
-                let StructValue { name, anonymous_fields, fields } = ctx.package.hir.struct_value(node);
-                if !(name.is_none() && anonymous_fields.is_none() && fields.is_empty()) {
+                let StructValue { name, explicit_tuple, fields } = ctx.package.hir.struct_value(node);
+                if !(name.is_none() && explicit_tuple.is_none() && fields.is_empty()) {
                     todo!();
                 }
                 self.unit_literal().into()

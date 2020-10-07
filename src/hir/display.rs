@@ -438,7 +438,7 @@ impl Display<'_> {
             NodeKind::StructValue => {
                 let StructValue {
                     name,
-                    anonymous_fields,
+                    explicit_tuple,
                     fields } = self.hir.struct_value(node);
                 if let &Some(name) = name {
                     self.node(name, false, p)?;
@@ -447,7 +447,7 @@ impl Display<'_> {
                 p.print('{')?;
                 if !fields.is_empty() {
                     p.print(' ')?;
-                    if anonymous_fields.is_some() {
+                    if explicit_tuple.is_some() {
                         p.print("0: ")?;
                     }
                     for (i, StructValueField { name, value }) in fields.iter().enumerate() {
