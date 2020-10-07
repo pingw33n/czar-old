@@ -1,4 +1,3 @@
-
 fn str() -> String {
     "hello world"
 }
@@ -41,6 +40,61 @@ fn named() {
     print_foo("foo2", foo2);
 }
 
+fn unnamed_tuple() {
+    fn new(_ f0: i32, _ f1: String, _ f2: String) -> {i32, String, String} {
+        {f0, f1, f2}
+    }
+
+    fn print(_ id: String, _ v: {i32, String, String}) {
+        prints(id); prints(": ");
+        prints(".0="); print_i32(v.0);
+        prints(" .1='"); prints(v.1); prints("'");
+        prints(" .2='"); prints(v.2); prints("'");
+        println();
+    }
+
+    let tuple1 = {11i32, "hello", "world"};
+    let tuple2 = new(12345, "foo", "bar");
+    print("tuple1", tuple1);
+    print("tuple2", tuple2);
+
+    tuple1.1 = tuple1.2;
+    tuple2 = tuple1;
+    tuple1.2 = "hello";
+    tuple2.0 = tuple1.0 + tuple2.0 + 101;
+    print("tuple1", tuple1);
+    print("tuple2", tuple2);
+}
+
+fn record() {
+    fn new(_ int: i32, s: {String, String}) -> {int: i32, s1: String, s2: String} {
+        {int: int, s1: s.0, s2: s.1}
+    }
+
+    fn print(_ id: String, _ v: {int: i32, s1: String, s2: String}) {
+        prints(id); prints(": ");
+        prints("int="); print_i32(v.int);
+        prints(" s1='"); prints(v.s1); prints("'");
+        prints(" s2='"); prints(v.s2); prints("'");
+        println();
+    }
+
+    let rec1 = new(42, s: {"first", "second"});
+    let rec2 = {int: 100i32, s1: "200", s2: "300"};
+    print("rec1", rec1);
+    print("rec2", rec2);
+
+    let rec3 = rec2;
+    rec2.int = rec1.int + rec2.int;
+    rec1.s2 = rec2.s1;
+    rec3.s2 = "1000";
+    print("rec1", rec1);
+    print("rec2", rec2);
+    print("rec3", rec3);
+}
+
 fn main() {
     named();
+    unnamed_tuple();
+    record();
 }

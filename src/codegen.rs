@@ -383,24 +383,21 @@ impl<'a> Codegen<'a> {
                 self.unit_literal().into()
             }
             NodeKind::StructValue => {
-                let StructValue { name, fields, .. } = ctx.package.hir.struct_value(node);
-                if name.is_some() {
+                let StructValue { fields, .. } = ctx.package.hir.struct_value(node);
+                if fields.is_empty() {
+                    self.unit_literal().into()
+                } else {
                     let struct_var = self.alloca(ctx.fn_, (ctx.package.id, node), "struct_init"); // TODO use actual type name
                     for &field in fields {
                         let value = ctx.package.hir.struct_value_field(field).value;
                         let field_val = self.expr(value, ctx).to_direct(self.bodyb);
-                        let idx = ctx.package.check_data.field_access(value).idx;
+                        let idx = ctx.package.check_data.field_access(field).idx;
                         let field_ptr = self.bodyb.gep(struct_var, &mut [
                             self.llvm.int_type(32).const_int(0),
                             self.llvm.int_type(32).const_int(idx as u128)]);
                         self.bodyb.store(field_val, field_ptr);
                     }
                     struct_var.into()
-                } else {
-                    if !fields.is_empty() {
-                        todo!();
-                    }
-                    self.unit_literal().into()
                 }
             }
             NodeKind::StructValueField => unreachable!(),
@@ -503,12 +500,13 @@ impl<'a> Codegen<'a> {
             TypeData::Struct(check::StructType { fields }) => {
                 let package = &self.packages[unaliased.0];
                 let node = package.check_data.type_(unaliased.1).node().1;
-                // FIXME node might be StructValue for anon struct.
-                let name = package.hir.struct_(package.discover_data.parent_of(node)).name.value.as_str();
                 let tys = &mut Vec::new();
                 for &field_ty in fields {
                     tys.push(self.type_(field_ty));
                 }
+                let name = package.hir.try_struct(package.discover_data.parent_of(node))
+                    .map(|v| v.name.value.as_str())
+                    .unwrap_or("__Unnamed");
                 self.llvm.named_struct_type(name, tys)
             }
             _ => todo!(),

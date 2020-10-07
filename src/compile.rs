@@ -54,7 +54,7 @@ pub fn compile(
     };
 
     let discover_data = DiscoverData::build(&hir);
-    discover_data.print_scopes(&hir);
+    // discover_data.print_scopes(&hir);
 
     let resolve_data = ResolveData::build(
         &discover_data,

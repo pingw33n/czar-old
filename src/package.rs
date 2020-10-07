@@ -74,6 +74,10 @@ impl Packages {
     pub fn try_by_name(&self, name: &str) -> Option<&Package> {
         self.by_name.get(name).map(|v| &**v)
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Package> {
+        self.by_id.values().map(|v| &**v)
+    }
 }
 
 impl Index<PackageId> for Packages {

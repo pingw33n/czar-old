@@ -4,7 +4,7 @@ use enum_map_derive::Enum;
 use if_chain::if_chain;
 use slab::Slab;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::hir::{self, *};
 use crate::hir::traverse::*;
@@ -179,9 +179,11 @@ pub struct CheckData {
     typings: NodeMap<TypeId>,
     primitive_types: Option<Box<EnumMap<PrimitiveType, Option<LocalTypeId>>>>,
     path_to_target: NodeMap<GlobalNodeId>,
-    /// Maps `FieldAccess` and `StructValueField::value` nodes to the field index on a named
+    /// Maps `FieldAccess` and `StructValueField` nodes to the field index on a named
     /// struct/tuple type.
-    field_accesses: NodeMap<FieldAccess>
+    field_accesses: NodeMap<FieldAccess>,
+    /// Unnamed structs introduced in this package.
+    unnamed_structs: HashMap<UnnamedStructKey, LocalTypeId>,
 }
 
 impl CheckData {
@@ -246,6 +248,14 @@ pub struct Check<'a> {
 impl Check<'_> {
     pub fn run(self) -> CheckData {
         let mut check_data = CheckData::default();
+
+        let mut unnamed_structs = HashMap::new();
+        for package in self.packages.iter() {
+            for (k, ty) in &package.check_data.unnamed_structs {
+                assert!(unnamed_structs.insert(k.clone(), (package.id, *ty)).is_none());
+            }
+        }
+
         let tc = &mut Impl {
             discover_data: self.discover_data,
             resolve_data: self.resolve_data,
@@ -256,6 +266,7 @@ impl Check<'_> {
             reso_ctxs: Default::default(),
             #[cfg(debug_assertions)]
             type_id_set: Default::default(),
+            unnamed_structs,
         };
         if self.package_id.is_std() {
             tc.build_primitive_types(self.hir);
@@ -298,6 +309,20 @@ enum ResoCtx {
     Value,
 }
 
+#[derive(Clone, Eq, Hash, PartialEq)]
+struct UnnamedStructKey(Vec<(Option<Ident>, TypeId)>);
+
+impl UnnamedStructKey {
+    fn new(mut fields: Vec<(Option<Ident>, TypeId)>) -> Self {
+        fields.sort_by(|a, b| a.0.cmp(&b.0));
+        Self(fields)
+    }
+
+    fn field_types(&self) -> Vec<TypeId> {
+        self.0.iter().map(|v| v.1).collect()
+    }
+}
+
 struct Impl<'a> {
     discover_data: &'a DiscoverData,
     resolve_data: &'a ResolveData,
@@ -308,6 +333,8 @@ struct Impl<'a> {
     reso_ctxs: Vec<ResoCtx>,
     #[cfg(debug_assertions)]
     type_id_set: RefCell<HashSet<TypeId>>,
+    /// Unnamed structs across all packages.
+    unnamed_structs: HashMap<UnnamedStructKey, TypeId>,
 }
 
 impl Impl<'_> {
@@ -557,7 +584,8 @@ impl Impl<'_> {
             }
             NodeKind::FieldAccess => {
                 let hir::FieldAccess { receiver, field } = ctx.hir.field_access(ctx.node);
-                self.resolve_struct_field(*receiver, ctx.node, field, ctx.hir)
+                let struct_ty = self.check_data.typing(*receiver);
+                self.resolve_struct_field(struct_ty, ctx.node, field, ctx.hir)
             }
             NodeKind::FnCall => {
                 let FnCall {
@@ -707,33 +735,23 @@ impl Impl<'_> {
             }
             NodeKind::StructType => {
                 let fields = &ctx.hir.struct_type(ctx.node).fields;
-                let fields: Vec<_> = fields
-                    .iter()
-                    .map(|f| self.check_data.typing(f.ty))
-                    .collect();
-                self.insert_type(ctx.node, TypeData::Struct(StructType {
-                    fields,
-                }))
-            }
-            NodeKind::StructValue => {
-                let StructValue { name, explicit_tuple, fields } = ctx.hir.struct_value(ctx.node);
-                assert!(explicit_tuple.is_none() || !fields.is_empty());
-                if let Some(name) = *name {
-                    for (i, &field) in fields.iter().enumerate() {
-                        let field = ctx.hir.struct_value_field(field);
-                        let f = if let Some(n) = &field.name {
-                            n.span.spanned(Field::Ident(n.value.clone()))
-                        } else {
-                            ctx.hir.node_kind(field.value).span.spanned(Field::Index(i as u32))
-                        };
-                        self.resolve_struct_field(name, field.value, &f, ctx.hir);
-                    }
-                    self.check_data.typing(name)
+                let named = ctx.hir.try_struct(self.discover_data.parent_of(ctx.node)).is_some();
+                if named {
+                    let fields: Vec<_> = fields
+                        .iter()
+                        .map(|f| self.check_data.typing(f.ty))
+                        .collect();
+                    self.insert_type(ctx.node, TypeData::Struct(StructType {
+                        fields,
+                    }))
                 } else {
-                    if !fields.is_empty() {
-                        todo!();
-                    }
-                    self.primitive_type(PrimitiveType::Unit)
+                    let fields: Vec<_> = fields
+                        .iter()
+                        .map(|f|
+                            (f.name.clone().map(|v| v.value),
+                            self.unaliased_typing(f.ty).id()))
+                        .collect();
+                    self.unnamed_struct(ctx.node, UnnamedStructKey::new(fields))
                 }
             }
             NodeKind::StructValueField => {
@@ -749,6 +767,34 @@ impl Impl<'_> {
                     self.check_data.insert_path_to_target(ctx.node, target);
                     self.check_data.typing(segment)
                 }
+            }
+            NodeKind::StructValue => {
+                let StructValue { name, explicit_tuple, fields } = ctx.hir.struct_value(ctx.node);
+                assert!(explicit_tuple.is_none() || !fields.is_empty());
+                let ty = if let Some(name) = *name {
+                    self.check_data.typing(name)
+                } else {
+                    if fields.is_empty() {
+                        self.primitive_type(PrimitiveType::Unit)
+                    } else {
+                        let key = UnnamedStructKey::new(fields.iter()
+                            .map(|&v| ctx.hir.struct_value_field(v))
+                            .map(|v| (v.name.clone().map(|v| v.value),
+                                self.unaliased_typing(v.value).id()))
+                            .collect());
+                        self.unnamed_struct(ctx.node, key)
+                    }
+                };
+                for (i, &field_node) in fields.iter().enumerate() {
+                    let field = ctx.hir.struct_value_field(field_node);
+                    let f = if let Some(n) = &field.name {
+                        n.span.spanned(Field::Ident(n.value.clone()))
+                    } else {
+                        ctx.hir.node_kind(field.value).span.spanned(Field::Index(i as u32))
+                    };
+                    self.resolve_struct_field(ty, field_node, &f, ctx.hir);
+                }
+                ty
             }
             NodeKind::PathEndIdent => {
                 let reso = self.resolve_data.resolution_of(ctx.node);
@@ -810,10 +856,11 @@ impl Impl<'_> {
                     },
                     TyData::Ref(_) => unimplemented!(),
                     TyData::Slice(_) => unimplemented!(),
-                    &TyData::Path(node) => {
+                    | &TyData::Path(node)
+                    | &TyData::Struct(node)
+                    => {
                         self.check_data.typing(node)
                     }
-                    TyData::Struct(_) => unimplemented!(),
                 }
             }
             | NodeKind::PathEndEmpty
@@ -959,42 +1006,65 @@ impl Impl<'_> {
     }
 
     fn resolve_struct_field(&mut self,
-        struct_ty: NodeId,
+        struct_ty: TypeId,
         field_node: NodeId,
         field: &S<Field>,
         hir: &Hir,
     ) -> TypeId {
         let (idx, ty) = {
-            let struct_ty = self.unaliased_typing(struct_ty);
+            let struct_ty = self.unalias_type(struct_ty);
             let field_tys = if let Some(StructType { fields }) = struct_ty.data().as_struct() {
                 fields
             } else {
                 let span = self.hir(hir, struct_ty.package_id).node_kind(struct_ty.node).span;
                 fatal(span, format_args!("expected struct, found `{:?}`", struct_ty));
             };
+
             let struct_hir = self.hir(hir, struct_ty.package_id);
-            let fields = &struct_hir.struct_type(struct_ty.node).fields;
+            // TODO This is inefficient as the method is going to be called often for field accesses.
+            let field_count;
+            let field_names: HashMap<_, _> = match struct_hir.node_kind(struct_ty.node).value {
+                NodeKind::StructType => {
+                    let fields = &struct_hir.struct_type(struct_ty.node).fields;
+                    field_count = fields.len();
+                    fields.iter().enumerate()
+                        .filter_map(|(i, f)| f.name.clone().map(|n| (n.value, i)))
+                        .collect()
+                }
+                NodeKind::StructValue => {
+                    let fields = &struct_hir.struct_value(struct_ty.node).fields;
+                    field_count = fields.len();
+                    fields.iter().enumerate()
+                        .map(|(i, &v)| (i, hir.struct_value_field(v)))
+                        .filter_map(|(i, f)| f.name.clone().map(|n| (n.value, i)))
+                        .collect()
+                }
+                _ => unreachable!()
+            };
 
             let struct_node = self.discover_data(struct_ty.package_id).parent_of(struct_ty.node);
-            let name = &struct_hir.struct_(struct_node).name;
+            let name = struct_hir.try_struct(struct_node)
+                .map(|v| v.name.value.as_str())
+                .unwrap_or("<unnamed>");
 
             let idx = match &field.value {
                 Field::Ident(ident) => {
-                    if fields.len() > 0 && fields[0].name.is_none() {
-                        fatal(field.span, format_args!("`{}` is a tuple struct", name.value));
+                    if field_count > 0 && field_names.is_empty() {
+                        fatal(field.span, format_args!("`{}` is a tuple struct", name));
                     }
-                    if let Some(i) = fields.iter().position(|f| f.name.as_ref().map(|v| &v.value) == Some(ident)) {
+                    if let Some(&i) = field_names.get(ident) {
                         i as u32
                     } else {
-                        fatal(field.span, format_args!("unknown struct field `{}` in `{}`", ident, name.value));
+                        fatal(field.span, format_args!("unknown struct field `{}` in `{}`",
+                            ident, name));
                     }
                 }
                 &Field::Index(i) => {
-                    if fields.len() > 0 && fields[0].name.is_some() {
-                        fatal(field.span, format_args!("`{}` is not a tuple struct", name.value));
+                    if !field_names.is_empty() {
+                        fatal(field.span, format_args!("`{}` is not a tuple struct", name));
                     }
-                    if i as usize >= fields.len() {
-                        fatal(field.span, format_args!("unknown field `{}` in `{}`", i, name.value));
+                    if i as usize >= field_count {
+                        fatal(field.span, format_args!("unknown field `{}` in `{}`", i, name));
                     }
                     i
                 }
@@ -1003,6 +1073,20 @@ impl Impl<'_> {
         };
         assert!(self.check_data.field_accesses.insert(field_node, FieldAccess { idx }).is_none());
         ty
+    }
+
+    fn unnamed_struct(&mut self, node: NodeId, key: UnnamedStructKey) -> TypeId {
+        if let Some(&ty) = self.unnamed_structs.get(&key) {
+            ty
+        } else {
+            let ty = self.insert_type(node, TypeData::Struct(StructType {
+                fields: key.field_types(),
+            }));
+            assert_eq!(ty.0, self.package_id);
+            self.unnamed_structs.insert(key.clone(), ty);
+            self.check_data.unnamed_structs.insert(key, ty.1);
+            ty
+        }
     }
 }
 
