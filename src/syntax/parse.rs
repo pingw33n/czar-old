@@ -1606,7 +1606,7 @@ impl<'a> ParserImpl<'a> {
     fn block_or_struct(&mut self, struct_name: Option<NodeId>, start: usize) -> PResult<NodeId> {
         enum Probe {
             StructStart {
-                first_field: StructValueField,
+                first_field: S<StructValueField>,
                 explicit_tuple: Option<S<()>>,
             },
             EmptyStruct {
@@ -1621,10 +1621,10 @@ impl<'a> ParserImpl<'a> {
             self.expect(Token::Colon).unwrap();
             let value = self.expr(Default::default())?;
             Probe::StructStart {
-                first_field: StructValueField {
+                first_field: Span::new(name.span.start, self.hir.node_kind(value).span.end).spanned(StructValueField {
                     name: Some(name),
                     value,
-                },
+                }),
                 explicit_tuple: None,
             }
         } else if self.lex.nth(0).value == Token::Literal(lex::Literal::Int)
@@ -1640,10 +1640,10 @@ impl<'a> ParserImpl<'a> {
             self.expect(Token::Colon).unwrap();
             let value = self.expr(Default::default())?;
             Probe::StructStart {
-                first_field: StructValueField {
+                first_field: self.hir.node_kind(value).span.spanned(StructValueField {
                     name: None,
                     value,
-                },
+                }),
                 explicit_tuple: Some(explicit_tuple.with_value({})),
             }
         } else if is_struct && self.lex.nth(0).value == Token::BlockClose(lex::Block::Brace) {
@@ -1652,15 +1652,15 @@ impl<'a> ParserImpl<'a> {
         } else {
             let save = if is_struct { None } else { Some(self.lex.save_state()) };
             match self.expr(Default::default()) {
-                Ok(expr) if is_struct || self.lex.nth(0).value == Token::Comma => {
+                Ok(value) if is_struct || self.lex.nth(0).value == Token::Comma => {
                     if let Some(save) = save {
                         self.lex.discard_state(save);
                     }
                     Probe::StructStart {
-                        first_field: StructValueField {
+                        first_field: self.hir.node_kind(value).span.spanned(StructValueField {
                             name: None,
-                            value: expr
-                        },
+                            value,
+                        }),
                         explicit_tuple: None,
                     }
                 }
@@ -1680,7 +1680,7 @@ impl<'a> ParserImpl<'a> {
         Ok(match probe {
             Probe::StructStart { first_field , explicit_tuple } => {
                 let mut fields = Vec::new();
-                fields.push(first_field);
+                fields.push(self.hir.insert_struct_value_field(first_field));
                 loop {
                     let delimited = self.lex.maybe(Token::Comma).is_some();
                     if self.lex.nth(0).value == Token::BlockClose(lex::Block::Brace) {
@@ -1707,10 +1707,13 @@ impl<'a> ParserImpl<'a> {
 
                     let value = self.expr(Default::default())?;
 
-                    fields.push(StructValueField {
-                        name,
-                        value,
-                    });
+                    let value_span = self.hir.node_kind(value).span;
+                    let start = name.as_ref().map(|v| v.span.start).unwrap_or(value_span.start);
+                    fields.push(self.hir.insert_struct_value_field(Span::new(start, value_span.end).spanned(
+                        StructValueField {
+                            name,
+                            value,
+                        })));
                 }
                 let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
 
@@ -1848,6 +1851,7 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | TyExpr
         | TypeArg
         | StructValue
+        | StructValueField
         => true,
     }
 }

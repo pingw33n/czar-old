@@ -386,7 +386,8 @@ impl<'a> Codegen<'a> {
                 let StructValue { name, fields, .. } = ctx.package.hir.struct_value(node);
                 if name.is_some() {
                     let struct_var = self.alloca(ctx.fn_, (ctx.package.id, node), "struct_init"); // TODO use actual type name
-                    for &StructValueField { value, .. } in fields {
+                    for &field in fields {
+                        let value = ctx.package.hir.struct_value_field(field).value;
                         let field_val = self.expr(value, ctx).to_direct(self.bodyb);
                         let idx = ctx.package.check_data.field_access(value).idx;
                         let field_ptr = self.bodyb.gep(struct_var, &mut [
@@ -402,6 +403,7 @@ impl<'a> Codegen<'a> {
                     self.unit_literal().into()
                 }
             }
+            NodeKind::StructValueField => unreachable!(),
             _ => todo!("{:?}", ctx.package.hir.node_kind(node))
         }
     }

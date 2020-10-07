@@ -52,6 +52,7 @@ pub enum NodeKind {
     Struct,
     StructType,
     StructValue,
+    StructValueField,
     TyExpr,
     TypeArg,
     Use,
@@ -125,6 +126,7 @@ pub struct Hir {
     structs: NodeMap<Struct>,
     struct_types: NodeMap<StructType>,
     struct_values: NodeMap<StructValue>,
+    struct_value_fields: NodeMap<StructValueField>,
     ty_exprs: NodeMap<TyExpr>,
     type_args: NodeMap<TypeArg>,
     uses: NodeMap<Use>,
@@ -269,6 +271,7 @@ impl Hir {
         insert_struct, struct_, struct_mut, try_struct, try_struct_mut, structs, Struct;
         insert_struct_type, struct_type, struct_type_mut, try_struct_type, try_struct_type_mut, struct_types, StructType;
         insert_struct_value, struct_value, struct_value_mut, try_struct_value, try_struct_value_mut, struct_values, StructValue;
+        insert_struct_value_field, struct_value_field, struct_value_field_mut, try_struct_value_field, try_struct_value_field_mut, struct_value_fields, StructValueField;
         insert_ty_expr, ty_expr, ty_expr_mut, try_ty_expr, try_ty_expr_mut, ty_exprs, TyExpr;
         insert_type_arg, type_arg, type_arg_mut, try_type_arg, try_type_arg_mut, type_args, TypeArg;
         insert_use, use_, use_mut, try_use, try_use_mut, uses, Use;
@@ -444,7 +447,7 @@ pub struct BlockFlowCtl {
     pub value: Option<NodeId>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Ident(String);
 
 impl Ident {
@@ -737,7 +740,7 @@ pub struct StructValue {
     pub name: Option<NodeId>, // Path
     /// Whether the value has `0:` specifier.
     pub explicit_tuple: Option<S<()>>,
-    pub fields: Vec<StructValueField>,
+    pub fields: Vec<NodeId>, // StructValueField
 }
 
 #[derive(Debug)]
@@ -751,7 +754,7 @@ pub struct Struct {
     pub vis: Option<S<Vis>>,
     pub name: S<Ident>,
     pub ty_args: Vec<NodeId>,
-    pub ty: NodeId,
+    pub ty: NodeId, // StructType
 }
 
 #[derive(Debug)]

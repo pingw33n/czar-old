@@ -409,6 +409,7 @@ impl HirVisitor for Build<'_> {
             | NodeKind::Range
             | NodeKind::StructType
             | NodeKind::StructValue
+            | NodeKind::StructValueField
             | NodeKind::TyExpr
             | NodeKind::TypeArg
             | NodeKind::While
@@ -486,6 +487,7 @@ fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
         | Struct
         | StructType
         | StructValue
+        | StructValueField
         | TyExpr
         | TypeArg
         | While

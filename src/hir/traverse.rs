@@ -32,8 +32,7 @@ pub enum NodeLink {
     Root,
     StructDecl(StructDeclLink),
     StructTypeFieldType,
-    StructValueName,
-    StructValueValue,
+    StructValue(StructValueLink),
     TyExpr(TyExprLink),
     UsePath,
     Let(LetLink),
@@ -128,6 +127,13 @@ pub enum PathLink {
     SegmentSuffix,
     SegmentItemTyArgs,
     EndIdentTyArgs,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum StructValueLink {
+    Name,
+    Field,
+    FieldValue,
 }
 
 #[derive(Clone, Copy)]
@@ -298,12 +304,16 @@ impl<T: HirVisitor> Traverser<'_, T> {
             NodeKind::StructValue => {
                 let StructValue { name, fields, .. } = self.hir.struct_value(node);
                 if let Some(name) = *name {
-                    self.traverse0(name, NodeLink::StructValueName);
+                    self.traverse0(name, NodeLink::StructValue(StructValueLink::Name));
                 }
-                for &StructValueField { value, .. } in fields {
-                    self.traverse0(value, NodeLink::StructValueValue);
+                for &field in fields {
+                    self.traverse0(field, NodeLink::StructValue(StructValueLink::Field));
                 }
             },
+            NodeKind::StructValueField => {
+                let value = self.hir.struct_value_field(node).value;
+                self.traverse0(value, NodeLink::StructValue(StructValueLink::FieldValue))
+            }
             NodeKind::Path => {
                 let &Path { anchor: _, segment } = self.hir.path(node);
                 self.traverse0(segment, NodeLink::Path(PathLink::Segment));

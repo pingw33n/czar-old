@@ -450,7 +450,8 @@ impl Display<'_> {
                     if explicit_tuple.is_some() {
                         p.print("0: ")?;
                     }
-                    for (i, StructValueField { name, value }) in fields.iter().enumerate() {
+                    for (i, &field) in fields.iter().enumerate() {
+                        let StructValueField { name, value } = self.hir.struct_value_field(field);
                         if i > 0 {
                             p.print(", ")?;
                         }
@@ -470,6 +471,7 @@ impl Display<'_> {
                 }
                 p.print('}')?;
             }
+            NodeKind::StructValueField => unreachable!(),
             NodeKind::TyExpr => {
                 let TyExpr { muta, data } = self.hir.ty_expr(node);
                 if muta.is_some() {

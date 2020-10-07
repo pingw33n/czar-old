@@ -499,6 +499,7 @@ impl Impl<'_> {
             | NodeKind::PathSegment
             | NodeKind::StructType
             | NodeKind::StructValue
+            | NodeKind::StructValueField
             | NodeKind::TyExpr
             | NodeKind::Use
             => {},
@@ -718,7 +719,8 @@ impl Impl<'_> {
                 let StructValue { name, explicit_tuple, fields } = ctx.hir.struct_value(ctx.node);
                 assert!(explicit_tuple.is_none() || !fields.is_empty());
                 if let Some(name) = *name {
-                    for (i, field) in fields.iter().enumerate() {
+                    for (i, &field) in fields.iter().enumerate() {
+                        let field = ctx.hir.struct_value_field(field);
                         let f = if let Some(n) = &field.name {
                             n.span.spanned(Field::Ident(n.value.clone()))
                         } else {
@@ -733,6 +735,10 @@ impl Impl<'_> {
                     }
                     self.primitive_type(PrimitiveType::Unit)
                 }
+            }
+            NodeKind::StructValueField => {
+                let value = ctx.hir.struct_value_field(ctx.node).value;
+                self.check_data.typing(value)
             }
             NodeKind::Path => {
                 if self.reso_ctx() == ResoCtx::Import {
@@ -1037,7 +1043,8 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | LoopBlock
         | Op(_)
         | Range(_)
-        | StructValueValue
+        | StructValue(StructValueLink::Field)
+        | StructValue(StructValueLink::FieldValue)
         | TyExpr(TyExprLink::Array(ArrayLink::Len))
         | While(_)
         => ResoCtx::Value,
@@ -1052,7 +1059,7 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | Path(PathLink::SegmentItemTyArgs)
         | StructDecl(_)
         | StructTypeFieldType
-        | StructValueName
+        | StructValue(StructValueLink::Name)
         | TyExpr(_)
         => ResoCtx::Type,
 
