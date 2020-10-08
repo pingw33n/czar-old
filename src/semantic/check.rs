@@ -793,7 +793,25 @@ impl Impl<'_> {
                     } else {
                         ctx.hir.node_kind(field.value).span.spanned(Field::Index(i as u32))
                     };
-                    self.resolve_struct_field(ty, field_node, &f, ctx.hir);
+                    let formal_ty = self.resolve_struct_field(ty, field_node, &f, ctx.hir);
+                    // No point in checking types for unnamed struct since it's been defined by the
+                    // actual types.
+                    if name.is_some() {
+                        let formal_ty = self.unalias_type(formal_ty).id();
+
+                        let actual_ty = self.unaliased_typing(field_node).id();
+                        self.unify(formal_ty, actual_ty);
+                        // Actual type might have been unified.
+                        let actual_ty = self.unaliased_typing(field_node).id();
+
+                        if formal_ty != actual_ty {
+                            let formal_ty = self.type_(formal_ty);
+                            let actual_ty = self.type_(actual_ty);
+                            let span = self.hir(ctx.hir, actual_ty.node().0).node_kind(actual_ty.node().1).span;
+                            fatal(span, format_args!("struct actual and formal types differ for field `{:?}`: actual: {:?}, formal: {:?}",
+                                f.value, actual_ty.data(), formal_ty.data()));
+                        }
+                    }
                 }
                 ty
             }

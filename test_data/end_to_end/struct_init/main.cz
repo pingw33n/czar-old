@@ -97,9 +97,15 @@ fn in_no_arg_no_ret_fn() {
     { 42, };
 }
 
+fn number_type_inference() {
+    struct Foo {u128,}
+    let x = Foo {42,};
+}
+
 fn main() {
     named();
     unnamed_tuple();
     record();
     in_no_arg_no_ret_fn();
+    number_type_inference();
 }
