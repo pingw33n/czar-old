@@ -1,0 +1,20 @@
+fn more_j(_ j: i32) -> bool {
+    j >= 0
+}
+
+fn main() {
+    while false {
+        prints("never executes");
+    }
+
+    let i = 0;
+    while i < 5 {
+        print_i32(i); println();
+        let j = 3;
+        while more_j(j) {
+            prints("  "); print_i32(j); println();
+            j = j - 1;
+        }
+        i = i + 1;
+    }
+}

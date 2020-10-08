@@ -529,6 +529,7 @@ impl Impl<'_> {
             | NodeKind::StructValueField
             | NodeKind::TyExpr
             | NodeKind::Use
+            | NodeKind::While
             => {},
             _ => {
                 unimplemented!("{:?}", ctx.hir.node_kind(ctx.node));
@@ -868,6 +869,14 @@ impl Impl<'_> {
             | NodeKind::Use
             => {
                 self.primitive_type(PrimitiveType::Unit)
+            }
+            NodeKind::While
+            => {
+                let cond = ctx.hir.while_(ctx.node).cond;
+                if !matches!(self.unaliased_typing(cond).data(), TypeData::Primitive(PrimitiveType::Bool)) {
+                    fatal(ctx.hir.node_kind(cond).span, "expected bool expr");
+                }
+                self.primitive_type(PrimitiveType::Unit)
             },
             _ => unimplemented!("{:?}", ctx.hir.node_kind(ctx.node))
         };
@@ -922,7 +931,7 @@ impl Impl<'_> {
                 }
                 left_ty.id()
             }
-            _ => unimplemented!(),
+            _ => todo!("{:?}", kind),
         }
     }
 
