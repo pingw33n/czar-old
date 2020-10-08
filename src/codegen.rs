@@ -125,23 +125,23 @@ impl<'a> Codegen<'a> {
             self.llvm.append_new_bb(fn_, "header");
 
             let allocas = &mut HashMap::new();
+            let ctx = &mut ExprCtx {
+                package,
+                fn_,
+                allocas,
+            };
 
             for (i, &arg) in args.iter().enumerate() {
                 let name = &package.hir.fn_decl_arg(arg).priv_name.value;
-                let val = self.alloca(fn_, (package.id, arg), name);
+                let val = self.alloca(arg, name, ctx);
                 let param = fn_.param(i as u32);
                 self.headerb.store(param, val);
-                assert!(allocas.insert(arg, val).is_none());
             }
 
             let body_bb = self.llvm.append_new_bb(fn_, "body");
             self.bodyb.position_at_end(body_bb);
 
-            let ret = self.expr(body, &mut ExprCtx {
-                package,
-                fn_,
-                allocas,
-            });
+            let ret = self.expr(body, ctx);
             self.bodyb.ret(ret.to_direct(self.bodyb));
 
             if allocas.is_empty() {
@@ -201,7 +201,6 @@ impl<'a> Codegen<'a> {
             }
             NodeKind::IfExpr => {
                 let fn_ = ctx.fn_;
-                let package = ctx.package;
 
                 let &IfExpr { cond, if_true, if_false } = ctx.package.hir.if_expr(node);
                 let cond = self.expr(cond, ctx).to_direct(self.bodyb);
@@ -212,10 +211,7 @@ impl<'a> Codegen<'a> {
 
                 self.bodyb.cond_br(cond, if_true_bb, if_false_bb);
 
-                let ret_var = *ctx.allocas.entry(node)
-                    .or_insert_with(|| {
-                        self.alloca(fn_, (package.id, node), "__if")
-                    });
+                let ret_var = self.alloca(node, "__if", ctx);
 
                 self.bodyb.position_at_end(if_true_bb);
                 let v = self.expr(if_true, ctx).to_direct(self.bodyb);
@@ -234,13 +230,8 @@ impl<'a> Codegen<'a> {
             }
             NodeKind::FnDeclArg => ctx.allocas[&node].into(),
             NodeKind::LetDecl => {
-                let fn_ = ctx.fn_;
-                let package = ctx.package;
-                Value::Indirect(*ctx.allocas.entry(node)
-                    .or_insert_with(|| {
-                        let name = package.hir.let_decl(node).name.value.as_str();
-                        self.alloca(fn_, (package.id, node), name)
-                    }))
+                let name = ctx.package.hir.let_decl(node).name.value.as_str();
+                Value::Indirect(self.alloca(node, name, ctx))
             }
             NodeKind::Literal => {
                 let lit = ctx.package.hir.literal(node);
@@ -387,7 +378,7 @@ impl<'a> Codegen<'a> {
                 if fields.is_empty() {
                     self.unit_literal().into()
                 } else {
-                    let struct_var = self.alloca(ctx.fn_, (ctx.package.id, node), "struct_init"); // TODO use actual type name
+                    let struct_var = self.alloca(node, "struct_init", ctx); // TODO use actual type name
                     for &field in fields {
                         let value = ctx.package.hir.struct_value_field(field).value;
                         let field_val = self.expr(value, ctx).to_direct(self.bodyb);
@@ -567,11 +558,16 @@ impl<'a> Codegen<'a> {
         self.type_((PackageId::std(), self.packages[PackageId::std()].check_data.primitive(ty)))
     }
 
-    fn alloca(&mut self, fn_: DValueRef, node: GlobalNodeId, name: &str) -> IValueRef {
-        let ty = self.packages[node.0].check_data.typing(node.1);
-        let ty = self.type_(ty);
-        self.headerb.position_at_end(fn_.entry_bb());
-        self.headerb.alloca(name, ty)
+    fn alloca(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> IValueRef {
+        let (fn_, package) = (ctx.fn_, ctx.package);
+        *ctx.allocas.entry(node)
+            .or_insert_with(|| {
+                let ty = package.check_data.typing(node);
+                let ty = self.type_(ty);
+                self.headerb.position_at_end(fn_.entry_bb());
+                let val = self.headerb.alloca(name, ty);
+                val
+            })
     }
 }
 
