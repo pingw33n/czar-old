@@ -164,11 +164,6 @@ pub struct StructType {
     pub fields: Vec<TypeId>,
 }
 
-#[derive(Debug)]
-pub struct FieldAccess {
-    pub idx: u32,
-}
-
 pub type LocalTypeId = usize;
 
 pub type TypeId = (PackageId, LocalTypeId);
@@ -179,9 +174,8 @@ pub struct CheckData {
     typings: NodeMap<TypeId>,
     primitive_types: Option<Box<EnumMap<PrimitiveType, Option<LocalTypeId>>>>,
     path_to_target: NodeMap<GlobalNodeId>,
-    /// Maps `FieldAccess` and `StructValueField` nodes to the field index on a named
-    /// struct/tuple type.
-    field_accesses: NodeMap<FieldAccess>,
+    /// Maps `FieldAccess` and `StructValueField` nodes to the field index on a named struct.
+    struct_fields: NodeMap<u32>,
     /// Unnamed structs introduced in this package.
     unnamed_structs: HashMap<UnnamedStructKey, LocalTypeId>,
 }
@@ -232,8 +226,8 @@ impl CheckData {
         assert!(self.path_to_target.insert(path, target).is_none());
     }
 
-    pub fn field_access(&self, node: NodeId) -> &FieldAccess {
-        &self.field_accesses[&node]
+    pub fn struct_field(&self, node: NodeId) -> u32 {
+        self.struct_fields[&node]
     }
 }
 
@@ -1098,7 +1092,7 @@ impl Impl<'_> {
             };
             (idx, field_tys[idx as usize])
         };
-        assert!(self.check_data.field_accesses.insert(field_node, FieldAccess { idx }).is_none());
+        assert!(self.check_data.struct_fields.insert(field_node, idx).is_none());
         ty
     }
 

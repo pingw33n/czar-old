@@ -166,7 +166,7 @@ impl<'a> Codegen<'a> {
             NodeKind::FieldAccess => {
                 let receiver = ctx.package.hir.field_access(node).receiver;
                 let receiver = self.expr(receiver, ctx).indirect();
-                let idx = ctx.package.check_data.field_access(node).idx;
+                let idx = ctx.package.check_data.struct_field(node);
                 self.bodyb.gep(receiver, &mut [self.llvm.int_type(32).const_int(0),
                     self.llvm.int_type(32).const_int(idx as u128)]).into()
             }
@@ -382,7 +382,7 @@ impl<'a> Codegen<'a> {
                     for &field in fields {
                         let value = ctx.package.hir.struct_value_field(field).value;
                         let field_val = self.expr(value, ctx).to_direct(self.bodyb);
-                        let idx = ctx.package.check_data.field_access(field).idx;
+                        let idx = ctx.package.check_data.struct_field(field);
                         let field_ptr = self.bodyb.gep(struct_var, &mut [
                             self.llvm.int_type(32).const_int(0),
                             self.llvm.int_type(32).const_int(idx as u128)]);
