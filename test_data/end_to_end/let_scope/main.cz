@@ -1,0 +1,16 @@
+fn main() {
+    let v = "outer1";
+    prints(v); println();
+    {
+        prints(v); println();
+        let v = "inner1";
+        prints(v); println();
+        let v = "inner2";
+        prints(v); println();
+        let v = "inner3";
+        prints(v); println();
+    }
+    prints(v); println();
+    let v = "outer2";
+    prints(v); println();
+}

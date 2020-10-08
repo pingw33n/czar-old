@@ -461,7 +461,7 @@ enum ScopeKind {
 fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
     use NodeKind::*;
     match kind {
-        | Let
+        | LetDecl
         | Path
         | PathEndEmpty
         | PathEndIdent
@@ -493,6 +493,6 @@ fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
         | While
         => Some(ScopeKind::Strong),
 
-        LetDecl => Some(ScopeKind::Weak),
+        Let => Some(ScopeKind::Weak),
     }
 }
