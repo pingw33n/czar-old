@@ -175,8 +175,12 @@ impl Display<'_> {
                 if let &Some(if_false) = if_false {
                     p.print(" else ")?;
                     self.node(if_false, false, p)?;
+                    if self.hir.node_kind(if_false).value != NodeKind::IfExpr {
+                        p.println("")?;
+                    }
+                } else {
+                    p.println("")?;
                 }
-                p.println("")?;
             }
             NodeKind::Impl => {
                 let Impl {

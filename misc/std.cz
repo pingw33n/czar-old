@@ -19,6 +19,7 @@ pub mod prelude {
         pub use package::string::String;
 
         pub unsafe fn print_bool(_ v: bool);
+        pub unsafe fn print_char(_ v: char);
         pub unsafe fn print_char_hex(_ v: char);
         pub unsafe fn print_i8(_ v: i8);
         pub unsafe fn print_u8(_ v: u8);

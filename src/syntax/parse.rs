@@ -1068,7 +1068,11 @@ impl<'a> ParserImpl<'a> {
                 }
                 let if_true = self.block()?;
                 let if_false = if self.lex.maybe(Token::Keyword(Keyword::Else)).is_some() {
-                    Some(self.block()?)
+                    Some(if self.lex.nth(0).value == Token::Keyword(Keyword::If) {
+                        self.expr(Default::default())?
+                    } else {
+                        self.block()?
+                    })
                 } else {
                     None
                 };

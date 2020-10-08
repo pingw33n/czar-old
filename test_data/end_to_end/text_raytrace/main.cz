@@ -123,8 +123,8 @@ fn shade_pixel(ray: Ray, obj: sphere::Sphere, tval: f32) -> f32 {
 
 fn clamp(_ v: f32, min: f32, max: f32) -> f32 {
     if v < min { min }
-    else { if v > max { max }
-    else { v } }
+    else if v > max { max }
+    else { v }
 }
 
 fn diffuse_shading(pi: vec3::Vec3, obj: sphere::Sphere, light: Light) -> color::Color {
@@ -174,16 +174,17 @@ fn main() {
                 hit_found = true;
             }
 
-            let s: String = " ";
-            if hit_found {
+            let c = if hit_found {
                 let shade = truncf(shade_pixel(ray: ray, obj: hit.obj, tval: hit.tval) * 5.0);
-                if shade == 0.0 { s = "░" }
-                if shade == 1.0 { s = "▒" }
-                if shade == 2.0 { s = "▓" }
-                if shade == 3.0 { s = "█" }
-                if shade == 4.0 { s = "█" }
-            }
-            prints(s);
+                if shade == 0.0 { '░' }
+                else if shade == 1.0 { '▒' }
+                else if shade == 2.0 { '▓' }
+                else if shade == 3.0 { '█' }
+                else if shade == 4.0 { '█' }
+            } else {
+                ' '
+            };
+            print_char(c);
 
             x = x + 1.0;
         }

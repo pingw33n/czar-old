@@ -24,4 +24,10 @@ fn f() {
   } else {
     return {};
   };
+
+  if true {}
+  else if false {}
+  else if x > 42 {}
+  else if x < 42 {}
+  else {}
 }

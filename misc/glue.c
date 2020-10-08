@@ -1,7 +1,9 @@
 #include <inttypes.h>
+#include <locale.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <wchar.h>
 
 extern void __main();
 
@@ -108,11 +110,16 @@ void prints(struct String s) {
     printf("%.*s", (int) len, ptr);
 }
 
+void print_char(uint32_t v) {
+    printf("%lc", (wint_t) v);
+}
+
 void print_char_hex(uint32_t v) {
     printf("\\u{%" PRIx32 "}", v);
 }
 
 int main() {
+    setlocale(LC_ALL, "");
     setvbuf(stdout, NULL, _IONBF, 0);
     __main();
     return 0;
