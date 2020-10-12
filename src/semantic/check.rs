@@ -796,9 +796,7 @@ impl Impl<'_> {
                         let formal_ty = self.unalias_type(formal_ty).id();
 
                         let actual_ty = self.unaliased_typing(field_node).id();
-                        self.unify(formal_ty, actual_ty);
-                        // Actual type might have been unified.
-                        let actual_ty = self.unaliased_typing(field_node).id();
+                        let actual_ty = self.unify(formal_ty, actual_ty).unwrap();
 
                         if formal_ty != actual_ty {
                             let formal_ty = self.type_(formal_ty);
@@ -970,25 +968,25 @@ impl Impl<'_> {
         }
     }
 
-    fn unify(&mut self, ty1: TypeId, ty2: TypeId) {
+    fn unify(&mut self, ty1: TypeId, ty2: TypeId) -> Option<TypeId> {
         if ty1 == ty2 {
-            return;
+            return Some(ty1);
         }
         let (ty, to_type) = {
             let ty1 = self.unalias_type(ty1);
             if ty1.id() == ty2 {
-                return;
+                return Some(ty2);
             }
             let ty2 = self.unalias_type(ty2);
             if ty1.id() == ty2.id() {
-                return;
+                return Some(ty1.id());
             }
             use TypeData::*;
             match (ty1.data(), ty2.data()) {
                 (&UnknownNumber(num), Primitive(pt)) if pt.as_number() == Some(num) => (ty1.id(), ty2.id()),
                 (Primitive(pt), &UnknownNumber(num)) if pt.as_number() == Some(num) => (ty2.id(), ty1.id()),
                 (UnknownNumber(l), UnknownNumber(r)) if l == r => (ty1.id(), ty2.id()),
-                _ => return,
+                _ => return None,
             }
         };
         assert_eq!(ty.0, self.package_id);
@@ -996,6 +994,7 @@ impl Impl<'_> {
         assert!(typ.data().as_unknown_number().is_some());
         assert!(self.unknown_num_types.remove(&ty.1));
         typ.data = Some(TypeData::Type(to_type));
+        Some(to_type)
     }
 
     fn handle_unknown_num_types(&mut self) {
