@@ -172,7 +172,7 @@ pub type TypeId = (PackageId, LocalTypeId);
 pub struct CheckData {
     types: Slab<Type>,
     typings: NodeMap<TypeId>,
-    primitive_types: Option<Box<EnumMap<PrimitiveType, Option<LocalTypeId>>>>,
+    primitive_types: Option<Box<EnumMap<PrimitiveType, LocalTypeId>>>,
     path_to_target: NodeMap<GlobalNodeId>,
     /// Maps `FieldAccess` and `StructValueField` nodes to the field index on a named struct.
     struct_fields: NodeMap<u32>,
@@ -215,7 +215,6 @@ impl CheckData {
 
     pub fn primitive(&self, ty: PrimitiveType) -> LocalTypeId {
         self.primitive_types.as_ref().unwrap()[ty]
-            .unwrap()
     }
 
     pub fn target_of(&self, path: NodeId) -> GlobalNodeId {
@@ -333,6 +332,7 @@ struct Impl<'a> {
 
 impl Impl<'_> {
     pub fn build_primitive_types(&mut self, hir: &Hir) {
+        assert!(self.package_id.is_std());
         let resolver = Resolver {
             discover_data: self.discover_data,
             resolve_data: &Default::default(),
@@ -340,7 +340,7 @@ impl Impl<'_> {
             package_id: PackageId::std(),
             packages: &Packages::default(),
         };
-        self.check_data.primitive_types = Some(Box::new(EnumMap::from(|ty| {
+        let map = Box::new(EnumMap::from(|ty| {
             use PrimitiveType::*;
             let path = match ty {
                 Bool => &["bool", "bool"][..],
@@ -362,13 +362,15 @@ impl Impl<'_> {
                 String => &["string", "String"][..],
                 Unit => &["Unit"][..],
             };
-            let node = resolver.resolve_in_package(path, None)
+            let (pkg, node) = resolver.resolve_in_package(path, None)
                 .node(NsKind::Type)
                 .unwrap();
-            assert!(node.0.is_std());
-            let ty = self.insert_typing(node.1, TypeData::Primitive(ty));
-            Some(ty.1)
-        })));
+            assert!(pkg.is_std());
+            let (pkg, ty) = self.insert_typing(node, TypeData::Primitive(ty));
+            assert!(pkg.is_std());
+            ty
+        }));
+        assert!(self.check_data.primitive_types.replace(map).is_none());
     }
 
     fn build_type(&mut self, node: NodeId, hir: &Hir) -> TypeId {
