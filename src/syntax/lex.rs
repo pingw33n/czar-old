@@ -111,6 +111,79 @@ pub enum Token {
     Hat,
 }
 
+impl std::fmt::Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use Token::*;
+        let s = match *self {
+            Eof => "<EOF>",
+            Unknown => "<unknown>",
+            Comment => "<comment>",
+            BlockClose(v) => match v {
+                Block::Paren => ")",
+                Block::Bracket => "]",
+                Block::Brace => "}",
+            },
+            BlockOpen(v) => match v {
+                Block::Paren => "(",
+                Block::Bracket => "[",
+                Block::Brace => "{",
+            },
+            Ident => "<identifier>",
+            Label => "<label>",
+            Keyword(v) => return write!(f, "{}", v),
+            Literal(v) => match v {
+                lex::Literal::Int => "<int literal>",
+                lex::Literal::Float => "<float literal>",
+                lex::Literal::String => "<string literal>",
+                lex::Literal::Char => "<char literal>",
+            },
+            Whitespace => "<whitespace>",
+            AmpAmp => "&&",
+            ColonColon => "::",
+            DotDot => "..",
+            DotDotDot => "...",
+            DotDotEq => "...=",
+            EqEq => "==",
+            ExclEq => "!=",
+            FatArrow => "=>",
+            GtEq => ">=",
+            GtGt => ">>",
+            LtEq => "<=",
+            LtLt => "<<",
+            RArrow => "->",
+            PlusEq => "+=",
+            MinusEq => "-=",
+            SlashEq => "/=",
+            StarEq => "*=",
+            PercentEq => "%=",
+            AmpEq => "&=",
+            PipeEq => "|=",
+            PipePipe => "||",
+            HatEq => "^=",
+            GtGtEq => ">>=",
+            LtLtEq => "<<=",
+            Amp => "&",
+            Colon => ":",
+            Comma => ",",
+            Dot => ".",
+            Eq => "=",
+            Lt => "<",
+            Gt => ">",
+            Minus => "-",
+            Percent => "%",
+            Pipe => "|",
+            Plus => "+",
+            Semi => ";",
+            Slash => "/",
+            Star => "*",
+            Excl => "!",
+            Quest => "?",
+            Hat => "^",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Keyword {
     As,
@@ -151,6 +224,53 @@ pub enum Keyword {
     Use,
     Where,
     While,
+}
+
+impl std::fmt::Display for Keyword {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use Keyword::*;
+        let s = match *self {
+            As => "as",
+            Break => "break",
+            Continue => "continue",
+            Const => "const",
+            Dyn => "dyn",
+            Else => "else",
+            Enum => "enum",
+            False => "false",
+            For => "for",
+            Fn => "fn",
+            If => "if",
+            In => "in",
+            Is => "is",
+            Impl => "impl",
+            Let => "let",
+            Loop => "loop",
+            Match => "match",
+            Mod => "mod",
+            Mut => "mut",
+            Package => "package",
+            Pub => "pub",
+            Ref => "ref",
+            Return => "return",
+            SelfLower => "self",
+            SelfUpper => "Self",
+            Static => "static",
+            Struct => "struct",
+            Super => "super",
+            Trait => "trait",
+            True => "true",
+            Try => "try",
+            Type => "type",
+            Underscore => "_",
+            Union => "union",
+            Unsafe => "unsafe",
+            Use => "use",
+            Where => "where",
+            While => "while",
+        };
+        write!(f, "{}", s)
+    }
 }
 
 impl FromStr for Keyword {

@@ -24,7 +24,7 @@ fn main() {
         "std".into(),
         PackageKind::Lib,
         packages,
-    ).unwrap();
+    ).map_err(|e| { eprintln!("{}", e); std::process::exit(1); }).unwrap();
     packages.insert(std.into());
 
     let path = std::env::args().nth(1).unwrap();
@@ -34,7 +34,7 @@ fn main() {
         "test".into(),
         PackageKind::Exe,
         packages,
-    ).unwrap();
+    ).map_err(|e| { eprintln!("{}", e); std::process::exit(1); }).unwrap();
     let test_pkg_id = test_pkg.id;
     packages.insert(test_pkg.into());
 

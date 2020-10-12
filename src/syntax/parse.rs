@@ -166,7 +166,7 @@ impl<'a> ParserImpl<'a> {
                     Token::Keyword(Keyword::Static) => unimplemented!(),
                     _ => {
                         return self.error(tok1.span,
-                            format!("expected `fn` or `static`, found `{:?}`", tok1.value));
+                            format!("expected `fn` or `static`, found `{}`", tok1.value));
                     }
                 }
             }
@@ -184,7 +184,7 @@ impl<'a> ParserImpl<'a> {
             _ => {
                 if let Some(vis) = vis {
                     return self.error(vis.span,
-                        format!("expected item after visibility modifier, found `{:?}`", tok0.value));
+                        format!("expected item after visibility modifier, found `{}`", tok0.value));
                 }
                 return Ok(None);
             }
@@ -206,7 +206,7 @@ impl<'a> ParserImpl<'a> {
                     || name.is_some() && tok.value != Token::BlockClose(lex::Block::Brace)
                 {
                     return self.error(tok.span,
-                        format!("expected item, found `{:?}`", tok.value));
+                        format!("expected item, found `{}`", tok.value));
                 }
                 break tok.span.end;
             }
@@ -318,11 +318,11 @@ impl<'a> ParserImpl<'a> {
         while self.lex.nth(0).value != Token::BlockClose(lex::Block::Paren) {
             if !delimited {
                 let tok = self.lex.nth(0);
-                return self.error(tok.span, format!("expected `,` but found `{:?}`", tok.value));
+                return self.error(tok.span, format!("expected `,` but found `{}`", tok.value));
             }
             if variadic.is_some() {
                 let tok = self.lex.nth(0);
-                return self.error(tok.span, format!("expected `)`, found `{:?}`", tok.value));
+                return self.error(tok.span, format!("expected `)`, found `{}`", tok.value));
             }
 
             if self.lex.nth(0).value == Token::DotDotDot {
@@ -335,7 +335,7 @@ impl<'a> ParserImpl<'a> {
                     let self_ = self.lex.maybe(Token::Keyword(Keyword::SelfLower));
                     if (ref_.is_some() || mut_.is_some()) && self_.is_none() {
                         let tok = self.lex.nth(0);
-                        return self.error(tok.span, format!("expected `self`, found `{:?}`", tok.value));
+                        return self.error(tok.span, format!("expected `self`, found `{}`", tok.value));
                     }
                     if let Some(self_) = self_ {
                         let ty = self.hir.insert_path_from_ident(self_.with_value(Ident::self_upper()));
@@ -421,7 +421,7 @@ impl<'a> ParserImpl<'a> {
         if actual.value == tok {
             Ok(actual)
         } else {
-            self.error(actual.span, format!("expected {:?} but found {:?}", tok, actual.value))
+            self.error(actual.span, format!("expected `{}` but found `{}`", tok, actual.value))
         }
     }
 
@@ -562,7 +562,7 @@ impl<'a> ParserImpl<'a> {
             Ok(v)
         } else {
             let tok = self.lex.nth(0);
-            return self.error(tok.span, format!("expected symbol path, found `{:?}`", tok.value));
+            return self.error(tok.span, format!("expected symbol path, found `{}`", tok.value));
         }
     }
 
@@ -589,7 +589,7 @@ impl<'a> ParserImpl<'a> {
                         return Ok(None);
                     } else {
                         let tok = self.lex.nth(0);
-                        return self.error(tok.span, format!("expected ident, found `{:?}`", tok.value));
+                        return self.error(tok.span, format!("expected ident, found `{}`", tok.value));
                     }
                 }
             };
@@ -700,7 +700,7 @@ impl<'a> ParserImpl<'a> {
                     break Some(tok.span.end);
                 }
                 _ => {
-                    return self.error(tok.span, format!("unexpected {:?}", tok.value));
+                    return self.error(tok.span, format!("unexpected {}", tok.value));
                 }
             };
             suffix.push(item);
@@ -711,7 +711,7 @@ impl<'a> ParserImpl<'a> {
             if self.lex.maybe(Token::Comma).is_none()
                 && self.lex.nth(0).value != Token::BlockClose(lex::Block::Brace)
             {
-                return self.error(tok.span, format!("unexpected {:?}", tok.value));
+                return self.error(tok.span, format!("unexpected `{}`", tok.value));
             }
         };
         if suffix.is_empty() {
@@ -761,7 +761,7 @@ impl<'a> ParserImpl<'a> {
                         }
                         _ => {
                             return self.error(tok.span,
-                                format!("unexpected {:?}", tok.value));
+                                format!("unexpected `{}`", tok.value));
                         }
                     }
                 }
@@ -802,7 +802,7 @@ impl<'a> ParserImpl<'a> {
                 }
                 _ => {
                     return self.error(tok.span,
-                        format!("expected `,` or `>`, found {:?}", tok.value));
+                        format!("expected `,` or `>`, found `{}`", tok.value));
                 }
             }
         }
@@ -835,7 +835,7 @@ impl<'a> ParserImpl<'a> {
                 }
                 _ if !seen_comma => {
                     return self.error(tok.span,
-                        format!("expected `,` or `>`, found {:?}", tok.value));
+                        format!("expected `,` or `>`, found `{}`", tok.value));
                 }
                 _ => {}
             }
@@ -889,7 +889,7 @@ impl<'a> ParserImpl<'a> {
             {
                 let tok = self.lex.nth(0);
                 return self.error(tok.span,
-                    format!("expected `}}` or `;`, found {:?}", tok.value));
+                    format!("expected expression, found `{}`", tok.value));
             }
         };
 
@@ -932,7 +932,7 @@ impl<'a> ParserImpl<'a> {
             .filter(|b| f(b.kind.value))
             .is_some()
         {
-            self.error(op.span, format!("associativity is not defined for `{:?}`", op.value))
+            self.error(op.span, format!("associativity is not defined for `{}`", op.value))
         } else {
             Ok(())
         }
@@ -943,7 +943,7 @@ impl<'a> ParserImpl<'a> {
             Ok(v)
         } else {
             let tok = self.lex.nth(0);
-            return self.error(tok.span, format!("expected expression, found {:?}", tok.value));
+            return self.error(tok.span, format!("expected expression, found `{}`", tok.value));
         }
     }
 
@@ -1370,7 +1370,7 @@ impl<'a> ParserImpl<'a> {
             }
             _ => {
                 return self.error(field.span,
-                    format!("expected field identifier or tuple field index, found `{:?}`", field.value));
+                    format!("expected field identifier or tuple field index, found `{}`", field.value));
             }
         };
         let span = self.hir.node_kind(receiver).span.extended(field.span.end);
@@ -1418,13 +1418,13 @@ impl<'a> ParserImpl<'a> {
                     Token::Comma => {},
                     Token::BlockClose(lex::Block::Paren) => break tok.span.end,
                     _ => return self.error(tok.span,
-                        format!("expected `,` or `)`, found {:?}", tok.value)),
+                        format!("expected `,` or `)`, found `{}`", tok.value)),
                 }
             } else {
                 if name.is_some() {
                     let tok = self.lex.nth(0);
                     return self.error(tok.span,
-                        format!("expected expression, found `{:?}`", tok.value));
+                        format!("expected expression, found `{}`", tok.value));
                 }
                 let tok = self.expect(Token::BlockClose(lex::Block::Paren))?;
                 break tok.span.end;
@@ -1443,7 +1443,7 @@ impl<'a> ParserImpl<'a> {
         let kind = if let Token::Literal(v) = tok.value {
             v
         } else {
-            return self.error(tok.span, format!("expected literal, found {:?}", tok.value))?;
+            return self.error(tok.span, format!("expected literal, found `{}`", tok.value))?;
         };
         let lit = match kind {
             lex::Literal::Int => {
@@ -1542,7 +1542,7 @@ impl<'a> ParserImpl<'a> {
         if self.lex.maybe(Token::BlockOpen(lex::Block::Brace)).is_none() {
             let tok = self.lex.nth(0);
             return self.error(tok.span,
-                format!("expected `for` or `{{`, found `{:?}`", tok.value));
+                format!("expected `for` or `{{`, found `{}`", tok.value));
         }
 
         let mut items = Vec::new();
@@ -1571,7 +1571,7 @@ impl<'a> ParserImpl<'a> {
         while self.lex.nth(0).value != Token::BlockClose(lex::Block::Brace) {
             if !delimited {
                 let tok = self.lex.nth(0);
-                return self.error(tok.span, format!("expected `,` or `}}` but found `{:?}`", tok.value));
+                return self.error(tok.span, format!("expected `,` or `}}` but found `{}`", tok.value));
             }
             let vis = if field_vis {
                 self.maybe_vis()
@@ -1692,7 +1692,7 @@ impl<'a> ParserImpl<'a> {
                     }
                     if !delimited {
                         let tok = self.lex.nth(0);
-                        return self.error(tok.span, format!("expected `,` or `}}` but found `{:?}`", tok.value));
+                        return self.error(tok.span, format!("expected `,` or `}}` but found `{}`", tok.value));
                     }
 
                     let name = if self.lex.nth(0).value == Token::Ident

@@ -48,6 +48,10 @@ impl Span {
             value,
         }
     }
+
+    pub fn is_empty(self) -> bool {
+        self.start >= self.end
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
