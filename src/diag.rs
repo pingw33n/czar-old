@@ -1,4 +1,5 @@
 use std::fmt::{Result, Write};
+use std::path::Path;
 
 use crate::hir::{self, SourceId, Sources};
 use crate::syntax::Span;
@@ -47,7 +48,7 @@ impl Diag {
         self.reports.truncate(state.len);
     }
 
-    pub fn print(&self, out: &mut impl Write, sources: &Sources) -> Result {
+    pub fn print(&self, base_dir: impl AsRef<Path>, out: &mut impl Write, sources: &Sources) -> Result {
         for (i, Report { severity, text, source }) in self.reports.iter().enumerate() {
             if i > 0 {
                 writeln!(out)?;
@@ -61,8 +62,10 @@ impl Diag {
                 let source = &sources[id];
                 // TODO build and use line index
                 let hi_line = HiLine::from_span(span, source);
+
+                let path = source.path.strip_prefix(base_dir.as_ref()).unwrap_or(&source.path);
                 writeln!(out, "  --> {}:{}:{}",
-                    source.path.to_string_lossy(),
+                    path.to_string_lossy(),
                     hi_line.num,
                     hi_line.col_start + 1)?;
                 hi_line.print(out, source)?;

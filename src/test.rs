@@ -72,6 +72,12 @@ struct Error {
 }
 
 fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) -> Result<(), Error> {
+    let run_stdout_txt = path.join("run.stdout.txt");
+    let stderr_txt = path.join("stderr.txt");
+    let run_stdout_txt_exists = run_stdout_txt.exists();
+    let stderr_txt_exists = stderr_txt.exists();
+    assert_ne!(run_stdout_txt_exists, stderr_txt_exists);
+
     let packages = &mut packages;
     let main: PathBuf = [path, &source_file_name("main")].iter().collect();
     let pkg = compile::compile(
@@ -80,58 +86,74 @@ fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) -> Result<(), 
         path.file_name().unwrap().to_str().unwrap().into(),
         PackageKind::Exe,
         packages,
-    ).unwrap();
-    let pkg_id = pkg.id;
-    packages.insert(pkg.into());
+    );
+    match pkg {
+        Ok(pkg) => {
+            assert!(!stderr_txt_exists);
 
-    let mut cg = codegen::Codegen::new(packages);
-    {
-        measure_time::print_time!("llvm ir");
-        cg.lower(pkg_id);
-    }
+            let pkg_id = pkg.id;
+            packages.insert(pkg.into());
 
-    println!("{}", cg);
+            let mut cg = codegen::Codegen::new(packages);
+            {
+                measure_time::print_time!("llvm ir");
+                cg.lower(pkg_id);
+            }
 
-    let tmp_dir = tempdir().unwrap();
+            println!("{}", cg);
 
-    let obj_path = tmp_dir.path().join("main.o");
-    {
-        measure_time::print_time!("llvm codegen");
+            let tmp_dir = tempdir().unwrap();
 
-        cg.emit_to_file(&obj_path, codegen::OutputFormat::Object).unwrap();
-    }
+            let obj_path = tmp_dir.path().join("main.o");
+            {
+                measure_time::print_time!("llvm codegen");
 
-    let run_stdout_txt = path.join("run.stdout.txt");
+                cg.emit_to_file(&obj_path, codegen::OutputFormat::Object).unwrap();
+            }
 
-    if run_stdout_txt.exists() {
-        let exe_path = tmp_dir.path().join("exe");
-        {
-            measure_time::print_time!("link time");
-            exec(Command::new("cc")
-                .arg(obj_path.to_str().unwrap())
-                .arg(glue_obj_path.to_str().unwrap())
-                .arg("-o")
-                .arg(exe_path.to_str().unwrap()));
+            let exe_path = tmp_dir.path().join("exe");
+            {
+                measure_time::print_time!("link time");
+                exec(Command::new("cc")
+                    .arg(obj_path.to_str().unwrap())
+                    .arg(glue_obj_path.to_str().unwrap())
+                    .arg("-o")
+                    .arg(exe_path.to_str().unwrap()));
+            }
+
+            let out = Command::new(exe_path.to_str().unwrap())
+                .output()
+                .unwrap();
+
+            let stdout_exp = fs::read_to_string(run_stdout_txt).unwrap();
+            let stdout_act = std::str::from_utf8(&out.stdout).unwrap();
+            if stdout_act != &stdout_exp {
+                return Err(Error {
+                    test_name: path.file_name().unwrap().to_string_lossy().into(),
+                    actual: stdout_act.into(),
+                    expected: stdout_exp,
+                });
+            }
         }
-
-        let out = Command::new(exe_path.to_str().unwrap())
-            .output()
-            .unwrap();
-
-        let stdout_exp = fs::read_to_string(run_stdout_txt).unwrap();
-        let stdout_act = std::str::from_utf8(&out.stdout).unwrap();
-        if stdout_act != &stdout_exp {
-            Err(Error {
-                test_name: path.file_name().unwrap().to_string_lossy().into(),
-                actual: stdout_act.into(),
-                expected: stdout_exp,
-            })
-        } else {
-            Ok(())
+        Err(err) => {
+            assert!(!run_stdout_txt_exists);
+            let stderr_exp = fs::read_to_string(stderr_txt).unwrap();
+            let stderr_act = err.to_string();
+            if stderr_act != stderr_exp {
+                return Err(Error {
+                    test_name: path.file_name().unwrap().to_string_lossy().into(),
+                    actual: stderr_act,
+                    expected: stderr_exp,
+                });
+            }
         }
-    } else {
-        Ok(())
     }
+
+
+
+
+
+    Ok(())
 }
 
 fn exec(cmd: &mut Command) {

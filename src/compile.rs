@@ -32,12 +32,13 @@ pub fn compile(
 ) -> Result<Package, Error> {
     let diag = &mut Diag::default();
 
+    let path = path.as_ref();
     let hir = match syntax::parse::parse_file(path, diag) {
         Ok(v) => v,
         Err(e) => match e.kind {
             ErrorKind::Io(io_err) => {
                 let mut s = String::new();
-                diag.print(&mut s, &e.sources).unwrap();
+                diag.print(path.parent().unwrap(), &mut s, &e.sources).unwrap();
                 use std::fmt::Write;
                 if !s.is_empty() {
                     writeln!(&mut s).unwrap();
@@ -47,7 +48,7 @@ pub fn compile(
             },
             ErrorKind::Lex | ErrorKind::Parse => {
                 let mut s = String::new();
-                diag.print(&mut s, &e.sources).unwrap();
+                diag.print(path.parent().unwrap(), &mut s, &e.sources).unwrap();
                 return Err(Error(s));
             },
         }
