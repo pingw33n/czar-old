@@ -596,7 +596,7 @@ impl<'a> ParserImpl<'a> {
 
             let ty_args = if self.lex.nth(0).value == Token::Lt {
                 // FIXME remove added HIR nodes when restoring state
-                let save = self.lex.save_state();
+                let save = self.save_state();
                 match self.path_ty_args() {
                     Ok(ty_args) => {
                         assert!(!ty_args.is_empty());
@@ -610,25 +610,25 @@ impl<'a> ParserImpl<'a> {
                                 | Token::Comma
                                 | Token::Dot
                                 => {
-                                    self.lex.discard_state(save);
+                                    self.discard_state(save);
                                     Ok(ty_args)
                                 }
                                 _ => {
-                                    self.lex.restore_state(save);
+                                    self.restore_state(save);
                                     Err(())
                                 }
                             }
                         } else {
-                            self.lex.discard_state(save);
+                            self.discard_state(save);
                             Ok(ty_args)
                         }
                     }
                     Err(e) => {
                         if in_type_pos {
-                            self.lex.discard_state(save);
+                            self.discard_state(save);
                             return Err(e);
                         }
-                        self.lex.restore_state(save);
+                        self.restore_state(save);
                         Err(())
                     }
                 }
@@ -1654,11 +1654,11 @@ impl<'a> ParserImpl<'a> {
             let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
             Probe::EmptyStruct { end }
         } else {
-            let save = if is_struct { None } else { Some(self.lex.save_state()) };
+            let save = if is_struct { None } else { Some(self.save_state()) };
             match self.expr(Default::default()) {
                 Ok(value) if is_struct || self.lex.nth(0).value == Token::Comma => {
                     if let Some(save) = save {
-                        self.lex.discard_state(save);
+                        self.discard_state(save);
                     }
                     Probe::StructStart {
                         first_field: self.hir.node_kind(value).span.spanned(StructValueField {
@@ -1675,7 +1675,7 @@ impl<'a> ParserImpl<'a> {
                     assert!(!is_struct);
                     if let Some(save) = save {
                         // FIXME remove added HIR nodes
-                        self.lex.restore_state(save);
+                        self.restore_state(save);
                     }
                     Probe::Block
                 }
@@ -1739,6 +1739,29 @@ impl<'a> ParserImpl<'a> {
             }
         })
     }
+
+    fn save_state(&mut self) -> SaveState {
+        let lex = self.lex.save_state();
+        let diag = self.diag.save_state();
+        SaveState {
+            lex,
+            diag,
+        }
+    }
+
+    fn restore_state(&mut self, state: SaveState) {
+        self.lex.restore_state(state.lex);
+        self.diag.restore_state(state.diag);
+    }
+
+    fn discard_state(&mut self, state: SaveState) {
+        self.lex.discard_state(state.lex);
+    }
+}
+
+struct SaveState {
+    lex: lex::SavedStateId,
+    diag: diag::SaveState,
 }
 
 fn read_file(fs: &mut dyn Fs, path: &StdPath) -> PResult<String> {

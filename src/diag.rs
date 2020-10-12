@@ -22,6 +22,10 @@ pub struct Report {
     pub source: Option<Source>,
 }
 
+pub struct SaveState {
+    len: usize,
+}
+
 #[derive(Default)]
 pub struct Diag {
     reports: Vec<Report>,
@@ -32,8 +36,15 @@ impl Diag {
         self.reports.push(report);
     }
 
-    pub fn reports(&self) -> &[Report] {
-        &self.reports
+    pub fn save_state(&self) -> SaveState {
+        SaveState {
+            len: self.reports.len(),
+        }
+    }
+
+    pub fn restore_state(&mut self, state: SaveState) {
+        assert!(self.reports.len() >= state.len);
+        self.reports.truncate(state.len);
     }
 
     pub fn print(&self, mut out: impl Write, sources: &Sources) -> Result {
