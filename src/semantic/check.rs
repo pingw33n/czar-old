@@ -156,7 +156,6 @@ pub struct FnType {
     pub args: Vec<TypeId>,
     pub result: TypeId,
     pub unsafe_: bool,
-    pub extern_: bool,
 }
 
 #[derive(Debug)]
@@ -267,7 +266,7 @@ impl Check<'_> {
         self.hir.traverse(tc);
         if let Some(entry_point) = self.resolve_data.entry_point() {
             match tc.unaliased_typing(entry_point).data() {
-                TypeData::Fn(FnType { args, result, unsafe_, extern_ }) => {
+                TypeData::Fn(FnType { args, result, unsafe_}) => {
                     if args.len() != 0 {
                         fatal(self.hir.node_kind(entry_point).span, "`main` function must not accept arguments");
                     }
@@ -277,7 +276,7 @@ impl Check<'_> {
                     if *unsafe_ {
                         fatal(self.hir.node_kind(entry_point).span, "`main` function must not be unsafe");
                     }
-                    if *extern_ {
+                    if self.hir.fn_decl(entry_point).body.is_none() {
                         fatal(self.hir.node_kind(entry_point).span, "`main` function must not be external");
                     }
                 }
@@ -487,7 +486,6 @@ impl Impl<'_> {
                     args,
                     ret_ty,
                     unsafe_,
-                    body,
                     .. } = ctx.hir.fn_decl(ctx.node);
                 let args: Vec<_> = args.iter()
                     .copied()
@@ -499,7 +497,6 @@ impl Impl<'_> {
                     args,
                     result,
                     unsafe_: unsafe_.is_some(),
-                    extern_: body.is_none(),
                 }));
             }
             NodeKind::Struct => {
