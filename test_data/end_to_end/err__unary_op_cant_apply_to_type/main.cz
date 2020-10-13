@@ -1,0 +1,6 @@
+fn neg() {
+    -"foo" + true;
+}
+
+fn main() {
+}

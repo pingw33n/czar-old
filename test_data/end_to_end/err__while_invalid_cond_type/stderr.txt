@@ -1,0 +1,29 @@
+error: invalid type of `while` condition: expected `bool`, found `{}`
+  --> main.cz:2:12
+2 |     while ({}) {}
+               ~~
+
+error: invalid type of `while` condition: expected `bool`, found `?integer`
+  --> main.cz:6:11
+6 |     while 0 {}
+              ~
+
+error: invalid type of `while` condition: expected `bool`, found `u128`
+  --> main.cz:10:11
+10 |     while 1u128 {}
+               ~~~~~
+
+error: invalid type of `while` condition: expected `bool`, found `?integer`
+  --> main.cz:14:11
+14 |     while 1 + 3 / 2 {}
+               ~~~~~~~~~
+
+error: invalid type of `while` condition: expected `bool`, found `?float`
+  --> main.cz:18:11
+18 |     while 1.0 * 10.0 {}
+               ~~~~~~~~~~
+
+error: invalid type of `while` condition: expected `bool`, found `String`
+  --> main.cz:22:11
+22 |     while "test" {}
+               ~~~~~~

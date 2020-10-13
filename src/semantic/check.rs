@@ -5,7 +5,9 @@ use if_chain::if_chain;
 use slab::Slab;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
+use crate::diag::{self, Diag, Severity};
 use crate::hir::{self, *};
 use crate::hir::traverse::*;
 use crate::package::{GlobalNodeId, PackageId, Packages};
@@ -108,6 +110,33 @@ impl PrimitiveType {
     }
 }
 
+impl std::fmt::Display for PrimitiveType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use PrimitiveType::*;
+        let s = match *self {
+            Bool => "bool",
+            F32 => "f32",
+            F64 => "f64",
+            I8 => "i8",
+            U8 => "u8",
+            I16 => "i16",
+            U16 => "u16",
+            I32 => "i32",
+            U32 => "u32",
+            I64 => "i64",
+            U64 => "u64",
+            I128 => "i128",
+            U128 => "u128",
+            ISize => "isize",
+            USize => "usize",
+            Unit => "{}",
+            Char => "char",
+            String => "String",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 #[derive(Debug)]
 pub struct Type {
     package_id: PackageId,
@@ -129,6 +158,7 @@ impl Type {
         self.data.as_ref().unwrap()
     }
 }
+
 
 #[derive(Debug, EnumAsInner)]
 pub enum TypeData {
@@ -187,7 +217,7 @@ impl CheckData {
         &mut self.types[id]
     }
 
-    pub fn insert_type(&mut self, node: GlobalNodeId, data: Option<TypeData>) -> TypeId {
+    fn insert_type(&mut self, node: GlobalNodeId, data: Option<TypeData>) -> TypeId {
         let e = self.types.vacant_entry();
         let id = e.key();
         e.insert(Type {
@@ -207,7 +237,7 @@ impl CheckData {
         self.typings.get(&node).copied()
     }
 
-    pub fn insert_typing(&mut self, node: NodeId, ty: TypeId) {
+    fn insert_typing(&mut self, node: NodeId, ty: TypeId) {
         assert!(self.typings.insert(node, ty).is_none());
     }
 
@@ -228,16 +258,22 @@ impl CheckData {
     }
 }
 
+#[derive(Debug)]
+pub struct CheckError(());
+
+pub type Result<T> = std::result::Result<T, CheckError>;
+
 pub struct Check<'a> {
     pub package_id: PackageId,
     pub hir: &'a Hir,
     pub discover_data: &'a DiscoverData,
     pub resolve_data: &'a ResolveData,
     pub packages: &'a Packages,
+    pub diag: Rc<RefCell<Diag>>,
 }
 
-impl Check<'_> {
-    pub fn run(self) -> CheckData {
+impl<'a> Check<'a> {
+    pub fn run(self) -> Result<CheckData> {
         let mut check_data = CheckData::default();
 
         let mut unnamed_structs = HashMap::new();
@@ -247,7 +283,7 @@ impl Check<'_> {
             }
         }
 
-        let tc = &mut Impl {
+        let imp = &mut Impl {
             discover_data: self.discover_data,
             resolve_data: self.resolve_data,
             check_data: &mut check_data,
@@ -259,38 +295,43 @@ impl Check<'_> {
             type_id_set: Default::default(),
             unnamed_structs,
             hir: self.hir,
+            diag: self.diag,
+            errors: Default::default(),
         };
         if self.package_id.is_std() {
-            tc.build_primitive_types();
+            imp.build_primitive_types();
         }
-        self.hir.traverse(tc);
-        if let Some(entry_point) = self.resolve_data.entry_point() {
-            match tc.unaliased_typing(entry_point).data() {
-                TypeData::Fn(FnType { args, result, unsafe_}) => {
-                    if args.len() != 0 {
-                        fatal(self.hir.node_kind(entry_point).span, "`main` function must not accept arguments");
+        self.hir.traverse(imp);
+        if !imp.errors.borrow().fatal_in_mod {
+            if let Some(entry_point) = self.resolve_data.entry_point() {
+                match imp.unaliased_typing(entry_point).data() {
+                    TypeData::Fn(FnType { args, result, unsafe_ }) => {
+                        assert_eq!(args.len(), 0);
+                        if !matches!(imp.unalias_type(*result).data(), TypeData::Primitive(PrimitiveType::Unit)) {
+                            let node = self.hir.fn_decl(entry_point).ret_ty.unwrap();
+                            imp.fatal(node, "`main` function must have unit return type".into());
+                        }
+                        if *unsafe_ {
+                            let span = self.hir.fn_decl(entry_point).unsafe_.unwrap().span;
+                            imp.fatal_span(entry_point, span, "`main` function must not be unsafe".into());
+                        }
+                        if self.hir.fn_decl(entry_point).body.is_none() {
+                            imp.fatal(entry_point, "`main` function must not be external".into());
+                        }
                     }
-                    if !matches!(tc.unalias_type(*result).data(), TypeData::Primitive(PrimitiveType::Unit)) {
-                        fatal(self.hir.node_kind(entry_point).span, "`main` function must have unit return type");
-                    }
-                    if *unsafe_ {
-                        fatal(self.hir.node_kind(entry_point).span, "`main` function must not be unsafe");
-                    }
-                    if self.hir.fn_decl(entry_point).body.is_none() {
-                        fatal(self.hir.node_kind(entry_point).span, "`main` function must not be external");
-                    }
-                }
-                _ => {
-                    let node_kind = self.hir.node_kind(entry_point);
-                    fatal(node_kind.span, format_args!("expected `main` function, but found {:?}",
-                        node_kind.value));
+                    _ => unreachable!(),
                 }
             }
         }
+        let has_errors = imp.errors.borrow().has;
         for (_, ty) in &check_data.types {
             assert!(ty.data.is_some(), "{:?} {:?}", ty, self.hir.node_kind(ty.node));
         }
-        check_data
+        if has_errors {
+            Err(CheckError(()))
+        } else {
+            Ok(check_data)
+        }
     }
 }
 
@@ -315,6 +356,21 @@ impl UnnamedStructKey {
     }
 }
 
+#[derive(Default)]
+struct Errors {
+    /// Has any errors including non-fatal.
+    has: bool,
+
+    /// Has fatal module-level errors.
+    /// When this is becomes `true`, no more checking is performed.
+    fatal_in_mod: bool,
+
+    /// Has fatal function-level errors.
+    /// When a fatal error reported inside function body, no more checking of that function body is
+    /// done.
+    fatal_in_fn_decls: NodeMap<()>,
+}
+
 struct Impl<'a> {
     discover_data: &'a DiscoverData,
     resolve_data: &'a ResolveData,
@@ -328,6 +384,8 @@ struct Impl<'a> {
     /// Unnamed structs across all packages.
     unnamed_structs: HashMap<UnnamedStructKey, TypeId>,
     hir: &'a Hir,
+    diag: Rc<RefCell<Diag>>,
+    errors: RefCell<Errors>,
 }
 
 impl Impl<'_> {
@@ -484,10 +542,16 @@ impl Impl<'_> {
         match ctx.kind {
             NodeKind::FnDecl => {
                 let FnDecl {
+                    name,
                     args,
                     ret_ty,
                     unsafe_,
+                    body,
                     .. } = ctx.hir.fn_decl(ctx.node);
+                if body.is_none() && unsafe_.is_none() {
+                    self.error_span(ctx.node, name.span,
+                        "external function must be marked as `unsafe`".into());
+                }
                 let args: Vec<_> = args.iter()
                     .copied()
                     .map(|n| self.build_type(n))
@@ -535,20 +599,23 @@ impl Impl<'_> {
         match ctx.kind {
             NodeKind::FnDecl => {
                 let FnDecl {
+                    name,
                     ret_ty,
                     body,
                     .. } = ctx.hir.fn_decl(ctx.node);
-                let formal_ret_ty = ret_ty
+                let expected_ret_ty = ret_ty
                     .map(|n| self.unaliased_typing(n).id())
                     .unwrap_or(self.primitive_type(PrimitiveType::Unit));
                 if let Some(body) = *body {
-                    self.unify(self.check_data.typing(body), formal_ret_ty);
+                    self.unify(self.check_data.typing(body), expected_ret_ty);
+                    let actual_ret_ty = self.unaliased_typing(body).id();
 
-                    let actual_ret_ty = self.unaliased_typing(body);
-                    if actual_ret_ty.id() != formal_ret_ty {
-                        let span = ctx.hir.node_kind(ctx.node).span;
-                        fatal(span, format_args!("`fn` actual type {:?} is incompatible with formal return type {:?}",
-                            actual_ret_ty, self.unalias_type(formal_ret_ty)));
+                    if actual_ret_ty != expected_ret_ty {
+                        let node = *ctx.hir.block(body).exprs.last().unwrap();
+                        self.fatal(node, format!("mismatching return types: function `{fname}::{fargs}` expects `{exp}`, found `{act}`",
+                            fname=name.value, fargs=FnArgsKey::from_decl(ctx.node, ctx.hir),
+                            exp=self.display_type(expected_ret_ty),
+                            act=self.display_type(actual_ret_ty)));
                     }
                     self.handle_unknown_num_types();
                 }
@@ -580,56 +647,10 @@ impl Impl<'_> {
             NodeKind::FieldAccess => {
                 let hir::FieldAccess { receiver, field } = ctx.hir.field_access(ctx.node);
                 let struct_ty = self.check_data.typing(*receiver);
-                self.resolve_struct_field(struct_ty, ctx.node, field)
+                self.resolve_struct_field(Some(*receiver), struct_ty, ctx.node, field)
+                    .unwrap_or_else(|| self.primitive_type(PrimitiveType::Unit))
             }
-            NodeKind::FnCall => {
-                let FnCall {
-                    callee,
-                    kind,
-                    args: actual_args,
-                    .. } = ctx.hir.fn_call(ctx.node);
-                let (callee_node, res) = {
-                    let callee_ty = self.unaliased_typing(*callee);
-                    if *kind != FnCallKind::Free {
-                        unimplemented!();
-                    }
-                    let res = if let Some(v) = callee_ty.data().as_fn() {
-                        v.result
-                    } else {
-                        let span = ctx.hir.node_kind(*callee).span;
-                        fatal(span, "expected function");
-                    };
-                    let callee_node = callee_ty.node();
-                    (callee_node, res)
-                };
-
-                let formal_args = self.hir(callee_node.0).fn_decl(callee_node.1).args.clone();
-
-                if actual_args.len() != formal_args.len() {
-                    let name = &self.discover_data(callee_node.0).fn_name(callee_node.1).value;
-                    fatal(ctx.hir.node_kind(ctx.node).span, format!(
-                        "`fn`: `{}`: invalid number of actual parameters: expected {}, found {}",
-                        name,
-                        formal_args.len(), actual_args.len()));
-                }
-
-                for (actual, &formal) in actual_args
-                    .iter()
-                    .zip(formal_args.iter())
-                {
-                    self.unify(self.check_data.typing(actual.value), self.check_data(callee_node.0).typing(formal));
-
-                    let formal_ty = self.unalias_type(self.check_data(callee_node.0).typing(formal));
-                    let actual_ty = self.unaliased_typing(actual.value);
-                    if actual_ty.id() != formal_ty.id() {
-                        fatal(ctx.hir.node_kind(actual.value).span, format!(
-                            "`fn`: incompatible actual `{:?}` and formal `{:?}` arg types",
-                            actual_ty, formal_ty));
-                    }
-                }
-
-                res
-            }
+            NodeKind::FnCall => self.type_fn_call(&ctx),
             NodeKind::FnDecl => {
                 unreachable!()
             }
@@ -638,15 +659,22 @@ impl Impl<'_> {
             }
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
-                if !matches!(self.unaliased_typing(cond).data(), TypeData::Primitive(PrimitiveType::Bool)) {
-                    let span = ctx.hir.node_kind(cond).span;
-                    fatal(span, "expected bool expr");
+                let actual_cond_ty = self.unaliased_typing(cond);
+                if !matches!(actual_cond_ty.data(), TypeData::Primitive(PrimitiveType::Bool)) {
+                    self.fatal(cond, format!(
+                        "invalid type of `if` condition: expected `bool`, found `{}`",
+                        self.display_type(actual_cond_ty.id())));
                 }
                 let if_true_ty = self.check_data.typing(if_true);
                 if let Some(if_false) = if_false {
-                    if self.check_data.typing(if_false) != if_true_ty {
-                        let span = ctx.hir.node_kind(cond).span;
-                        fatal(span, "`if` arms have incompatible types");
+                    let if_false_ty = self.check_data.typing(if_false);
+                    self.unify(if_true_ty, if_false_ty);
+                    let if_true_ty = self.unalias_type(if_true_ty).id();
+                    let if_false_ty = self.unalias_type(if_false_ty).id();
+                    if if_true_ty != if_false_ty {
+                        self.fatal(ctx.node, format!("mismatching types of `if` arms: `{}`, `{}`",
+                            self.display_type(if_true_ty),
+                            self.display_type(if_false_ty)));
                     }
                 }
                 if_true_ty
@@ -663,15 +691,18 @@ impl Impl<'_> {
 
                     let typ = self.check_data.typing(ty);
                     if let Some(init) = init {
-                        if self.unaliased_typing(init).id() != self.unalias_type(typ).id() {
-                            fatal(ctx.hir.node_kind(ty).span, "formal and actual variable types differ");
+                        let actual = self.unaliased_typing(init).id();
+                        let expected = self.unalias_type(typ).id();
+                        if actual != expected {
+                            self.fatal(init, format!("mismatching types: expected `{}`, found `{}`",
+                                self.display_type(expected), self.display_type(actual)));
                         }
                     }
                     typ
                 } else if let Some(init) = init {
                     self.check_data.typing(init)
                 } else {
-                    fatal(ctx.hir.node_kind(ctx.node).span, "can't infer variable type");
+                    self.fatal(ctx.node, "can't infer variable type".into())
                 }
             }
             NodeKind::Literal => {
@@ -787,63 +818,33 @@ impl Impl<'_> {
                     } else {
                         ctx.hir.node_kind(field.value).span.spanned(Field::Index(i as u32))
                     };
-                    let formal_ty = self.resolve_struct_field(ty, field_node, &f);
+                    let expected_ty = if let Some(v) = self.resolve_struct_field(None, ty, field_node, &f) {
+                        v
+                    } else {
+                        continue;
+                    };
                     // No point in checking types for unnamed struct since it's been defined by the
                     // actual types.
                     if name.is_some() {
-                        let formal_ty = self.unalias_type(formal_ty).id();
+                        let expected_ty = self.unalias_type(expected_ty).id();
 
+                        self.unify(self.check_data.typing(field_node), expected_ty);
                         let actual_ty = self.unaliased_typing(field_node).id();
-                        let actual_ty = self.unify(formal_ty, actual_ty).unwrap();
 
-                        if formal_ty != actual_ty {
-                            let formal_ty = self.type_(formal_ty);
-                            let actual_ty = self.type_(actual_ty);
-                            let span = self.hir(actual_ty.node().0).node_kind(actual_ty.node().1).span;
-                            fatal(span, format_args!("struct actual and formal types differ for field `{:?}`: actual: {:?}, formal: {:?}",
-                                f.value, actual_ty.data(), formal_ty.data()));
+                        if expected_ty != actual_ty {
+                            let text = format!(
+                                "mismatching types in struct `{struct_ty}` field `{field}`: expected `{exp}`, found `{act}`",
+                                struct_ty = self.display_type(ty),
+                                field = f.value,
+                                exp = self.display_type(expected_ty),
+                                act = self.display_type(actual_ty));
+                            self.fatal(field.value, text);
                         }
                     }
                 }
                 ty
             }
-            NodeKind::PathEndIdent => {
-                let reso = self.resolve_data.resolution_of(ctx.node);
-                assert!(!reso.is_empty());
-                let reso_ctx = self.reso_ctx();
-                let expected_ns_kind = match reso_ctx {
-                    ResoCtx::Import => None,
-                    ResoCtx::Type => Some(NsKind::Type),
-                    ResoCtx::Value => Some(NsKind::Value),
-                };
-                let (pkg, node) = if_chain! {
-                    if let Some(node) = reso.node(expected_ns_kind.unwrap_or(reso.type_or_other_kind().unwrap()));
-                    let kind = self.hir(node.0).node_kind(node.1).value;
-                    if is_valid_in_reso_ctx(kind, reso_ctx);
-                    then {
-                        node
-                    } else {
-                        let found = reso.type_or_other().unwrap();
-                        let found_kind = self.hir(found.0).node_kind(found.1).value;
-                        if let Some(expected_ns_kind) = expected_ns_kind {
-                            fatal(ctx.hir.node_kind(ctx.node).span,
-                                format_args!("expected {:?}, found {:?}", expected_ns_kind, found_kind));
-                        } else {
-                            fatal(ctx.hir.node_kind(ctx.node).span,
-                                format_args!("{:?} can't be imported", found_kind));
-                        }
-                    }
-                };
-                if reso_ctx == ResoCtx::Import {
-                    return;
-                }
-                self.check_data.insert_path_to_target(ctx.node, (pkg, node));
-                if pkg == self.package_id {
-                    self.build_type(node)
-                } else {
-                    self.packages[pkg].check_data.typing(node)
-                }
-            }
+            NodeKind::PathEndIdent => self.type_path_end_ident(&ctx),
             NodeKind::PathSegment => {
                 if_chain! {
                     if self.reso_ctx() != ResoCtx::Import;
@@ -880,8 +881,11 @@ impl Impl<'_> {
             NodeKind::While
             => {
                 let cond = ctx.hir.while_(ctx.node).cond;
-                if !matches!(self.unaliased_typing(cond).data(), TypeData::Primitive(PrimitiveType::Bool)) {
-                    fatal(ctx.hir.node_kind(cond).span, "expected bool expr");
+                let actual_cond_ty = self.unaliased_typing(cond);
+                if !matches!(actual_cond_ty.data(), TypeData::Primitive(PrimitiveType::Bool)) {
+                    self.fatal(cond, format!(
+                        "invalid type of `while` condition: expected `bool`, found `{}`",
+                        self.display_type(actual_cond_ty.id())));
                 }
                 self.primitive_type(PrimitiveType::Unit)
             },
@@ -898,10 +902,11 @@ impl Impl<'_> {
         use BinaryOpKind::*;
         match kind.value {
             Assign => {
-                if left_ty.id != right_ty.id {
-                    let op_span = ctx.hir.node_kind(ctx.node).span;
-                    fatal(op_span, format_args!("can't assign `{:?}` to `{:?}`",
-                        right_ty, left_ty));
+                if left_ty.id() != right_ty.id() {
+                    self.fatal(right, format!(
+                        "mismatching types: expected `{}`, found `{}`",
+                        self.display_type(left_ty.id()),
+                        self.display_type(right_ty.id())));
                 }
                 self.primitive_type(PrimitiveType::Unit)
             }
@@ -918,9 +923,11 @@ impl Impl<'_> {
                     _ => false,
                 };
                 if !ok {
-                    let op_span = ctx.hir.node_kind(ctx.node).span;
-                    fatal(op_span, format_args!("operation `{}` at is not defined for {:?} and {:?}",
-                        kind.value, left_ty, right_ty));
+                    self.fatal_span(ctx.node, kind.span, format!(
+                        "binary operation `{}` can't be applied to types `{}`, `{}`",
+                        kind.value,
+                        self.display_type(left_ty.id()),
+                        self.display_type(right_ty.id())));
                 }
                 self.primitive_type(PrimitiveType::Bool)
             },
@@ -932,9 +939,11 @@ impl Impl<'_> {
                     _ => false,
                 };
                 if !ok {
-                    let op_span = ctx.hir.node_kind(ctx.node).span;
-                    fatal(op_span, format_args!("operation `{}` is not defined for {:?} and {:?}",
-                        kind.value, left_ty, right_ty));
+                    self.fatal_span(ctx.node, kind.span, format!(
+                        "binary operation `{}` can't be applied to types `{}`, `{}`",
+                        kind.value,
+                        self.display_type(left_ty.id()),
+                        self.display_type(right_ty.id())));
                 }
                 left_ty.id()
             }
@@ -953,9 +962,9 @@ impl Impl<'_> {
                     _ => false,
                 };
                 if !ok {
-                    let op_span = ctx.hir.node_kind(ctx.node).span;
-                    fatal(op_span, format_args!("unary operation `{}` is not defined for {:?}",
-                        kind.value, arg_ty));
+                    self.fatal_span(ctx.node, kind.span, format!(
+                        "unary operation `{}` can't be applied to type `{}`",
+                        kind.value, self.display_type(arg_ty.id())));
                 }
                 arg_ty.id()
             }
@@ -963,25 +972,25 @@ impl Impl<'_> {
         }
     }
 
-    fn unify(&mut self, ty1: TypeId, ty2: TypeId) -> Option<TypeId> {
+    fn unify(&mut self, ty1: TypeId, ty2: TypeId) {
         if ty1 == ty2 {
-            return Some(ty1);
+            return;
         }
         let (ty, to_type) = {
             let ty1 = self.unalias_type(ty1);
             if ty1.id() == ty2 {
-                return Some(ty2);
+                return;
             }
             let ty2 = self.unalias_type(ty2);
             if ty1.id() == ty2.id() {
-                return Some(ty1.id());
+                return;
             }
             use TypeData::*;
             match (ty1.data(), ty2.data()) {
                 (&UnknownNumber(num), Primitive(pt)) if pt.as_number() == Some(num) => (ty1.id(), ty2.id()),
                 (Primitive(pt), &UnknownNumber(num)) if pt.as_number() == Some(num) => (ty2.id(), ty1.id()),
                 (UnknownNumber(l), UnknownNumber(r)) if l == r => (ty1.id(), ty2.id()),
-                _ => return None,
+                _ => return,
             }
         };
         assert_eq!(ty.0, self.package_id);
@@ -989,7 +998,6 @@ impl Impl<'_> {
         assert!(typ.data().as_unknown_number().is_some());
         assert!(self.unknown_num_types.remove(&ty.1));
         typ.data = Some(TypeData::Type(to_type));
-        Some(to_type)
     }
 
     fn handle_unknown_num_types(&mut self) {
@@ -1023,17 +1031,20 @@ impl Impl<'_> {
     }
 
     fn resolve_struct_field(&mut self,
+        receiver: Option<NodeId>,
         struct_ty: TypeId,
         field_node: NodeId,
         field: &S<Field>,
-    ) -> TypeId {
+    ) -> Option<TypeId> {
         let (idx, ty) = {
             let struct_ty = self.unalias_type(struct_ty);
             let field_tys = if let Some(StructType { fields }) = struct_ty.data().as_struct() {
                 fields
             } else {
-                let span = self.hir(struct_ty.package_id).node_kind(struct_ty.node).span;
-                fatal(span, format_args!("expected struct, found `{:?}`", struct_ty));
+                self.fatal(receiver.unwrap(), format!(
+                    "expected expression of struct type, found `{}`",
+                    self.display_type(struct_ty.id())));
+                return None;
             };
 
             let struct_hir = self.hir(struct_ty.package_id);
@@ -1058,29 +1069,23 @@ impl Impl<'_> {
                 _ => unreachable!()
             };
 
-            let struct_node = self.discover_data(struct_ty.package_id).parent_of(struct_ty.node);
-            let name = struct_hir.try_struct(struct_node)
-                .map(|v| v.name.value.as_str())
-                .unwrap_or("<unnamed>");
-
             let idx = match &field.value {
                 Field::Ident(ident) => {
-                    if field_count > 0 && field_names.is_empty() {
-                        fatal(field.span, format_args!("`{}` is a tuple struct", name));
-                    }
                     if let Some(&i) = field_names.get(ident) {
                         i as u32
                     } else {
-                        fatal(field.span, format_args!("unknown struct field `{}` in `{}`",
-                            ident, name));
+                        self.fatal_span(field_node, field.span, format!(
+                            "unknown field `{}` on struct `{}`",
+                            ident, self.display_type(struct_ty.id())));
+                        return None;
                     }
                 }
                 &Field::Index(i) => {
-                    if !field_names.is_empty() {
-                        fatal(field.span, format_args!("`{}` is not a tuple struct", name));
-                    }
-                    if i as usize >= field_count {
-                        fatal(field.span, format_args!("unknown field `{}` in `{}`", i, name));
+                    if !field_names.is_empty() || i as usize >= field_count {
+                        self.fatal_span(field_node, field.span, format!(
+                            "unknown field `{}` on struct `{}`",
+                            i, self.display_type(struct_ty.id())));
+                        return None;
                     }
                     i
                 }
@@ -1088,7 +1093,7 @@ impl Impl<'_> {
             (idx, field_tys[idx as usize])
         };
         assert!(self.check_data.struct_fields.insert(field_node, idx).is_none());
-        ty
+        Some(ty)
     }
 
     fn unnamed_struct(&mut self, node: NodeId, key: UnnamedStructKey) -> TypeId {
@@ -1104,10 +1109,282 @@ impl Impl<'_> {
             ty
         }
     }
+
+    fn error(&self, node: NodeId, text: String) -> TypeId {
+        let span = self.hir.node_kind(node).span;
+        self.error_span(node, span, text)
+    }
+
+    fn error_span(&self, node: NodeId, span: Span, text: String) -> TypeId {
+        let id = {
+            let mut n = node;
+            loop {
+                n = self.discover_data.module_of(n);
+                if let Some(id) = self.hir.module(n).source_id {
+                    break id;
+                }
+            }
+        };
+
+        self.diag.borrow_mut().report(diag::Report {
+            severity: Severity::Error,
+            text,
+            source: Some(diag::Source {
+                id,
+                span,
+            })
+        });
+
+        self.errors.borrow_mut().has = true;
+        self.primitive_type(PrimitiveType::Unit)
+    }
+
+    fn fatal(&self, node: NodeId, text: String) -> TypeId {
+        let span = self.hir.node_kind(node).span;
+        self.fatal_span(node, span, text)
+    }
+
+    fn fatal_span(&self, node: NodeId, span: Span, text: String) -> TypeId {
+        let r = self.error_span(node, span, text);
+        if let Some(fn_decl) = self.discover_data.try_fn_decl_of(node) {
+            self.errors.borrow_mut().fatal_in_fn_decls.insert(fn_decl, ());
+        } else {
+            self.errors.borrow_mut().fatal_in_mod = true;
+        }
+        r
+    }
+
+    fn display_type<'a>(&'a self, ty: TypeId) -> impl std::fmt::Display + 'a {
+        struct Display<'a> {
+            this: &'a Impl<'a>,
+            ty: TypeId,
+        }
+        impl std::fmt::Display for Display<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                self.this.display_type0(self.ty, f)
+            }
+        }
+        Display {
+            this: self,
+            ty,
+        }
+    }
+
+    fn display_type0(&self, ty: TypeId, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.display_type1(self.type_(ty), f)
+    }
+
+    fn display_type1(&self, ty: &Type, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match &ty.data {
+            Some(v) => {
+                match v {
+                    TypeData::Fn(FnType { args, result, unsafe_ }) => {
+                        if *unsafe_ {
+                            write!(f, "unsafe ")?;
+                        }
+                        write!(f, "fn(")?;
+                        for (i, &arg) in args.iter().enumerate() {
+                            if i > 0 {
+                                write!(f, ", ")?;
+                            }
+                            self.display_type0(arg, f)?;
+                        }
+                        write!(f, ")")?;
+                        if !matches!(self.type_(*result).data().as_primitive(), Some(PrimitiveType::Unit)) {
+                            write!(f, " -> ")?;
+                            self.display_type0(*result, f)?;
+                        }
+                        Ok(())
+                    }
+                    &TypeData::Primitive(v) => write!(f, "{}", v),
+                    TypeData::Struct(StructType { fields: field_tys }) => {
+                        if let Some(Struct { name , ty_args, .. }) = self.hir.try_struct(self.discover_data.parent_of(ty.node)) {
+                            write!(f, "{}", name.value)?;
+                            if !ty_args.is_empty() {
+                                todo!();
+                            }
+                        } else if let Some(hir::StructType { fields }) = self.hir.try_struct_type(ty.node) {
+                            assert_eq!(fields.len(), field_tys.len());
+                            let mut fields: Vec<_> = fields.iter().zip(field_tys.iter())
+                                .map(|(f, ty)| (f.name.as_ref().map(|v| v.value.clone()), *ty))
+                                .collect();
+                            let tuple = fields.first().map(|(n, _)| n.is_some()) != Some(true);
+                            if !tuple {
+                                fields.sort_by(|(n1, _), (n2, _)| n1.as_ref().unwrap().cmp(n2.as_ref().unwrap()));
+                            }
+                            write!(f, "{{")?;
+                            for (i, (name, ty)) in fields.iter().enumerate() {
+                                if i > 0 {
+                                    write!(f, ", ")?;
+                                }
+                                if let Some(name) = name {
+                                    write!(f, "{}: ", name)?;
+                                }
+                                self.display_type0(*ty, f)?;
+                            }
+                            if tuple && fields.len() == 1 {
+                                write!(f, ",")?;
+                            }
+                            write!(f, "}}")?;
+                        } else {
+                            let fields = &self.hir.struct_value(ty.node).fields;
+                            // TODO can this be deduped with hir::StructType code above?
+                            assert_eq!(fields.len(), field_tys.len());
+                            let mut fields: Vec<_> = fields.iter().zip(field_tys.iter())
+                                .map(|(&f, &ty)| (self.hir.struct_value_field(f).name.as_ref().map(|v| v.value.clone()), ty))
+                                .collect();
+                            let tuple = fields.first().map(|(n, _)| n.is_some()) != Some(true);
+                            if !tuple {
+                                fields.sort_by(|(n1, _), (n2, _)| n1.as_ref().unwrap().cmp(n2.as_ref().unwrap()));
+                            }
+                            write!(f, "{{")?;
+                            for (i, (name, ty)) in fields.iter().enumerate() {
+                                if i > 0 {
+                                    write!(f, ", ")?;
+                                }
+                                if let Some(name) = name {
+                                    write!(f, "{}: ", name)?;
+                                }
+                                self.display_type0(*ty, f)?;
+                            }
+                            if tuple && fields.len() == 1 {
+                                write!(f, ",")?;
+                            }
+                            write!(f, "}}")?;
+                        }
+                        Ok(())
+                    }
+                    &TypeData::Type(ty) => self.display_type0(ty, f),
+                    &TypeData::UnknownNumber(v) => match v {
+                        NumberType::Int => write!(f, "?integer"),
+                        NumberType::Float => write!(f, "?float"),
+                    }
+                }
+            }
+            None => write!(f, "?unknown")
+        }
+    }
+
+    fn type_fn_call(&mut self, ctx: &HirVisitorCtx) -> TypeId {
+        let FnCall {
+            callee,
+            kind,
+            args: actual_args,
+            .. } = ctx.hir.fn_call(ctx.node);
+        let (fn_decl_node, res) = {
+            let callee_ty = self.unaliased_typing(*callee);
+            if *kind != FnCallKind::Free {
+                unimplemented!();
+            }
+            let res = if let Some(v) = callee_ty.data().as_fn() {
+                v.result
+            } else {
+                return self.fatal(*callee, format!(
+                    "invalid callee type: expected function, found `{}`",
+                    self.display_type(callee_ty.id())));
+            };
+            let fn_decl_node = callee_ty.node();
+            (fn_decl_node, res)
+        };
+
+        let expected_args = self.hir(fn_decl_node.0).fn_decl(fn_decl_node.1).args.clone();
+        assert_eq!(actual_args.len(), expected_args.len());
+
+        for (actual, &expected) in actual_args
+            .iter()
+            .zip(expected_args.iter())
+        {
+            self.unify(self.check_data.typing(actual.value), self.check_data(fn_decl_node.0).typing(expected));
+
+            let expected_ty = self.unalias_type(self.check_data(fn_decl_node.0).typing(expected)).id();
+            let actual_ty = self.unaliased_typing(actual.value).id();
+            if actual_ty != expected_ty {
+                let hir = self.hir(fn_decl_node.0);
+                let name = &hir.fn_decl(fn_decl_node.1).name.value;
+                self.fatal(actual.value, format!(
+                    "mismatching types in fn call of `{fname}::{fargs}`: expected `{exp}`, found `{act}`",
+                    fname=name, fargs=FnArgsKey::from_decl(fn_decl_node.1, hir),
+                    exp=self.display_type(expected_ty), act=self.display_type(actual_ty)));
+            }
+        }
+
+        res
+    }
+
+    fn describe_named(&self, node: GlobalNodeId) -> String {
+        let hir = self.hir(node.0);
+        let kind = hir.node_kind(node.1).value;
+        match kind {
+            NodeKind::FnDecl => format!("function `{}`", hir.fn_decl(node.1).name.value),
+            NodeKind::LetDecl => format!("variable `{}`", hir.let_decl(node.1).name.value),
+            NodeKind::Module => format!("module `{}`", hir.module(node.1).name.as_ref().unwrap().name.value),
+            NodeKind::Struct => {
+                let prim = if node.0.is_std() {
+                    let cd = &self.packages[PackageId::std()].check_data;
+                    let ty = cd.typing(node.1);
+                    assert!(ty.0.is_std());
+                    cd.type_(ty.1).data().as_primitive().is_some()
+                } else {
+                    false
+                };
+                let kind = if prim {
+                    "primitive type"
+                } else {
+                    "struct type"
+                };
+                format!("{} `{}`", kind, hir.struct_(node.1).name.value)
+            },
+            _ => unreachable!("{:?}", kind),
+        }
+    }
+
+    fn type_path_end_ident(&mut self, ctx: &HirVisitorCtx) -> TypeId {
+        let reso = self.resolve_data.resolution_of(ctx.node);
+        assert!(!reso.is_empty());
+        let reso_ctx = self.reso_ctx();
+        let expected_ns_kind = match reso_ctx {
+            ResoCtx::Import => None,
+            ResoCtx::Type => Some(NsKind::Type),
+            ResoCtx::Value => Some(NsKind::Value),
+        };
+        let (pkg, node) = if_chain! {
+            if let Some(node) = reso.node(expected_ns_kind.unwrap_or(reso.type_or_other_kind().unwrap()));
+            let kind = self.hir(node.0).node_kind(node.1).value;
+            if is_valid_in_reso_ctx(kind, reso_ctx);
+            then {
+                node
+            } else {
+                let found = reso.type_or_other().unwrap();
+                let found = self.describe_named(found);
+                return if let Some(expected_ns_kind) = expected_ns_kind {
+                    let exp_str = match expected_ns_kind {
+                        NsKind::Type => "type expression",
+                        NsKind::Value => "expression",
+                    };
+                    self.fatal(ctx.node, format!(
+                        "expected {}, found {}", exp_str, found))
+                } else {
+                    self.fatal(ctx.node, format!("{} can't be imported", found))
+                };
+            }
+        };
+        if reso_ctx == ResoCtx::Import {
+            return self.primitive_type(PrimitiveType::Unit);
+        }
+        self.check_data.insert_path_to_target(ctx.node, (pkg, node));
+        if pkg == self.package_id {
+            self.build_type(node)
+        } else {
+            self.packages[pkg].check_data.typing(node)
+        }
+    }
 }
 
 impl HirVisitor for Impl<'_> {
     fn before_node(&mut self, ctx: HirVisitorCtx) {
+        if self.errors.borrow().fatal_in_mod {
+            return;
+        }
         if let Some(v) = reso_ctx(ctx.link) {
             self.reso_ctxs.push(v);
         }
@@ -1117,10 +1394,18 @@ impl HirVisitor for Impl<'_> {
     }
 
     fn after_node(&mut self, ctx: HirVisitorCtx) {
-        self.check(ctx);
-
-        if !self.has_complete_typing(ctx.node) {
-            self.do_typing(ctx);
+        if self.errors.borrow().fatal_in_mod {
+            return;
+        }
+        let has_fatal_fn_err = self.discover_data.try_fn_decl_of(ctx.node)
+            .or_else(|| self.hir.try_fn_decl(ctx.node).map(|_| ctx.node))
+            .map(|v| self.errors.borrow().fatal_in_fn_decls.contains_key(&v))
+            .unwrap_or(false);
+        if !has_fatal_fn_err {
+            self.check(ctx);
+            if !self.has_complete_typing(ctx.node) {
+                self.do_typing(ctx);
+            }
         }
 
         if let Some(v) = reso_ctx(ctx.link) {

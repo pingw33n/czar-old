@@ -1,0 +1,29 @@
+error: invalid callee type: expected function, found `i32`
+  --> main.cz:3:5
+3 |     x();
+        ~
+
+error: invalid callee type: expected function, found `?integer`
+  --> main.cz:7:6
+7 |     (100 + 10)();
+         ~~~~~~~~
+
+error: invalid callee type: expected function, found `{}`
+  --> main.cz:11:5
+11 |     {}();
+         ~~
+
+error: invalid callee type: expected function, found `{foo: String}`
+  --> main.cz:15:5
+15 |     {foo: "foo"}();
+         ~~~~~~~~~~~~
+
+error: mismatching types in fn call of `foo::(_:b)`: expected `i32`, found `String`
+  --> main.cz:20:9
+20 |     foo("test", b: 42);
+             ~~~~~~
+
+error: mismatching types in fn call of `foo::(_:b)`: expected `String`, found `?integer`
+  --> main.cz:20:20
+20 |     foo("test", b: 42);
+                        ~~

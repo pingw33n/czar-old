@@ -1,0 +1,9 @@
+error: mismatching return types: function `f1::()` expects `i32`, found `String`
+  --> main.cz:2:5
+2 |     "test"
+        ~~~~~~
+
+error: mismatching return types: function `f2::(arg)` expects `{String,}`, found `{u32, ?integer}`
+  --> main.cz:6:5
+6 |     {arg, 42}
+        ~~~~~~~~~

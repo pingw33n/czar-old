@@ -1,0 +1,38 @@
+fn f1() {
+    struct Foo {
+        foo: String,
+        bar: i32,
+    }
+    Foo { foo: 42, bar: "foo" };
+}
+
+fn f2() {
+    struct Tuple {
+        {},
+        String,
+    }
+    Tuple { "foo", 42 };
+}
+
+fn f3() {
+    let x: {
+        foo: String,
+        bar: i32,
+    } = {
+        foo: 42,
+        bar: "foo",
+    };
+}
+
+fn f4() {
+    let x: {
+        String,
+        i32,
+    } = {
+        42,
+        "foo",
+    };
+}
+
+fn main() {
+}

@@ -1,0 +1,54 @@
+fn f1() -> u32 {
+    true.0;
+}
+
+fn f2() -> u32 {
+    {42}.field;
+}
+
+fn f3() {
+    {}.bad;
+}
+
+fn f4() {
+    {}.42;
+}
+
+fn f5() {
+    {42,}.bad;
+}
+
+fn f6() {
+    {42,}.42;
+}
+
+fn f7() {
+    {foo: 42}.bad;
+}
+
+fn f8() {
+    {foo: 42}.42;
+}
+
+fn f9() {
+    struct Foo {foo: i32}
+    Foo {foo: 42}.bad;
+}
+
+fn f10() {
+    struct Foo {foo: i32}
+    Foo {foo: 42}.42;
+}
+
+fn f11() {
+    struct Foo {i32,}
+    Foo {42}.bad;
+}
+
+fn f12() {
+    struct Foo {i32,}
+    Foo {42,}.42;
+}
+
+fn main() {
+}

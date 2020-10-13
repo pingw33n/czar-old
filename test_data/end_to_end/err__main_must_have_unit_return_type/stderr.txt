@@ -1,0 +1,4 @@
+error: `main` function must have unit return type
+  --> main.cz:1:14
+1 | fn main() -> i32 {
+                 ~~~

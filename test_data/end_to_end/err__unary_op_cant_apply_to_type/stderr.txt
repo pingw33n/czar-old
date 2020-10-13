@@ -1,0 +1,4 @@
+error: unary operation `-` can't be applied to type `String`
+  --> main.cz:2:5
+2 |     -"foo" + true;
+        ~

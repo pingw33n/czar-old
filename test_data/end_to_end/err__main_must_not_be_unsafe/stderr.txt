@@ -1,0 +1,4 @@
+error: `main` function must not be unsafe
+  --> main.cz:1:1
+1 | unsafe fn main() {
+    ~~~~~~

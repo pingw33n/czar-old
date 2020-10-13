@@ -1,0 +1,29 @@
+fn struct_() {
+    struct Foo {}
+    Foo
+}
+
+fn prim1() {
+    u8
+}
+
+fn prim2() {
+    bool
+}
+
+fn prim3() {
+    String
+}
+
+fn f2() {
+    mod m {}
+    m
+}
+
+fn f3() {
+    let T = 0;
+    let t: T;
+}
+
+fn main() {
+}

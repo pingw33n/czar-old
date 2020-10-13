@@ -1,0 +1,4 @@
+error: binary operation `+` can't be applied to types `String`, `bool`
+  --> main.cz:2:35
+2 |     "перевірка 😋👌" + true
+                                      ~

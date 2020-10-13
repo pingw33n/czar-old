@@ -55,6 +55,29 @@ fn let_() {
     let _a: usize = 42;
 }
 
+fn if_() {
+    let v1 = if true {
+        1
+    } else {
+        2
+    };
+    print_i16(v1); println();
+
+    let v2 = if false {
+        3i64
+    } else {
+        4
+    };
+    print_i64(v2); println();
+
+    let v3 = if true {
+        5
+    } else {
+        6u8
+    };
+    print_u8(v3); println();
+}
+
 fn main() {
     print_i32(0x7fff_ffff); println();
     arg_i32(0x7fff_ffff);
@@ -79,4 +102,7 @@ fn main() {
 
     println();
     expr1();
+
+    println();
+    if_();
 }

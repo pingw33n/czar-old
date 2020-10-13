@@ -341,7 +341,7 @@ impl std::fmt::Display for BinaryOpKind {
             BitXorAssign => "^=",
             Div => "/",
             DivAssign => "/=",
-            Eq => "=",
+            Eq => "==",
             Gt => ">",
             GtEq => ">=",
             Index => "[]",

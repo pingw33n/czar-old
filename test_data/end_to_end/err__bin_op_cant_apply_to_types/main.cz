@@ -1,0 +1,46 @@
+fn eq() {
+    {} == 42;
+}
+
+fn noteq() {
+    {} != 42;
+}
+
+fn gt() {
+    {} > 42;
+}
+
+fn gteq() {
+    {} >= 42;
+}
+
+fn lt() {
+    {} < 42;
+}
+
+fn lteq() {
+    {} <= 42;
+}
+
+fn add() {
+    "foo" + true;
+}
+
+fn div() {
+    "foo" / true;
+}
+
+fn mul() {
+    "foo" * true;
+}
+
+fn sub() {
+    "foo" - true;
+}
+
+fn rem() {
+    "foo" % true;
+}
+
+fn main() {
+}

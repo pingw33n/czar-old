@@ -1,0 +1,18 @@
+fn f1() {
+    let x = if true {
+        "test"
+    } else {
+        2
+    };
+}
+
+fn f2() {
+    let x = if false {
+        {}
+    } else {
+        {foo:{bar:"test"}}
+    };
+}
+
+fn main() {
+}

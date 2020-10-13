@@ -136,6 +136,7 @@ pub struct DiscoverData {
     node_to_scope: NodeMap<NodeId>,
     child_to_parent: NodeMap<NodeId>,
     node_to_module: NodeMap<NodeId>,
+    node_to_fn_decl: NodeMap<NodeId>,
     fn_names: NodeMap<S<Ident>>,
 }
 
@@ -202,6 +203,19 @@ impl DiscoverData {
     fn set_module_of(&mut self, node: NodeId, module: NodeId) {
         assert_ne!(node, module);
         assert!(self.node_to_module.insert(node, module).is_none());
+    }
+
+    pub fn fn_decl_of(&self, node: NodeId) -> NodeId {
+        self.node_to_fn_decl[&node]
+    }
+
+    pub fn try_fn_decl_of(&self, node: NodeId) -> Option<NodeId> {
+        self.node_to_fn_decl.get(&node).copied()
+    }
+
+    fn set_fn_decl_of(&mut self, node: NodeId, fn_decl: NodeId) {
+        assert_ne!(node, fn_decl);
+        assert!(self.node_to_fn_decl.insert(node, fn_decl).is_none());
     }
 
     pub fn fn_name(&self, node: NodeId) -> &S<Ident> {
@@ -335,6 +349,9 @@ impl HirVisitor for Build<'_> {
         }
         if let Some(&module) = self.module_stack.last() {
             self.data.set_module_of(ctx.node, module);
+        }
+        if let Some(&fn_decl) = self.fn_decl_stack.last() {
+            self.data.set_fn_decl_of(ctx.node, fn_decl);
         }
         self.node_stack.push(ctx.node);
 

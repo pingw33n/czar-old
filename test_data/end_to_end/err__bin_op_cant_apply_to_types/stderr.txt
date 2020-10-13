@@ -1,0 +1,54 @@
+error: binary operation `==` can't be applied to types `{}`, `?integer`
+  --> main.cz:2:8
+2 |     {} == 42;
+           ~~
+
+error: binary operation `!=` can't be applied to types `{}`, `?integer`
+  --> main.cz:6:8
+6 |     {} != 42;
+           ~~
+
+error: binary operation `>` can't be applied to types `{}`, `?integer`
+  --> main.cz:10:8
+10 |     {} > 42;
+            ~
+
+error: binary operation `>=` can't be applied to types `{}`, `?integer`
+  --> main.cz:14:8
+14 |     {} >= 42;
+            ~~
+
+error: binary operation `<` can't be applied to types `{}`, `?integer`
+  --> main.cz:18:8
+18 |     {} < 42;
+            ~
+
+error: binary operation `<=` can't be applied to types `{}`, `?integer`
+  --> main.cz:22:8
+22 |     {} <= 42;
+            ~~
+
+error: binary operation `+` can't be applied to types `String`, `bool`
+  --> main.cz:26:11
+26 |     "foo" + true;
+               ~
+
+error: binary operation `/` can't be applied to types `String`, `bool`
+  --> main.cz:30:11
+30 |     "foo" / true;
+               ~
+
+error: binary operation `*` can't be applied to types `String`, `bool`
+  --> main.cz:34:11
+34 |     "foo" * true;
+               ~
+
+error: binary operation `-` can't be applied to types `String`, `bool`
+  --> main.cz:38:11
+38 |     "foo" - true;
+               ~
+
+error: binary operation `%` can't be applied to types `String`, `bool`
+  --> main.cz:42:11
+42 |     "foo" % true;
+               ~

@@ -1,0 +1,4 @@
+error: mismatching types: expected `i32`, found `u8`
+  --> main.cz:3:9
+3 |     x = 42u8;
+            ~~~~

@@ -1,0 +1,10 @@
+fn f1() -> i32 {
+    "test"
+}
+
+fn f2(arg: u32) -> {String,} {
+    {arg, 42}
+}
+
+fn main() {
+}

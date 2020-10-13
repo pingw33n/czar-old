@@ -1,0 +1,29 @@
+error: expected expression, found struct type `Foo`
+  --> main.cz:3:5
+3 |     Foo
+        ~~~
+
+error: expected expression, found primitive type `u8`
+  --> main.cz:7:5
+7 |     u8
+        ~~
+
+error: expected expression, found primitive type `bool`
+  --> main.cz:11:5
+11 |     bool
+         ~~~~
+
+error: expected expression, found primitive type `String`
+  --> main.cz:15:5
+15 |     String
+         ~~~~~~
+
+error: expected expression, found module `m`
+  --> main.cz:20:5
+20 |     m
+         ~
+
+error: expected type expression, found variable `T`
+  --> main.cz:25:12
+25 |     let t: T;
+                ~

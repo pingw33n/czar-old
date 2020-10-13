@@ -1,12 +1,14 @@
+use std::cell::RefCell;
 use std::path::Path;
+use std::rc::Rc;
 
+use crate::diag::Diag;
 use crate::hir::Ident;
 use crate::package::*;
 use crate::semantic::check::Check;
 use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
 use crate::syntax;
-use crate::diag::Diag;
 use crate::syntax::parse::ErrorKind;
 
 pub struct Error(String);
@@ -30,10 +32,10 @@ pub fn compile(
     kind: PackageKind,
     packages: &Packages,
 ) -> Result<Package, Error> {
-    let diag = &mut Diag::default();
+    let mut diag = Diag::default();
 
     let path = path.as_ref();
-    let hir = match syntax::parse::parse_file(path, diag) {
+    let hir = match syntax::parse::parse_file(path, &mut diag) {
         Ok(v) => v,
         Err(e) => match e.kind {
             ErrorKind::Io(io_err) => {
@@ -65,13 +67,28 @@ pub fn compile(
         packages,
     );
 
+    let diag = Rc::new(RefCell::new(diag));
     let check_data = Check {
         package_id: id,
         hir: &hir,
         discover_data: &discover_data,
         resolve_data: &resolve_data,
         packages,
+        diag: diag.clone(),
     }.run();
+    let check_data = match check_data {
+        Ok(v) => v,
+        Err(_) => {
+            let mut s = String::new();
+            let diag = diag.borrow();
+            diag.print(path.parent().unwrap(), &mut s, hir.sources()).unwrap();
+            return Err(Error(s));
+        }
+    };
+
+    if !diag.borrow().reports().iter().all(|r| matches!(r.severity, crate::diag::Severity::Error)) {
+        todo!();
+    }
 
     Ok(Package {
         id,

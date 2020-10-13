@@ -1,0 +1,9 @@
+error: mismatching types of `if` arms: `String`, `?integer`
+  --> main.cz:2:13
+2 |     let x = if true {
+                ~~~~~~~~~
+
+error: mismatching types of `if` arms: `{}`, `{foo: {bar: String}}`
+  --> main.cz:10:13
+10 |     let x = if false {
+                 ~~~~~~~~~~

@@ -1,0 +1,24 @@
+fn f1() {
+    let x: i32 = 42;
+    x();
+}
+
+fn f2() {
+    (100 + 10)();
+}
+
+fn f3() {
+    {}();
+}
+
+fn f4() {
+    {foo: "foo"}();
+}
+
+fn f5() {
+    fn foo(_ a: i32, b: String) {}
+    foo("test", b: 42);
+}
+
+fn main() {
+}
