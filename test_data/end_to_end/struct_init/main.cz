@@ -38,6 +38,9 @@ fn named() {
     foo2.s = "this is a copy";
     print_foo("foo", foo);
     print_foo("foo2", foo2);
+
+    struct Empty { };
+    let empty = Empty { };
 }
 
 fn unnamed_tuple() {

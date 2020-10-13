@@ -376,7 +376,9 @@ impl<'a> Codegen<'a> {
             NodeKind::StructValue => {
                 let StructValue { fields, .. } = ctx.package.hir.struct_value(node);
                 if fields.is_empty() {
-                    self.unit_literal().into()
+                    let ty = ctx.package.check_data.typing(node);
+                    let ty = self.type_(ty);
+                    ty.const_struct(&mut []).into()
                 } else {
                     let struct_var = self.alloca(node, "struct_init", ctx); // TODO use actual type name
                     for &field in fields {
