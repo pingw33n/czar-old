@@ -259,9 +259,10 @@ impl Check<'_> {
             #[cfg(debug_assertions)]
             type_id_set: Default::default(),
             unnamed_structs,
+            hir: self.hir,
         };
         if self.package_id.is_std() {
-            tc.build_primitive_types(self.hir);
+            tc.build_primitive_types();
         }
         self.hir.traverse(tc);
         if let Some(entry_point) = self.resolve_data.entry_point() {
@@ -327,15 +328,16 @@ struct Impl<'a> {
     type_id_set: RefCell<HashSet<TypeId>>,
     /// Unnamed structs across all packages.
     unnamed_structs: HashMap<UnnamedStructKey, TypeId>,
+    hir: &'a Hir,
 }
 
 impl Impl<'_> {
-    pub fn build_primitive_types(&mut self, hir: &Hir) {
+    pub fn build_primitive_types(&mut self) {
         assert!(self.package_id.is_std());
         let resolver = Resolver {
             discover_data: self.discover_data,
             resolve_data: &Default::default(),
-            hir,
+            hir: self.hir,
             package_id: PackageId::std(),
             packages: &Packages::default(),
         };
@@ -372,11 +374,11 @@ impl Impl<'_> {
         assert!(self.check_data.primitive_types.replace(map).is_none());
     }
 
-    fn build_type(&mut self, node: NodeId, hir: &Hir) -> TypeId {
+    fn build_type(&mut self, node: NodeId) -> TypeId {
         if let Some(ty) = self.check_data.try_typing(node) {
             ty
         } else {
-            hir.traverse_from(node, self);
+            self.hir.traverse_from(node, self);
             self.check_data.typing(node)
         }
     }
@@ -459,9 +461,9 @@ impl Impl<'_> {
         }
     }
 
-    fn hir<'a>(&'a self, this: &'a Hir, package_id: PackageId) -> &'a Hir {
+    fn hir(&self, package_id: PackageId) -> &Hir {
         if package_id == self.package_id {
-            this
+            self.hir
         } else {
             &self.packages[package_id].hir
         }
@@ -489,9 +491,9 @@ impl Impl<'_> {
                     .. } = ctx.hir.fn_decl(ctx.node);
                 let args: Vec<_> = args.iter()
                     .copied()
-                    .map(|n| self.build_type(n, ctx.hir))
+                    .map(|n| self.build_type(n))
                     .collect();
-                let result = ret_ty.map(|n| self.build_type(n, ctx.hir))
+                let result = ret_ty.map(|n| self.build_type(n))
                     .unwrap_or_else(|| self.primitive_type(PrimitiveType::Unit));
                 self.insert_typing(ctx.node, TypeData::Fn(FnType {
                     args,
@@ -579,7 +581,7 @@ impl Impl<'_> {
             NodeKind::FieldAccess => {
                 let hir::FieldAccess { receiver, field } = ctx.hir.field_access(ctx.node);
                 let struct_ty = self.check_data.typing(*receiver);
-                self.resolve_struct_field(struct_ty, ctx.node, field, ctx.hir)
+                self.resolve_struct_field(struct_ty, ctx.node, field)
             }
             NodeKind::FnCall => {
                 let FnCall {
@@ -602,7 +604,7 @@ impl Impl<'_> {
                     (callee_node, res)
                 };
 
-                let formal_args = self.hir(ctx.hir, callee_node.0).fn_decl(callee_node.1).args.clone();
+                let formal_args = self.hir(callee_node.0).fn_decl(callee_node.1).args.clone();
 
                 if actual_args.len() != formal_args.len() {
                     let name = &self.discover_data(callee_node.0).fn_name(callee_node.1).value;
@@ -786,7 +788,7 @@ impl Impl<'_> {
                     } else {
                         ctx.hir.node_kind(field.value).span.spanned(Field::Index(i as u32))
                     };
-                    let formal_ty = self.resolve_struct_field(ty, field_node, &f, ctx.hir);
+                    let formal_ty = self.resolve_struct_field(ty, field_node, &f);
                     // No point in checking types for unnamed struct since it's been defined by the
                     // actual types.
                     if name.is_some() {
@@ -798,7 +800,7 @@ impl Impl<'_> {
                         if formal_ty != actual_ty {
                             let formal_ty = self.type_(formal_ty);
                             let actual_ty = self.type_(actual_ty);
-                            let span = self.hir(ctx.hir, actual_ty.node().0).node_kind(actual_ty.node().1).span;
+                            let span = self.hir(actual_ty.node().0).node_kind(actual_ty.node().1).span;
                             fatal(span, format_args!("struct actual and formal types differ for field `{:?}`: actual: {:?}, formal: {:?}",
                                 f.value, actual_ty.data(), formal_ty.data()));
                         }
@@ -817,13 +819,13 @@ impl Impl<'_> {
                 };
                 let (pkg, node) = if_chain! {
                     if let Some(node) = reso.node(expected_ns_kind.unwrap_or(reso.type_or_other_kind().unwrap()));
-                    let kind = self.hir(ctx.hir, node.0).node_kind(node.1).value;
+                    let kind = self.hir(node.0).node_kind(node.1).value;
                     if is_valid_in_reso_ctx(kind, reso_ctx);
                     then {
                         node
                     } else {
                         let found = reso.type_or_other().unwrap();
-                        let found_kind = self.hir(ctx.hir, found.0).node_kind(found.1).value;
+                        let found_kind = self.hir(found.0).node_kind(found.1).value;
                         if let Some(expected_ns_kind) = expected_ns_kind {
                             fatal(ctx.hir.node_kind(ctx.node).span,
                                 format_args!("expected {:?}, found {:?}", expected_ns_kind, found_kind));
@@ -838,7 +840,7 @@ impl Impl<'_> {
                 }
                 self.check_data.insert_path_to_target(ctx.node, (pkg, node));
                 if pkg == self.package_id {
-                    self.build_type(node, ctx.hir)
+                    self.build_type(node)
                 } else {
                     self.packages[pkg].check_data.typing(node)
                 }
@@ -1028,18 +1030,17 @@ impl Impl<'_> {
         struct_ty: TypeId,
         field_node: NodeId,
         field: &S<Field>,
-        hir: &Hir,
     ) -> TypeId {
         let (idx, ty) = {
             let struct_ty = self.unalias_type(struct_ty);
             let field_tys = if let Some(StructType { fields }) = struct_ty.data().as_struct() {
                 fields
             } else {
-                let span = self.hir(hir, struct_ty.package_id).node_kind(struct_ty.node).span;
+                let span = self.hir(struct_ty.package_id).node_kind(struct_ty.node).span;
                 fatal(span, format_args!("expected struct, found `{:?}`", struct_ty));
             };
 
-            let struct_hir = self.hir(hir, struct_ty.package_id);
+            let struct_hir = self.hir(struct_ty.package_id);
             // TODO This is inefficient as the method is going to be called often for field accesses.
             let field_count;
             let field_names: HashMap<_, _> = match struct_hir.node_kind(struct_ty.node).value {
@@ -1054,7 +1055,7 @@ impl Impl<'_> {
                     let fields = &struct_hir.struct_value(struct_ty.node).fields;
                     field_count = fields.len();
                     fields.iter().enumerate()
-                        .map(|(i, &v)| (i, hir.struct_value_field(v)))
+                        .map(|(i, &v)| (i, self.hir.struct_value_field(v)))
                         .filter_map(|(i, f)| f.name.clone().map(|n| (n.value, i)))
                         .collect()
                 }
