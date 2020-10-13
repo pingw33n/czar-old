@@ -136,7 +136,7 @@ fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) -> Result<(), 
             }
         }
         Err(err) => {
-            assert!(!run_stdout_txt_exists);
+            assert!(!run_stdout_txt_exists, "{}", err);
             let stderr_exp = fs::read_to_string(stderr_txt).unwrap();
             let stderr_act = err.to_string();
             if stderr_act != stderr_exp {

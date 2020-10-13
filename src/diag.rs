@@ -37,6 +37,10 @@ impl Diag {
         self.reports.push(report);
     }
 
+    pub fn reports(&self) -> &[Report] {
+        &self.reports
+    }
+
     pub fn save_state(&self) -> SaveState {
         SaveState {
             len: self.reports.len(),
@@ -125,7 +129,9 @@ impl HiLine {
             if nl.is_some() || eof {
                 if let Some(l) = r.as_mut() {
                     l.whole.end = i + if eof { 1 } else { 0 };
-                    l.col_len = (i - line_start) as u32 - l.col_start;
+                    if l.col_len == 0 {
+                        l.col_len = (i - line_start) as u32 - l.col_start;
+                    }
                     break;
                 }
             }
@@ -152,7 +158,7 @@ impl HiLine {
         for _ in 0..self.col_len {
             write!(out, "~")?;
         }
-        Ok(())
+        writeln!(out)
     }
 }
 
