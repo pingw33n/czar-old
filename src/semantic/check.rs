@@ -134,7 +134,6 @@ impl Type {
 pub enum TypeData {
     Fn(FnType),
     Primitive(PrimitiveType),
-    Ptr(TypeId),
     Struct(StructType),
     Type(TypeId),
     UnknownNumber(NumberType)
@@ -862,10 +861,7 @@ impl Impl<'_> {
                 let TyExpr { muta: _, data } = ctx.hir.ty_expr(ctx.node);
                 match &data.value {
                     TyData::Array(_) => unimplemented!(),
-                    &TyData::Ptr(node) => {
-                        let ty = self.check_data.typing(node);
-                        self.insert_type(ctx.node, TypeData::Ptr(ty))
-                    },
+                    &TyData::Ptr(_) => unimplemented!(),
                     TyData::Ref(_) => unimplemented!(),
                     TyData::Slice(_) => unimplemented!(),
                     | &TyData::Path(node)

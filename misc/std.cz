@@ -107,8 +107,6 @@ pub mod char {
 
 pub mod string {
     pub /*FIXME ref */struct String {
-        ptr: *u8,
-        len: usize,
     }
 }
 
