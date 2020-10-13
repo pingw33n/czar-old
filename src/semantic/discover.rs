@@ -137,7 +137,6 @@ pub struct DiscoverData {
     child_to_parent: NodeMap<NodeId>,
     node_to_module: NodeMap<NodeId>,
     node_to_fn_decl: NodeMap<NodeId>,
-    fn_names: NodeMap<S<Ident>>,
 }
 
 impl DiscoverData {
@@ -216,10 +215,6 @@ impl DiscoverData {
     fn set_fn_decl_of(&mut self, node: NodeId, fn_decl: NodeId) {
         assert_ne!(node, fn_decl);
         assert!(self.node_to_fn_decl.insert(node, fn_decl).is_none());
-    }
-
-    pub fn fn_name(&self, node: NodeId) -> &S<Ident> {
-        &self.fn_names[&node]
     }
 
     pub fn print_scopes(&self, hir: &Hir) {
@@ -363,8 +358,7 @@ impl HirVisitor for Build<'_> {
             NodeKind::FnDecl => {
                 let name = ctx.hir.fn_decl(ctx.node).name.clone();
                 let args_key = FnArgsKey::from_decl(ctx.node, ctx.hir);
-                self.insert_fn(NsKind::Value, name.clone(), args_key, ctx.node);
-                self.data.fn_names.insert(ctx.node, name);
+                self.insert_fn(NsKind::Value, name, args_key, ctx.node);
                 self.fn_decl_stack.push(ctx.node);
             },
             NodeKind::FnDeclArg => {
