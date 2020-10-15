@@ -11,6 +11,7 @@ use crate::diag::{self, Diag, Severity};
 use crate::hir::{self, *};
 use crate::hir::traverse::*;
 use crate::package::{GlobalNodeId, PackageId, Packages};
+use crate::util::iter::IteratorExt;
 
 use super::*;
 use resolve::{ResolveData, Resolver};
@@ -342,6 +343,16 @@ enum ResoCtx {
     Value,
 }
 
+impl ResoCtx {
+    fn to_ns_kind(self) -> Option<NsKind> {
+        match self {
+            ResoCtx::Import => None,
+            ResoCtx::Type => Some(NsKind::Type),
+            ResoCtx::Value => Some(NsKind::Value),
+        }
+    }
+}
+
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct UnnamedStructKey(Vec<(Option<Ident>, TypeId)>);
 
@@ -420,8 +431,9 @@ impl Impl<'_> {
                 String => &["string", "String"][..],
                 Unit => &["Unit"][..],
             };
-            let (pkg, node) = resolver.resolve_in_package(path, None)
-                .node(NsKind::Type)
+            let (pkg, node) = resolver.resolve_in_package(path)
+                .nodes_of_kind(NsKind::Type)
+                .exactly_one()
                 .unwrap();
             assert!(pkg.is_std());
             let (pkg, ty) = self.insert_typing(node, TypeData::Primitive(ty));
@@ -1316,6 +1328,7 @@ impl Impl<'_> {
         let kind = hir.node_kind(node.1).value;
         match kind {
             NodeKind::FnDecl => format!("function `{}`", hir.fn_decl(node.1).name.value),
+            NodeKind::FnDeclArg => format!("function parameter `{}`", hir.fn_decl_arg(node.1).name().value),
             NodeKind::LetDecl => format!("variable `{}`", hir.let_decl(node.1).name.value),
             NodeKind::Module => format!("module `{}`", hir.module(node.1).name.as_ref().unwrap().name.value),
             NodeKind::Struct => {
@@ -1339,38 +1352,121 @@ impl Impl<'_> {
     }
 
     fn type_path_end_ident(&mut self, ctx: &HirVisitorCtx) -> TypeId {
+        let span = ctx.hir.path_end_ident(ctx.node).item.ident.span;
         let reso = self.resolve_data.resolution_of(ctx.node);
         assert!(!reso.is_empty());
         let reso_ctx = self.reso_ctx();
-        let expected_ns_kind = match reso_ctx {
-            ResoCtx::Import => None,
-            ResoCtx::Type => Some(NsKind::Type),
-            ResoCtx::Value => Some(NsKind::Value),
-        };
-        let (pkg, node) = if_chain! {
-            if let Some(node) = reso.node(expected_ns_kind.unwrap_or(reso.type_or_other_kind().unwrap()));
-            let kind = self.hir(node.0).node_kind(node.1).value;
-            if is_valid_in_reso_ctx(kind, reso_ctx);
-            then {
-                node
+        let (pkg, node) = {
+            // Check if we're resolving FnCall's callee.
+            let fn_call = if reso_ctx == ResoCtx::Value {
+                let mut n = ctx.node;
+                loop {
+                    let prev = n;
+                    n = self.discover_data.parent_of(n);
+                    let kind = ctx.hir.node_kind(n);
+                    match kind.value {
+                        NodeKind::FnCall => {
+                            break if ctx.hir.fn_call(n).callee == prev {
+                                Some((FnArgsKey::from_call(n, ctx.hir), kind.span))
+                            } else {
+                                None
+                            };
+                        },
+                        kind => if !kind.is_path() {
+                            break None;
+                        }
+                    }
+                }
             } else {
-                let found = reso.type_or_other().unwrap();
-                let found = self.describe_named(found);
-                return if let Some(expected_ns_kind) = expected_ns_kind {
-                    let exp_str = match expected_ns_kind {
-                        NsKind::Type => "type expression",
-                        NsKind::Value => "expression",
-                    };
-                    self.fatal(ctx.node, format!(
-                        "expected {}, found {}", exp_str, found))
+                None
+            };
+            if let Some((key, call_span)) = fn_call {
+                let mut found = None;
+                // Function (base) name if there's at least one found.
+                let mut name = None;
+                // TODO Make this O(1)
+                for node in reso.nodes_of_kind(NsKind::Value) {
+                    if let Some(args_key) = self.discover_data(node.0)
+                        .try_fn_decl_args_key(node.1)
+                    {
+                        if name.is_none() {
+                            name = Some(self.hir(node.0).fn_decl(node.1).name.value.clone());
+                        } else {
+                            debug_assert_eq!(&self.hir(node.0).fn_decl(node.1).name.value, name.as_ref().unwrap());
+                        }
+                        if &key == args_key {
+                            found = Some(node);
+                            break;
+                        }
+                    }
+                }
+                if let Some(found) = found {
+                    found
                 } else {
-                    self.fatal(ctx.node, format!("{} can't be imported", found))
-                };
+                    if let Some(name) = &name {
+                        // There are other fns with the same name but none with matching arg key.
+                        return self.fatal_span(ctx.node, call_span, format!(
+                            "couldn't find function `{}::{}`: none of existing functions matches the signature",
+                            name, key));
+                    }
+                    if let Some(node) = reso.nodes_of_kind(NsKind::Value).next() {
+                        // Could be a variable.
+                        node
+                    } else {
+                        let node = reso.nodes_of_kind(NsKind::Type).next().unwrap();
+                        return self.fatal_span(ctx.node, span, format!(
+                            "expected function but found {}",
+                            self.describe_named(node)));
+                    }
+                }
+            } else {
+                if reso_ctx == ResoCtx::Import {
+                    let node = reso.nodes().exactly_one().map(|(_, n)| n);
+                    if let Some(node) = node {
+                        let kind = self.hir(node.0).node_kind(node.1).value;
+                        if !can_import(kind) {
+                            let node = self.describe_named(node);
+                            return self.fatal_span(ctx.node, span, format!(
+                                "{} can't be imported", node));
+                        }
+                    } else {
+                        if cfg!(debug_assertions) {
+                            for (_, n) in reso.nodes() {
+                                assert_eq!(self.hir(n.0).node_kind(n.1).value, NodeKind::FnDecl);
+                            }
+                        }
+                    }
+                    return self.primitive_type(PrimitiveType::Unit);
+                } else {
+                    let ns_kind = reso_ctx.to_ns_kind().unwrap();
+                    let mut it = reso.nodes_of_kind(ns_kind);
+                    if let Some(node) = it.next() {
+                        if let Some(FnDecl { name, .. }) = self.hir(node.0).try_fn_decl(node.1) {
+                            let text = if it.next().is_none() {
+                                let fn_args_key = self.discover_data(node.0).fn_decl_args_key(node.1);
+                                format!("invalid function reference, must include function's signature: `{}::{}`",
+                                    name.value, fn_args_key)
+                            } else {
+                                "invalid function reference, must include function's signature".into()
+                            };
+                            return self.fatal_span(ctx.node, span, text);
+                        } else {
+                            assert!(it.next().is_none());
+                        }
+                        node
+                    } else {
+                        let node = reso.nodes().next().unwrap().1;
+                        let node = self.describe_named(node);
+                        let exp_str = match ns_kind {
+                            NsKind::Type => "type expression",
+                            NsKind::Value => "expression",
+                        };
+                        return self.fatal_span(ctx.node, span, format!(
+                            "expected {}, found {}", exp_str, node));
+                    }
+                }
             }
         };
-        if reso_ctx == ResoCtx::Import {
-            return self.primitive_type(PrimitiveType::Unit);
-        }
         self.check_data.insert_path_to_target(ctx.node, (pkg, node));
         if pkg == self.package_id {
             self.build_type(node)
@@ -1460,23 +1556,14 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
     })
 }
 
-fn is_valid_in_reso_ctx(kind: NodeKind, reso_ctx: ResoCtx) -> bool {
+/// Whether the target of `kind` can be imported with `use`.
+fn can_import(kind: NodeKind) -> bool {
     use NodeKind::*;
-    match reso_ctx {
-        ResoCtx::Import => {
-            kind != LetDecl && (
-                is_valid_in_reso_ctx(kind, ResoCtx::Type)
-                || is_valid_in_reso_ctx(kind, ResoCtx::Value))
-        },
-        ResoCtx::Type => kind == Struct,
-        ResoCtx::Value => {
-            match kind {
-                | FnDecl
-                | FnDeclArg
-                | LetDecl
-                => true,
-                _ => false,
-            }
-        },
+    match kind {
+        | Struct
+        | FnDecl
+        | Module
+        => true,
+        _ => false
     }
 }

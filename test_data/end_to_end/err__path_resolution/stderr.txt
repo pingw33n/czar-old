@@ -1,0 +1,64 @@
+error: variable `x` can't be imported
+  --> main.cz:3:9
+3 |     use x as z;
+            ~
+
+error: function parameter `y` can't be imported
+  --> main.cz:7:9
+7 |     use y as z;
+            ~
+
+error: couldn't find function `foo::(_:_:_)`: none of existing functions matches the signature
+  --> main.cz:15:5
+15 |     foo(1, 2, 3);
+         ~~~~~~~~~~~~
+
+error: couldn't find function `foo::(s)`: none of existing functions matches the signature
+  --> main.cz:23:5
+23 |     foo(s: "test");
+         ~~~~~~~~~~~~~~
+
+error: couldn't find function `foo::(s:z)`: none of existing functions matches the signature
+  --> main.cz:31:5
+31 |     foo(s: "test", z: 42);
+         ~~~~~~~~~~~~~~~~~~~~~
+
+error: expected function but found struct type `S`
+  --> main.cz:36:5
+36 |     S();
+         ~
+
+error: expected function but found module `m`
+  --> main.cz:41:5
+41 |     m();
+         ~
+
+error: expected type expression, found function `f`
+  --> main.cz:46:12
+46 |     let x: f;
+                ~
+
+error: expected type expression, found variable `x`
+  --> main.cz:50:12
+50 |     let x: x;
+                ~
+
+error: expected type expression, found function parameter `y`
+  --> main.cz:54:12
+54 |     let x: y;
+                ~
+
+error: expected expression, found struct type `S`
+  --> main.cz:59:13
+59 |     let x = S;
+                 ~
+
+error: invalid function reference, must include function's signature: `f12::()`
+  --> main.cz:63:13
+63 |     let f = f12;
+                 ~~~
+
+error: invalid function reference, must include function's signature
+  --> main.cz:70:13
+70 |     let x = f;
+                 ~

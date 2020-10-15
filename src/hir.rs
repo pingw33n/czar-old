@@ -59,6 +59,22 @@ pub enum NodeKind {
     While,
 }
 
+impl NodeKind {
+    pub fn is_path(self) -> bool {
+        use NodeKind::*;
+        match self {
+            | Path
+            | PathEndEmpty
+            | PathEndIdent
+            | PathEndStar
+            | PathSegment
+            => true,
+
+            _ => false,
+        }
+    }
+}
+
 pub type NodeMap<T> = HashMap<NodeId, T>;
 
 pub type SourceId = usize;
@@ -569,6 +585,16 @@ pub struct FnDeclArg {
     pub pub_name: S<Option<Ident>>,
     pub priv_name: S<Ident>,
     pub ty: NodeId,
+}
+
+impl FnDeclArg {
+    pub fn name(&self) -> S<&Ident> {
+        if let Some(n) = self.pub_name.value.as_ref() {
+            self.pub_name.span.spanned(n)
+        } else {
+            self.priv_name.span.spanned(&self.priv_name.value)
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

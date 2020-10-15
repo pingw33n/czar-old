@@ -20,9 +20,7 @@ pub enum ScopeItem {
 
 pub struct ScopeFn {
     pub name: S<Ident>,
-    /// arg1:_:arg3
-    pub args_key: FnArgsKey,
-    pub node: NodeId,
+    pub node: NodeId, // FnDecl
 }
 
 #[derive(Default)]
@@ -46,7 +44,9 @@ impl Scope {
         }
     }
 
-    pub fn insert_fn(&mut self, name: S<Ident>, args_key: FnArgsKey, node: NodeId) {
+    pub fn insert_fn(&mut self, name: S<Ident>, node: NodeId,
+        fn_decl_args_keys: &NodeMap<FnArgsKey>)
+    {
         match self.items.entry(name.value.clone()) {
             Entry::Occupied(mut e) => {
                 if e.get().as_single().is_some() {
@@ -55,17 +55,19 @@ impl Scope {
                 match e.get_mut() {
                     ScopeItem::Single { .. } => unreachable!(),
                     ScopeItem::Fns(fns) => {
-                        match fns.iter().position(|s| s.args_key == args_key) {
+                        match fns.iter()
+                            .position(|s| fn_decl_args_keys[&s.node] == fn_decl_args_keys[&node])
+                        {
                             Some(i) => {
                                 let first = &fns[i].name;
                                 let new = name.span;
+                                let args_key = &fn_decl_args_keys[&node];
                                 panic!("function {}{} is defined multiple times: first at [{}:{}], redefined at [{}:{}]",
                                     first.value, args_key, first.span.start, first.span.end, new.start, new.end);
                             }
                             None => {
                                 fns.push(ScopeFn {
                                     name,
-                                    args_key,
                                     node,
                                 });
                             }
@@ -77,7 +79,6 @@ impl Scope {
             Entry::Vacant(e) => {
                 e.insert(ScopeItem::Fns(vec![ScopeFn {
                     name,
-                    args_key,
                     node,
                 }]));
             },
@@ -114,7 +115,7 @@ impl Scope {
     }
 }
 
-#[derive(Clone, Copy, Debug, Enum, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Enum, Eq, Hash, PartialEq)]
 pub enum NsKind {
     Type,
     Value,
@@ -137,6 +138,7 @@ pub struct DiscoverData {
     child_to_parent: NodeMap<NodeId>,
     node_to_module: NodeMap<NodeId>,
     node_to_fn_decl: NodeMap<NodeId>,
+    fn_decl_args_keys: NodeMap<FnArgsKey>,
 }
 
 impl DiscoverData {
@@ -165,6 +167,18 @@ impl DiscoverData {
         &mut self.scopes.entry(scope)
             .or_insert(Default::default())
             [kind]
+    }
+
+    fn insert_fn(&mut self,
+        scope: NodeId,
+        kind: NsKind,
+        name: S<Ident>,
+        node: NodeId,
+    ) {
+        let scope = &mut self.scopes.entry(scope)
+            .or_insert(Default::default())
+            [kind];
+        scope.insert_fn(name, node, &self.fn_decl_args_keys);
     }
 
     pub fn scope_of(&self, node: NodeId) -> NodeId {
@@ -217,6 +231,14 @@ impl DiscoverData {
         assert!(self.node_to_fn_decl.insert(node, fn_decl).is_none());
     }
 
+    pub fn fn_decl_args_key(&self, fn_decl: NodeId) -> &FnArgsKey {
+        &self.fn_decl_args_keys[&fn_decl]
+    }
+
+    pub fn try_fn_decl_args_key(&self, fn_decl: NodeId) -> Option<&FnArgsKey> {
+        self.fn_decl_args_keys.get(&fn_decl)
+    }
+
     pub fn print_scopes(&self, hir: &Hir) {
         struct Visitor<'a> {
             data: &'a DiscoverData,
@@ -264,12 +286,13 @@ impl DiscoverData {
                                             n.value, node, n.span.start, n.span.end);
                                     }
                                     ScopeItem::Fns(fns) => {
-                                        for (i, ScopeFn { name, args_key: key, node }) in fns.iter().enumerate() {
+                                        for (i, ScopeFn { name, node }) in fns.iter().enumerate() {
                                             let n = ctx.hir.node_kind(*node);
                                             assert_eq!(n.value, NodeKind::FnDecl);
                                             if i > 0 {
                                                 print!(", ");
                                             }
+                                            let key = self.data.fn_decl_args_key(*node);
                                             print!("`{}::{}` {}:{} -> {:?} {:?} {}:{}",
                                                 ident, key,
                                                 name.span.start, name.span.end,
@@ -317,9 +340,9 @@ impl Build<'_> {
         self.data.scope_mut(scope, ns).insert(name, node);
     }
 
-    fn insert_fn(&mut self, ns: NsKind, name: S<Ident>, args_key: FnArgsKey, node: NodeId) {
+    fn insert_fn(&mut self, ns: NsKind, name: S<Ident>, node: NodeId) {
         let scope = self.cur_scope();
-        self.data.scope_mut(scope, ns).insert_fn(name, args_key, node);
+        self.data.insert_fn(scope, ns, name, node);
     }
 
     fn insert_all_namespaces(&mut self, name: S<Ident>, node: NodeId) {
@@ -358,7 +381,8 @@ impl HirVisitor for Build<'_> {
             NodeKind::FnDecl => {
                 let name = ctx.hir.fn_decl(ctx.node).name.clone();
                 let args_key = FnArgsKey::from_decl(ctx.node, ctx.hir);
-                self.insert_fn(NsKind::Value, name, args_key, ctx.node);
+                assert!(self.data.fn_decl_args_keys.insert(ctx.node, args_key).is_none());
+                self.insert_fn(NsKind::Value, name, ctx.node);
                 self.fn_decl_stack.push(ctx.node);
             },
             NodeKind::FnDeclArg => {

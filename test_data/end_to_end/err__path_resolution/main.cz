@@ -1,0 +1,74 @@
+fn f1() {
+    let x = 0;
+    use x as z;
+}
+
+fn f2(y: i32) {
+    use y as z;
+}
+
+fn f3() {
+    fn foo() {}
+    fn foo(z: i32) {}
+    fn foo(_ s: String, z: i32) {}
+
+    foo(1, 2, 3);
+}
+
+fn f4() {
+    fn foo() {}
+    fn foo(z: i32) {}
+    fn foo(_ s: String, z: i32) {}
+
+    foo(s: "test");
+}
+
+fn f5() {
+    fn foo() {}
+    fn foo(z: i32) {}
+    fn foo(_ s: String, z: i32) {}
+
+    foo(s: "test", z: 42);
+}
+
+fn f6() {
+    struct S {}
+    S();
+}
+
+fn f7() {
+    mod m {}
+    m();
+}
+
+fn f8() {
+    fn f(_ x: i32) {}
+    let x: f;
+}
+
+fn f9() {
+    let x: x;
+}
+
+fn f10(y: i32) {
+    let x: y;
+}
+
+fn f11() {
+    struct S {}
+    let x = S;
+}
+
+fn f12() {
+    let f = f12;
+}
+
+fn f13() {
+    fn f() {}
+    fn f(a: i32) {}
+
+    let x = f;
+}
+
+fn main() {
+}

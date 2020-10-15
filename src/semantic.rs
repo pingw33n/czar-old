@@ -8,12 +8,18 @@ fn fatal(span: crate::syntax::Span, s: impl std::fmt::Display) -> ! {
     panic!("[{}:{}] {}", span.start, span.end, s);
 }
 
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Debug, Hash, PartialEq)]
 pub struct FnArgsKey {
     items: Vec<Ident>,
 }
 
 impl FnArgsKey {
+    pub fn empty() -> Self {
+        Self {
+            items: Vec::new(),
+        }
+    }
+
     pub fn from_idents(idents: &[&str]) -> Self {
         Self::from_iter(idents.iter().map(|v| *v))
     }
