@@ -51,7 +51,6 @@ fn f5() {
     fn f() {
         prints("f"); println();
     }
-    {}
 }
 
 fn main() {

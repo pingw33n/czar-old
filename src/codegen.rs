@@ -183,9 +183,6 @@ impl<'a> Codegen<'a> {
                 }
                 self.bodyb.call(callee, args_ll).into()
             }
-            NodeKind::FnDecl => {
-                self.fn_decl((ctx.package.id, node)).into()
-            }
             NodeKind::Let => {
                 let &Let { decl } = ctx.package.hir.let_(node);
 
@@ -359,19 +356,20 @@ impl<'a> Codegen<'a> {
             }
             NodeKind::Path => {
                 let reso = ctx.package.check_data.target_of(node);
-                if reso.0 == ctx.package.id {
-                    self.expr(reso.1, ctx)
+                let package = if reso.0 == ctx.package.id {
+                    ctx.package
                 } else {
-                    let package = &self.packages[reso.0];
+                    &self.packages[reso.0]
+                };
+                if package.hir.node_kind(reso.1).value == NodeKind::FnDecl {
+                    self.fn_decl(reso).into()
+                } else {
                     self.expr(reso.1, &mut ExprCtx {
                         package,
                         fn_: ctx.fn_,
                         allocas: ctx.allocas,
                     })
                 }
-            }
-            NodeKind::Struct => {
-                self.unit_literal().into()
             }
             NodeKind::StructValue => {
                 let StructValue { fields, .. } = ctx.package.hir.struct_value(node);
@@ -415,9 +413,12 @@ impl<'a> Codegen<'a> {
 
                 self.unit_literal().into()
             }
+            // FnDecl here is only reachable directly.
+            // Indirect case is handled within the Path case.
+            | NodeKind::FnDecl
             | NodeKind::Module
             | NodeKind::Use
-            => {
+            | NodeKind::Struct => {
                 self.unit_literal().into()
             }
             _ => todo!("{:?}", ctx.package.hir.node_kind(node))
