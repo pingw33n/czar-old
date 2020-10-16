@@ -597,7 +597,8 @@ impl Impl<'_> {
                     let actual_ret_ty = self.unaliased_typing(body).id();
 
                     if actual_ret_ty != expected_ret_ty {
-                        let node = *ctx.hir.block(body).exprs.last().unwrap();
+                        let node = ctx.hir.block(body).exprs.last()
+                            .copied().unwrap_or(body);
                         self.fatal(node, format!(
                             "mismatching return types: function `{fname}::{fsign}` expects `{exp}`, found `{act}`",
                             fname=name.value, fsign= FnSignature::from_decl(ctx.node, ctx.hir),

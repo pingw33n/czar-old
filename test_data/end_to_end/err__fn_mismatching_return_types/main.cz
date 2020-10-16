@@ -1,0 +1,19 @@
+fn f1() -> i32 {}
+
+fn f2() -> i32 {""}
+
+fn f3() -> String {
+    f1()
+}
+
+fn f4() -> String {
+    f1();
+    f2()
+}
+
+fn f5() -> i32 {
+    "stuff";
+}
+
+fn main() {
+}
