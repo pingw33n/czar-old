@@ -68,10 +68,10 @@ error: could not find `my_modulE` in current scope
 38 |     let x: my_modulE::T;
                 ~~~~~~~~~
 
-error: could not find `my_module` in current scope
-  --> main.cz:39:12
+error: could not find `T` in my_module
+  --> main.cz:39:23
 39 |     let x: my_module::T;
-                ~~~~~~~~~
+                           ~
 
 error: could not find `wut` in parent module
   --> main.cz:46:20

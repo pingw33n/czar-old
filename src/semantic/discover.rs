@@ -337,24 +337,32 @@ struct Build<'a> {
     data: &'a mut DiscoverData,
     /// Is in `Use` subtree?
     in_use: bool,
-    scope_stack: Vec<NodeId>,
+    scope_stack: Vec<(ScopeKind, NodeId)>,
     node_stack: Vec<NodeId>,
     module_stack: Vec<NodeId>,
     fn_decl_stack: Vec<NodeId>,
 }
 
 impl Build<'_> {
-    fn cur_scope(&self) -> NodeId {
-        *self.scope_stack.last().unwrap()
+    fn find_scope(&self, kind: Option<ScopeKind>) -> NodeId {
+        self.scope_stack.iter().copied().rev()
+            .find(|&(k, _)| kind.map(|kind| k == kind).unwrap_or(true))
+            .map(|(_, n)| n)
+            .unwrap()
     }
 
     fn insert(&mut self, ns: NsKind, name: S<Ident>, node: NodeId) {
-        let scope = self.cur_scope();
+        let scope = self.find_scope(Some(ScopeKind::Normal));
+        self.data.scope_mut(scope, ns).insert(name, node);
+    }
+
+    fn insert_var(&mut self, ns: NsKind, name: S<Ident>, node: NodeId) {
+        let scope = self.find_scope(None);
         self.data.scope_mut(scope, ns).insert(name, node);
     }
 
     fn insert_fn(&mut self, ns: NsKind, name: S<Ident>, node: NodeId) {
-        let scope = self.cur_scope();
+        let scope = self.find_scope(Some(ScopeKind::Normal));
         self.data.insert_fn(scope, ns, name, node);
     }
 
@@ -365,7 +373,7 @@ impl Build<'_> {
     }
 
     fn insert_wildcard_import(&mut self, node: NodeId) {
-        let scope = self.cur_scope();
+        let scope = self.find_scope(Some(ScopeKind::Normal));
         for ns in NsKind::iter() {
             self.data.scope_mut(scope, ns)
                 .insert_wildcard_import(node);
@@ -386,7 +394,7 @@ impl HirVisitor for Build<'_> {
         }
         self.node_stack.push(ctx.node);
 
-        if let Some(&scope) = self.scope_stack.last() {
+        if let Some(&(_, scope)) = self.scope_stack.last() {
             self.data.set_scope_of(ctx.node, scope);
         }
 
@@ -405,7 +413,7 @@ impl HirVisitor for Build<'_> {
             NodeKind::Let => {},
             NodeKind::LetDecl => {
                 let name = ctx.hir.let_decl(ctx.node).name.clone();
-                self.insert(NsKind::Value, name, ctx.node);
+                self.insert_var(NsKind::Value, name, ctx.node);
             },
             NodeKind::Module => {
                 self.module_stack.push(ctx.node);
@@ -464,16 +472,16 @@ impl HirVisitor for Build<'_> {
             => {},
         }
 
-        if scope_kind(ctx.kind).is_some() {
-            self.scope_stack.push(ctx.node);
+        if let Some(kind) = scope_kind(ctx.kind) {
+            self.scope_stack.push((kind, ctx.node));
         }
     }
 
     fn after_node(&mut self, ctx: HirVisitorCtx) {
-        if scope_kind(ctx.kind) == Some(ScopeKind::Strong) {
+        if scope_kind(ctx.kind) == Some(ScopeKind::Normal) {
             loop {
-                let scope = self.scope_stack.pop().unwrap();
-                if let Some(parent) = self.scope_stack.last().copied() {
+                let (_, scope) = self.scope_stack.pop().unwrap();
+                if let Some((_, parent)) = self.scope_stack.last().copied() {
                     self.data.scope_to_parent.insert(scope, parent);
                 }
                 if scope == ctx.node {
@@ -500,10 +508,26 @@ impl HirVisitor for Build<'_> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ScopeKind {
-    Strong,
+    Normal,
 
-    /// Weak scope ends when the parent strong scope ends.
-    Weak,
+    /// Scope for variables. Each variable insert its name into parent scope and creates a new
+    /// sub-scope of `Var` kind. The `Var` scope lasts as long as the enclosing normal scope.
+    ///
+    /// For example:
+    /// ```
+    /// fn f(v: i32) {      // Begin Normal(f), insert `f` into Normal(root)
+    ///     S {};           //   Will look up and find `S` in Normal(f)
+    ///     let x = 1;      //   Begin Var(x), insert `x` into Normal(f)
+    ///     let y = 2;      //     Begin Var(y)#1, insert `y` into Var(x)
+    ///     let y = 3;      //       Begin Var(y)#2, insert `y` into Var(y)#1
+    ///     f(x + y);       //         Will look up and find `f`, `x`, `y` in scopes starting from Var(y)#2
+    ///     struct S {}     //         Insert `S` into Normal(f)
+    ///                     //       End Var(y)#2
+    ///                     //     End Var(y)#1
+    ///                     //   End Var(x)
+    /// }                   // End Normal(f)
+    /// ```
+    Var,
 }
 
 fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
@@ -539,8 +563,8 @@ fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
         | TyExpr
         | TypeArg
         | While
-        => Some(ScopeKind::Strong),
+        => Some(ScopeKind::Normal),
 
-        Let => Some(ScopeKind::Weak),
+        Let => Some(ScopeKind::Var),
     }
 }

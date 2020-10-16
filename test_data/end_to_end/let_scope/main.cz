@@ -1,4 +1,4 @@
-fn main() {
+fn f1() {
     let v = "outer1";
     prints(v); println();
     {
@@ -13,4 +13,59 @@ fn main() {
     prints(v); println();
     let v = "outer2";
     prints(v); println();
+}
+
+fn f2() {
+    let x: Struct = Struct { x: "first" };
+    let x: Struct = Struct { x: "second" };
+    prints(x.x); println();
+
+    struct Struct { x: String }
+}
+
+fn f3() {
+    let x: Struct = Struct { x: "first" };
+    let x: Struct = Struct { x: "second" };
+    prints(x.x); println();
+
+    module m {
+        struct Struct { x: String }
+    }
+    use m::Struct;
+}
+
+fn f4() {
+    let x: Struct = Struct { x: "first" };
+    let x: Struct = Struct { x: "second" };
+    prints(x.x); println();
+
+    module m {
+        struct Struct { x: String }
+    }
+    use m::*;
+}
+
+fn f5() {
+    f();
+    let x = {};
+    fn f() {
+        prints("f"); println();
+    }
+    {}
+}
+
+fn main() {
+    f1();
+
+    println();
+    f2();
+
+    println();
+    f3();
+
+    println();
+    f4();
+
+    println();
+    f5();
 }
