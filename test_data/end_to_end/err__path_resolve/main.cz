@@ -52,5 +52,18 @@ fn f16() {
     }
 }
 
+module m {
+    use super::{
+        x,
+        f::y,
+        m2::z,
+    };
+    use super::f::zz;
+    use super::m2::bar::baz;
+}
+
+module m2 {}
+
 fn main() {
+
 }

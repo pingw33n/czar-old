@@ -68,7 +68,7 @@ error: could not find `my_modulE` in current scope
 38 |     let x: my_modulE::T;
                 ~~~~~~~~~
 
-error: could not find `T` in my_module
+error: could not find `T` in `my_module`
   --> main.cz:39:23
 39 |     let x: my_module::T;
                            ~
@@ -87,3 +87,28 @@ error: could not find `T2` in parent module
   --> main.cz:50:31
 50 |             use super::super::T2;
                                    ~~
+
+error: could not find `x` in parent module
+  --> main.cz:57:9
+57 |         x,
+             ~
+
+error: could not find `f` in parent module
+  --> main.cz:58:9
+58 |         f::y,
+             ~
+
+error: could not find `z` in `m2`
+  --> main.cz:59:13
+59 |         m2::z,
+                 ~
+
+error: could not find `f` in parent module
+  --> main.cz:61:16
+61 |     use super::f::zz;
+                    ~
+
+error: could not find `bar` in `m2`
+  --> main.cz:62:20
+62 |     use super::m2::bar::baz;
+                        ~~~

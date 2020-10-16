@@ -350,14 +350,12 @@ impl<'a> Resolver<'a> {
                         PathAnchor::Package => "package root",
                         PathAnchor::Root => "root",
                         PathAnchor::Super { .. } => "parent module",
-                    }
+                    }.into()
                 } else {
-                    path_idents[i - 1].value.as_str()
+                    format!("`{}`", path_idents[i - 1].value.as_str())
                 };
-                if i == path_idents.len() - 1 {
-                    return self.error(node, ident.span, format!(
-                        "could not find `{}` in {}", ident.value, s));
-                }
+                return self.error(node, ident.span, format!(
+                    "could not find `{}` in {}", ident.value, s));
             }
         }
         assert!(!r.is_empty());
