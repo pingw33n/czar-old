@@ -290,7 +290,7 @@ impl<'a> Resolver<'a> {
                 let std_resolver = self.with_package(PackageId::std());
                 // TODO cache this
                 let std_prelude = std_resolver
-                    .resolve_in_package(&["prelude", "v1"])?
+                    .resolve_in_package(&["prelude"])?
                     .nodes_of_kind(NsKind::Type)
                     .exactly_one()
                     .unwrap();
