@@ -1,0 +1,2 @@
+error: `main::()` function not found in package `err__main_not_found`
+  --> main.cz

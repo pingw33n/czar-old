@@ -1,0 +1,89 @@
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:1:5
+1 | use super::foo;
+        ~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:2:5
+2 | use super::super::bar;
+        ~~~~~~~~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:6:13
+6 |         use super::super::bar;
+                ~~~~~~~~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:7:13
+7 |         use super::super::super::baz;
+                ~~~~~~~~~~~~~~~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:10:12
+10 |     let x: super::T;
+                ~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:15:13
+15 |         use super::super::super::baz;
+                 ~~~~~~~~~~~~~~~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:16:13
+16 |         use super::super::bar;
+                 ~~~~~~~~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:22:13
+22 |         use super::super::bar;
+                 ~~~~~~~~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:23:13
+23 |         use super::super::super::baz;
+                 ~~~~~~~~~~~~~~~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:28:9
+28 |     use super::super::super::baz;
+             ~~~~~~~~~~~~~~~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:29:9
+29 |     use super::super::bar;
+             ~~~~~~~~~~~~
+
+error: can't resolve path: too many leading `super` keywords
+  --> main.cz:32:13
+32 |         use super::qux;
+                 ~~~~~
+
+error: could not find `T` in current scope
+  --> main.cz:37:12
+37 |     let x: T;
+                ~
+
+error: could not find `my_modulE` in current scope
+  --> main.cz:38:12
+38 |     let x: my_modulE::T;
+                ~~~~~~~~~
+
+error: could not find `my_module` in current scope
+  --> main.cz:39:12
+39 |     let x: my_module::T;
+                ~~~~~~~~~
+
+error: could not find `wut` in parent module
+  --> main.cz:46:20
+46 |         use super::wut;
+                        ~~~
+
+error: could not find `T` in parent module
+  --> main.cz:49:24
+49 |             use super::T;
+                            ~
+
+error: could not find `T2` in parent module
+  --> main.cz:50:31
+50 |             use super::super::T2;
+                                   ~~

@@ -34,17 +34,19 @@ pub fn compile(
     let mut diag = Diag::default();
 
     let path = path.as_ref();
+    let base_dir = path.parent().unwrap();
+
     let hir = match syntax::parse::parse_file(path, &mut diag) {
         Ok(v) => v,
         Err(e) => match e.kind {
             ErrorKind::Io(io_err) => {
-                let mut s = diag.print(path.parent().unwrap(), &e.sources).to_string();
+                let mut s = diag.print(base_dir, &e.sources).to_string();
                 use std::fmt::Write;
                 writeln!(&mut s, "{}", io_err).unwrap();
                 return Err(Error(s));
             },
             ErrorKind::Lex | ErrorKind::Parse => {
-                return Err(Error(diag.print(path.parent().unwrap(), &e.sources).to_string()));
+                return Err(Error(diag.print(base_dir, &e.sources).to_string()));
             },
         }
     };
@@ -52,18 +54,21 @@ pub fn compile(
     let discover_data = DiscoverData::build(&hir);
     // discover_data.print_scopes(&hir);
 
-    let resolve_data = ResolveData::build(
-        &discover_data,
-        &hir,
-        id,
-        kind,
-        packages,
-    );
-
     let diag = SemaDiag {
         diag: DiagRef::new(diag.into()),
         error_state: Default::default(),
     };
+
+    let resolve_data = ResolveData::build(
+        &discover_data,
+        &hir,
+        id,
+        &name,
+        kind,
+        packages,
+        diag.clone(),
+    );
+
     let check_data = Check {
         package_id: id,
         hir: &hir,
@@ -72,16 +77,16 @@ pub fn compile(
         packages,
         diag: diag.clone(),
     }.run();
-    let check_data = match check_data {
-        Ok(v) => v,
-        Err(_) => {
-            let s = diag.diag.borrow().print(path.parent().unwrap(), hir.sources()).to_string();
+
+    {
+        let diag = diag.diag.borrow();
+        if !diag.reports().iter().all(|r| matches!(r.severity, crate::diag::Severity::Error)) {
+            todo!();
+        }
+        if !diag.reports().is_empty() {
+            let s = diag.print(base_dir, hir.sources()).to_string();
             return Err(Error(s));
         }
-    };
-
-    if !diag.diag.borrow().reports().iter().all(|r| matches!(r.severity, crate::diag::Severity::Error)) {
-        todo!();
     }
 
     Ok(Package {

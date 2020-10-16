@@ -1,0 +1,56 @@
+use super::foo;
+use super::super::bar;
+
+fn f1() {
+    mod m {
+        use super::super::bar;
+        use super::super::super::baz;
+    }
+
+    let x: super::T;
+}
+
+fn f2() {
+    mod m {
+        use super::super::super::baz;
+        use super::super::bar;
+    }
+}
+
+fn f14() {
+    mod m {
+        use super::super::bar;
+        use super::super::super::baz;
+    }
+}
+
+fn f15() {
+    use super::super::super::baz;
+    use super::super::bar;
+
+    fn f3() {
+        use super::qux;
+    }
+}
+
+fn f16() {
+    let x: T;
+    let x: my_modulE::T;
+    let x: my_module::T;
+    let x: my_module::Struct;
+
+
+    mod my_module {
+        struct Struct {}
+
+        use super::wut;
+
+        mod inner {
+            use super::T;
+            use super::super::T2;
+        }
+    }
+}
+
+fn main() {
+}

@@ -1,0 +1,5 @@
+fn main(v: i32) {
+}
+
+fn main(_ v: i32) {
+}

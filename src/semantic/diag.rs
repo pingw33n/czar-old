@@ -6,9 +6,6 @@ pub type ErrorStateRef = std::rc::Rc<std::cell::RefCell<ErrorState>>;
 
 #[derive(Default)]
 pub struct ErrorState {
-    /// Has any errors including non-fatal.
-    pub has: bool,
-
     /// Has fatal module-level errors.
     /// When this is becomes `true`, no more checking is performed.
     pub fatal_in_mod: bool,
@@ -44,15 +41,7 @@ impl SemaDiag {
         span: Span,
         text: String,
     ) {
-        let id = {
-            let mut n = node;
-            loop {
-                n = discover_data.module_of(n);
-                if let Some(id) = hir.module(n).source_id {
-                    break id;
-                }
-            }
-        };
+        let id = discover_data.source_of(node, hir);
 
         self.diag.borrow_mut().report(diag::Report {
             severity: diag::Severity::Error,
@@ -62,8 +51,6 @@ impl SemaDiag {
                 span,
             })
         });
-
-        self.error_state.borrow_mut().has = true;
     }
 
     pub fn fatal_span(&self,

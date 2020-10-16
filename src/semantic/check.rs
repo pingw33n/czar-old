@@ -258,11 +258,6 @@ impl CheckData {
     }
 }
 
-#[derive(Debug)]
-pub struct CheckError(());
-
-pub type Result<T> = std::result::Result<T, CheckError>;
-
 pub struct Check<'a> {
     pub package_id: PackageId,
     pub hir: &'a Hir,
@@ -273,7 +268,7 @@ pub struct Check<'a> {
 }
 
 impl<'a> Check<'a> {
-    pub fn run(self) -> Result<CheckData> {
+    pub fn run(self) -> CheckData {
         let mut check_data = CheckData::default();
 
         let mut unnamed_structs = HashMap::new();
@@ -322,15 +317,10 @@ impl<'a> Check<'a> {
                 }
             }
         }
-        let has_errors = imp.diag.error_state.borrow().has;
         for (_, ty) in &check_data.types {
             assert!(ty.data.is_some(), "{:?} {:?}", ty, self.hir.node_kind(ty.node));
         }
-        if has_errors {
-            Err(CheckError(()))
-        } else {
-            Ok(check_data)
-        }
+        check_data
     }
 }
 
@@ -390,6 +380,7 @@ impl Impl<'_> {
             hir: self.hir,
             package_id: PackageId::std(),
             packages: &Packages::default(),
+            diag: self.diag.clone(),
         };
         let map = Box::new(EnumMap::from(|ty| {
             use PrimitiveType::*;
@@ -414,6 +405,7 @@ impl Impl<'_> {
                 Unit => &["Unit"][..],
             };
             let (pkg, node) = resolver.resolve_in_package(path)
+                .unwrap()
                 .nodes_of_kind(NsKind::Type)
                 .exactly_one()
                 .unwrap();

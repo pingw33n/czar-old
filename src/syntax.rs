@@ -23,6 +23,13 @@ impl Span {
         }
     }
 
+    pub fn empty() -> Self {
+        Self {
+            start: 0,
+            end: 0,
+        }
+    }
+
     pub fn range(self) -> Range<usize> {
         self.start..self.end
     }

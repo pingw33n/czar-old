@@ -1,0 +1,19 @@
+mod m1 {
+    struct S {}
+}
+
+mod m2 {
+    struct S {}
+
+    struct char {}
+}
+
+use m1::*;
+use m2::*;
+
+use std::char::*;
+
+fn main() {
+    let v = S{};
+    let v: char;
+}

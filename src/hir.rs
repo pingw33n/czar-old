@@ -209,6 +209,10 @@ impl Hir {
         self.sources
     }
 
+    pub fn root_source_id(&self) -> SourceId {
+        self.module(self.root).source_id.unwrap()
+    }
+
     pub fn node_kind(&self, id: NodeId) -> S<NodeKind> {
         self.nodes[id.0]
     }
@@ -252,7 +256,7 @@ impl Hir {
             }));
 
         // FIXME
-        let span = Span::new(0, 0);
+        let span = Span::empty();
         let segment = self.insert_path_segment(span.spanned(PathSegment {
             prefix: items,
             suffix: vec![suffix],

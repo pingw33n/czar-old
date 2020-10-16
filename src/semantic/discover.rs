@@ -239,6 +239,19 @@ impl DiscoverData {
         self.fn_decl_args_keys.get(&fn_decl)
     }
 
+    pub fn source_of(&self, mut node: NodeId, hir: &Hir) -> SourceId {
+        if node == hir.root {
+            hir.root_source_id()
+        } else {
+            loop {
+                node = self.module_of(node);
+                if let Some(id) = hir.module(node).source_id {
+                    break id;
+                }
+            }
+        }
+    }
+
     pub fn print_scopes(&self, hir: &Hir) {
         struct Visitor<'a> {
             data: &'a DiscoverData,

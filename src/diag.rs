@@ -88,15 +88,19 @@ impl Diag {
             writeln!(out, "{}: {}", severity, text)?;
             if let &Some(Source { id, span }) = source {
                 let source = &sources[id];
-                // TODO build and use line index
-                let hi_line = HiLine::from_span(span, source);
-
                 let path = source.path.strip_prefix(base_dir).unwrap_or(&source.path);
-                writeln!(out, "  --> {}:{}:{}",
-                    path.to_string_lossy(),
-                    hi_line.num,
-                    hi_line.col_start + 1)?;
-                hi_line.print(out, source)?;
+                if !span.is_empty() {
+                    // TODO build and use line index
+                    let hi_line = HiLine::from_span(span, source);
+
+                    writeln!(out, "  --> {}:{}:{}",
+                        path.to_string_lossy(),
+                        hi_line.num,
+                        hi_line.col_start + 1)?;
+                    hi_line.print(out, source)?;
+                } else {
+                    writeln!(out, "  --> {}", path.to_string_lossy())?;
+                }
             }
         }
         Ok(())

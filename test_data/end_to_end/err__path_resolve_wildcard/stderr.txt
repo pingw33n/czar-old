@@ -1,0 +1,9 @@
+error: `S` found in multiple wildcard imports
+  --> main.cz:17:13
+17 |     let v = S{};
+                 ~
+
+error: `char` found in multiple wildcard imports
+  --> main.cz:18:12
+18 |     let v: char;
+                ~~~~
