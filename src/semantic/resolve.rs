@@ -30,7 +30,6 @@ impl ResolveData {
             resolve_data: &mut resolve_data,
             package_id,
             packages,
-            fn_calls: Vec::new(),
         });
         if package_kind == PackageKind::Exe {
             let resolver = Resolver {
@@ -77,15 +76,11 @@ struct Build<'a> {
     resolve_data: &'a mut ResolveData,
     package_id: PackageId,
     packages: &'a Packages,
-    fn_calls: Vec<NodeId>,
 }
 
 impl HirVisitor for Build<'_> {
     fn before_node(&mut self, ctx: HirVisitorCtx) {
         match ctx.kind {
-            NodeKind::FnCall => {
-                self.fn_calls.push(ctx.node);
-            }
             NodeKind::PathEndIdent | NodeKind::PathEndStar => {
                 let target = Resolver {
                     discover_data: self.discover_data,
@@ -101,15 +96,6 @@ impl HirVisitor for Build<'_> {
                         "wildcard imports can only reference symbols from the same package")
                 }
                 self.resolve_data.insert(ctx.node, target);
-            }
-            _ => {}
-        }
-    }
-
-    fn after_node(&mut self, ctx: HirVisitorCtx) {
-        match ctx.kind {
-            NodeKind::FnCall => {
-                assert_eq!(self.fn_calls.pop().unwrap(), ctx.node);
             }
             _ => {}
         }
