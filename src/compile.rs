@@ -39,19 +39,13 @@ pub fn compile(
         Ok(v) => v,
         Err(e) => match e.kind {
             ErrorKind::Io(io_err) => {
-                let mut s = String::new();
-                diag.print(path.parent().unwrap(), &mut s, &e.sources).unwrap();
+                let mut s = diag.print(path.parent().unwrap(), &e.sources).to_string();
                 use std::fmt::Write;
-                if !s.is_empty() {
-                    writeln!(&mut s).unwrap();
-                }
                 writeln!(&mut s, "{}", io_err).unwrap();
                 return Err(Error(s));
             },
             ErrorKind::Lex | ErrorKind::Parse => {
-                let mut s = String::new();
-                diag.print(path.parent().unwrap(), &mut s, &e.sources).unwrap();
-                return Err(Error(s));
+                return Err(Error(diag.print(path.parent().unwrap(), &e.sources).to_string()));
             },
         }
     };
@@ -79,9 +73,7 @@ pub fn compile(
     let check_data = match check_data {
         Ok(v) => v,
         Err(_) => {
-            let mut s = String::new();
-            let diag = diag.borrow();
-            diag.print(path.parent().unwrap(), &mut s, hir.sources()).unwrap();
+            let s = diag.borrow().print(path.parent().unwrap(), hir.sources()).to_string();
             return Err(Error(s));
         }
     };

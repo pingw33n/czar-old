@@ -52,7 +52,25 @@ impl Diag {
         self.reports.truncate(state.len);
     }
 
-    pub fn print(&self, base_dir: impl AsRef<Path>, out: &mut impl Write, sources: &Sources) -> Result {
+    pub fn print<'a>(&'a self, base_dir: impl AsRef<Path> + 'a, sources: &'a Sources) -> impl std::fmt::Display + 'a {
+        struct Impl<'a, P> {
+            this: &'a Diag,
+            base_dir: P,
+            sources: &'a Sources,
+        }
+        impl<P: AsRef<Path>> std::fmt::Display for Impl<'_, P> {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                self.this.print0(self.base_dir.as_ref(), f, self.sources)
+            }
+        }
+        Impl {
+            this: self,
+            base_dir,
+            sources,
+        }
+    }
+
+    fn print0(&self, base_dir: &Path, out: &mut std::fmt::Formatter, sources: &Sources) -> std::fmt::Result {
         for (i, Report { severity, text, source }) in self.reports.iter().enumerate() {
             if i > 0 {
                 writeln!(out)?;
@@ -67,7 +85,7 @@ impl Diag {
                 // TODO build and use line index
                 let hi_line = HiLine::from_span(span, source);
 
-                let path = source.path.strip_prefix(base_dir.as_ref()).unwrap_or(&source.path);
+                let path = source.path.strip_prefix(base_dir).unwrap_or(&source.path);
                 writeln!(out, "  --> {}:{}:{}",
                     path.to_string_lossy(),
                     hi_line.num,
