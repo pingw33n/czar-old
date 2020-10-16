@@ -21,7 +21,7 @@ pub enum NodeLink {
     FieldAccessReceiver,
     FnCall(FnCallLink),
     Fn(FnLink),
-    FnDeclArgType,
+    FnDeclParamType,
     IfExpr(IfExprLink),
     Impl(ImplLink),
     LoopBlock,
@@ -48,8 +48,8 @@ pub enum CastLink {
 #[derive(Clone, Copy, Debug)]
 pub enum FnLink {
     Decl,
-    TypeArg,
-    Arg,
+    TypeParam,
+    Param,
     RetType,
     Body,
 }
@@ -57,7 +57,7 @@ pub enum FnLink {
 #[derive(Clone, Copy, Debug)]
 pub enum FnCallLink {
     Callee,
-    ArgValue,
+    ParamValue,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -69,7 +69,7 @@ pub enum IfExprLink {
 
 #[derive(Clone, Copy, Debug)]
 pub enum ImplLink {
-    TypeArg,
+    TypeParam,
     Item,
 }
 
@@ -89,7 +89,7 @@ pub enum RangeLink {
 #[derive(Clone, Copy, Debug)]
 pub enum StructDeclLink {
     Type,
-    TypeArg,
+    TypeParam,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -125,8 +125,8 @@ pub enum WhileLink {
 pub enum PathLink {
     Segment,
     SegmentSuffix,
-    SegmentItemTyArgs,
-    EndIdentTyArgs,
+    SegmentItemTyParams,
+    EndIdentTyParams,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -194,26 +194,26 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 self.traverse0(*receiver, NodeLink::FieldAccessReceiver);
             },
             NodeKind::FnCall => {
-                let FnCall { callee, args, .. } = self.hir.fn_call(node);
+                let FnCall { callee, params, .. } = self.hir.fn_call(node);
                 self.traverse0(*callee, NodeLink::FnCall(FnCallLink::Callee));
-                for arg in args {
-                    self.traverse0(arg.value, NodeLink::FnCall(FnCallLink::ArgValue));
+                for param in params {
+                    self.traverse0(param.value, NodeLink::FnCall(FnCallLink::ParamValue));
                 }
             },
             NodeKind::FnDecl => {
                 let FnDecl {
-                    ty_args,
-                    args,
+                    ty_params,
+                    params,
                     ret_ty,
                     body,
                     ..
                 } = self.hir.fn_decl(node);
 
-                for &ty_arg in ty_args {
-                    self.traverse0(ty_arg, NodeLink::Fn(FnLink::TypeArg));
+                for &ty_param in ty_params {
+                    self.traverse0(ty_param, NodeLink::Fn(FnLink::TypeParam));
                 }
-                for &arg in args {
-                    self.traverse0(arg, NodeLink::Fn(FnLink::Arg));
+                for &param in params {
+                    self.traverse0(param, NodeLink::Fn(FnLink::Param));
                 }
                 if let &Some(ret_ty) = ret_ty {
                     self.traverse0(ret_ty, NodeLink::Fn(FnLink::RetType));
@@ -222,9 +222,9 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     self.traverse0(body, NodeLink::Fn(FnLink::Body));
                 }
             },
-            NodeKind::FnDeclArg => {
-                let &FnDeclArg { ty, .. } = self.hir.fn_decl_arg(node);
-                self.traverse0(ty, NodeLink::FnDeclArgType);
+            NodeKind::FnDeclParam => {
+                let &FnDeclParam { ty, .. } = self.hir.fn_decl_param(node);
+                self.traverse0(ty, NodeLink::FnDeclParamType);
             },
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false, .. } = self.hir.if_expr(node);
@@ -236,9 +236,9 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 }
             },
             NodeKind::Impl => {
-                let Impl { ty_args, items, .. } = self.hir.impl_(node);
-                for &ty_arg in ty_args {
-                    self.traverse0(ty_arg, NodeLink::Impl(ImplLink::TypeArg));
+                let Impl { ty_params, items, .. } = self.hir.impl_(node);
+                for &ty_param in ty_params {
+                    self.traverse0(ty_param, NodeLink::Impl(ImplLink::TypeParam));
                 }
                 for &item in items {
                     self.traverse0(item, NodeLink::Impl(ImplLink::Item));
@@ -289,9 +289,9 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 }
             },
             NodeKind::Struct => {
-                let Struct { ty_args, ty, .. } = self.hir.struct_(node);
-                for &ty_arg in ty_args {
-                    self.traverse0(ty_arg, NodeLink::StructDecl(StructDeclLink::TypeArg));
+                let Struct { ty_params, ty, .. } = self.hir.struct_(node);
+                for &ty_param in ty_params {
+                    self.traverse0(ty_param, NodeLink::StructDecl(StructDeclLink::TypeParam));
                 }
                 self.traverse0(*ty, NodeLink::StructDecl(StructDeclLink::Type));
             },
@@ -321,19 +321,19 @@ impl<T: HirVisitor> Traverser<'_, T> {
             NodeKind::PathEndEmpty => {},
             NodeKind::PathEndIdent => {
                 let PathEndIdent {
-                    item: PathItem { ident: _, ty_args },
+                    item: PathItem { ident: _, ty_params },
                     renamed_as: _,
                 } = self.hir.path_end_ident(node);
-                for &node in ty_args {
-                    self.traverse0(node, NodeLink::Path(PathLink::EndIdentTyArgs));
+                for &node in ty_params {
+                    self.traverse0(node, NodeLink::Path(PathLink::EndIdentTyParams));
                 }
             },
             NodeKind::PathEndStar => {},
             NodeKind::PathSegment => {
                 let PathSegment { prefix, suffix } = self.hir.path_segment(node);
-                for PathItem { ident: _, ty_args } in prefix {
-                    for &node in ty_args {
-                        self.traverse0(node, NodeLink::Path(PathLink::SegmentItemTyArgs));
+                for PathItem { ident: _, ty_params } in prefix {
+                    for &node in ty_params {
+                        self.traverse0(node, NodeLink::Path(PathLink::SegmentItemTyParams));
                     }
                 }
                 for &node in suffix {
@@ -354,7 +354,7 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     &TyData::Slice(Slice { ty: n, .. }) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Slice)),
                 }
             },
-            NodeKind::TypeArg => {},
+            NodeKind::TypeParam => {},
             NodeKind::Use => {
                 let Use { path , ..} = self.hir.use_(node);
                 self.traverse0(*path, NodeLink::UsePath);

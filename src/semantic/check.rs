@@ -182,7 +182,7 @@ impl TypeData {
 
 #[derive(Debug)]
 pub struct FnType {
-    pub args: Vec<TypeId>,
+    pub params: Vec<TypeId>,
     pub result: TypeId,
     pub unsafe_: bool,
 }
@@ -299,8 +299,8 @@ impl<'a> Check<'a> {
         if !imp.diag.error_state.borrow().fatal_in_mod {
             if let Some(entry_point) = self.resolve_data.entry_point() {
                 match imp.unaliased_typing(entry_point).data() {
-                    TypeData::Fn(FnType { args, result, unsafe_ }) => {
-                        assert_eq!(args.len(), 0);
+                    TypeData::Fn(FnType { params, result, unsafe_ }) => {
+                        assert_eq!(params.len(), 0);
                         if !matches!(imp.unalias_type(*result).data(), TypeData::Primitive(PrimitiveType::Unit)) {
                             let node = self.hir.fn_decl(entry_point).ret_ty.unwrap();
                             imp.fatal(node, "`main` function must have unit return type".into());
@@ -529,7 +529,7 @@ impl Impl<'_> {
             NodeKind::FnDecl => {
                 let FnDecl {
                     name,
-                    args,
+                    params,
                     ret_ty,
                     unsafe_,
                     body,
@@ -538,14 +538,14 @@ impl Impl<'_> {
                     self.error_span(ctx.node, name.span,
                         "external function must be marked as `unsafe`".into());
                 }
-                let args: Vec<_> = args.iter()
+                let params: Vec<_> = params.iter()
                     .copied()
                     .map(|n| self.build_type(n))
                     .collect();
                 let result = ret_ty.map(|n| self.build_type(n))
                     .unwrap_or_else(|| self.primitive_type(PrimitiveType::Unit));
                 self.insert_typing(ctx.node, TypeData::Fn(FnType {
-                    args,
+                    params,
                     result,
                     unsafe_: unsafe_.is_some(),
                 }));
@@ -556,7 +556,7 @@ impl Impl<'_> {
             | NodeKind::Block
             | NodeKind::FieldAccess
             | NodeKind::FnCall
-            | NodeKind::FnDeclArg
+            | NodeKind::FnDeclParam
             | NodeKind::IfExpr
             | NodeKind::Let
             | NodeKind::LetDecl
@@ -598,8 +598,9 @@ impl Impl<'_> {
 
                     if actual_ret_ty != expected_ret_ty {
                         let node = *ctx.hir.block(body).exprs.last().unwrap();
-                        self.fatal(node, format!("mismatching return types: function `{fname}::{fargs}` expects `{exp}`, found `{act}`",
-                            fname=name.value, fargs=FnArgsKey::from_decl(ctx.node, ctx.hir),
+                        self.fatal(node, format!(
+                            "mismatching return types: function `{fname}::{fsign}` expects `{exp}`, found `{act}`",
+                            fname=name.value, fsign= FnSignature::from_decl(ctx.node, ctx.hir),
                             exp=self.display_type(expected_ret_ty),
                             act=self.display_type(actual_ret_ty)));
                     }
@@ -640,8 +641,8 @@ impl Impl<'_> {
             NodeKind::FnDecl => {
                 unreachable!()
             }
-            NodeKind::FnDeclArg => {
-                self.check_data.typing(ctx.hir.fn_decl_arg(ctx.node).ty)
+            NodeKind::FnDeclParam => {
+                self.check_data.typing(ctx.hir.fn_decl_param(ctx.node).ty)
             }
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
@@ -1140,16 +1141,16 @@ impl Impl<'_> {
         match &ty.data {
             Some(v) => {
                 match v {
-                    TypeData::Fn(FnType { args, result, unsafe_ }) => {
+                    TypeData::Fn(FnType { params, result, unsafe_ }) => {
                         if *unsafe_ {
                             write!(f, "unsafe ")?;
                         }
                         write!(f, "fn(")?;
-                        for (i, &arg) in args.iter().enumerate() {
+                        for (i, &param) in params.iter().enumerate() {
                             if i > 0 {
                                 write!(f, ", ")?;
                             }
-                            self.display_type0(arg, f)?;
+                            self.display_type0(param, f)?;
                         }
                         write!(f, ")")?;
                         if !matches!(self.type_(*result).data().as_primitive(), Some(PrimitiveType::Unit)) {
@@ -1160,9 +1161,9 @@ impl Impl<'_> {
                     }
                     &TypeData::Primitive(v) => write!(f, "{}", v),
                     TypeData::Struct(StructType { fields: field_tys }) => {
-                        if let Some(Struct { name , ty_args, .. }) = self.hir.try_struct(self.discover_data.parent_of(ty.node)) {
+                        if let Some(Struct { name , ty_params, .. }) = self.hir.try_struct(self.discover_data.parent_of(ty.node)) {
                             write!(f, "{}", name.value)?;
-                            if !ty_args.is_empty() {
+                            if !ty_params.is_empty() {
                                 todo!();
                             }
                         } else if let Some(hir::StructType { fields }) = self.hir.try_struct_type(ty.node) {
@@ -1231,7 +1232,7 @@ impl Impl<'_> {
         let FnCall {
             callee,
             kind,
-            args: actual_args,
+            params: actual_params,
             .. } = ctx.hir.fn_call(ctx.node);
         let (fn_decl_node, res) = {
             let callee_ty = self.unaliased_typing(*callee);
@@ -1249,12 +1250,12 @@ impl Impl<'_> {
             (fn_decl_node, res)
         };
 
-        let expected_args = self.hir(fn_decl_node.0).fn_decl(fn_decl_node.1).args.clone();
-        assert_eq!(actual_args.len(), expected_args.len());
+        let expected_params = self.hir(fn_decl_node.0).fn_decl(fn_decl_node.1).params.clone();
+        assert_eq!(actual_params.len(), expected_params.len());
 
-        for (actual, &expected) in actual_args
+        for (actual, &expected) in actual_params
             .iter()
-            .zip(expected_args.iter())
+            .zip(expected_params.iter())
         {
             self.unify(self.check_data.typing(actual.value), self.check_data(fn_decl_node.0).typing(expected));
 
@@ -1264,8 +1265,8 @@ impl Impl<'_> {
                 let hir = self.hir(fn_decl_node.0);
                 let name = &hir.fn_decl(fn_decl_node.1).name.value;
                 self.fatal(actual.value, format!(
-                    "mismatching types in fn call of `{fname}::{fargs}`: expected `{exp}`, found `{act}`",
-                    fname=name, fargs=FnArgsKey::from_decl(fn_decl_node.1, hir),
+                    "mismatching types in fn call of `{fname}::{fsign}`: expected `{exp}`, found `{act}`",
+                    fname=name, fsign= FnSignature::from_decl(fn_decl_node.1, hir),
                     exp=self.display_type(expected_ty), act=self.display_type(actual_ty)));
             }
         }
@@ -1278,7 +1279,7 @@ impl Impl<'_> {
         let kind = hir.node_kind(node.1).value;
         match kind {
             NodeKind::FnDecl => format!("function `{}`", hir.fn_decl(node.1).name.value),
-            NodeKind::FnDeclArg => format!("function parameter `{}`", hir.fn_decl_arg(node.1).name().value),
+            NodeKind::FnDeclParam => format!("function parameter `{}`", hir.fn_decl_param(node.1).name().value),
             NodeKind::LetDecl => format!("variable `{}`", hir.let_decl(node.1).name.value),
             NodeKind::Module => format!("module `{}`", hir.module(node.1).name.as_ref().unwrap().name.value),
             NodeKind::Struct => {
@@ -1317,7 +1318,7 @@ impl Impl<'_> {
                     match kind.value {
                         NodeKind::FnCall => {
                             break if ctx.hir.fn_call(n).callee == prev {
-                                Some((FnArgsKey::from_call(n, ctx.hir), kind.span))
+                                Some((FnSignature::from_call(n, ctx.hir), kind.span))
                             } else {
                                 None
                             };
@@ -1330,21 +1331,21 @@ impl Impl<'_> {
             } else {
                 None
             };
-            if let Some((key, call_span)) = fn_call {
+            if let Some((call_sign, call_span)) = fn_call {
                 let mut found = None;
                 // Function (base) name if there's at least one found.
                 let mut name = None;
                 // TODO Make this O(1)
                 for node in reso.nodes_of_kind(NsKind::Value) {
-                    if let Some(args_key) = self.discover_data(node.0)
-                        .try_fn_decl_args_key(node.1)
+                    if let Some(sign) = self.discover_data(node.0)
+                        .try_fn_decl_signature(node.1)
                     {
                         if name.is_none() {
                             name = Some(self.hir(node.0).fn_decl(node.1).name.value.clone());
                         } else {
                             debug_assert_eq!(&self.hir(node.0).fn_decl(node.1).name.value, name.as_ref().unwrap());
                         }
-                        if &key == args_key {
+                        if &call_sign == sign {
                             found = Some(node);
                             break;
                         }
@@ -1354,10 +1355,10 @@ impl Impl<'_> {
                     found
                 } else {
                     if let Some(name) = &name {
-                        // There are other fns with the same name but none with matching arg key.
+                        // There are other fns with the same name but none with matching signature.
                         return self.fatal_span(ctx.node, call_span, format!(
                             "couldn't find function `{}::{}`: none of existing functions matches the signature",
-                            name, key));
+                            name, call_sign));
                     }
                     if let Some(node) = reso.nodes_of_kind(NsKind::Value).next() {
                         // Could be a variable.
@@ -1393,9 +1394,9 @@ impl Impl<'_> {
                     if let Some(node) = it.next() {
                         if let Some(FnDecl { name, .. }) = self.hir(node.0).try_fn_decl(node.1) {
                             let text = if it.next().is_none() {
-                                let fn_args_key = self.discover_data(node.0).fn_decl_args_key(node.1);
+                                let sign = self.discover_data(node.0).fn_decl_signature(node.1);
                                 format!("invalid function reference, must include function's signature: `{}::{}`",
-                                    name.value, fn_args_key)
+                                    name.value, sign)
                             } else {
                                 "invalid function reference, must include function's signature".into()
                             };
@@ -1477,13 +1478,13 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         => ResoCtx::Value,
 
         | Cast(CastLink::Type)
-        | Fn(FnLink::TypeArg)
+        | Fn(FnLink::TypeParam)
         | Fn(FnLink::RetType)
-        | FnDeclArgType
-        | Impl(ImplLink::TypeArg)
+        | FnDeclParamType
+        | Impl(ImplLink::TypeParam)
         | Let(LetLink::Type)
-        | Path(PathLink::EndIdentTyArgs)
-        | Path(PathLink::SegmentItemTyArgs)
+        | Path(PathLink::EndIdentTyParams)
+        | Path(PathLink::SegmentItemTyParams)
         | StructDecl(_)
         | StructTypeFieldType
         | StructValue(StructValueLink::Name)

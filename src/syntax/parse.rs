@@ -309,9 +309,9 @@ impl<'a> ParserImpl<'a> {
             .unwrap_or(tok.span.start);
 
         let name = self.ident()?;
-        let ty_args = self.maybe_formal_ty_args()?;
+        let ty_params = self.maybe_formal_ty_params()?;
 
-        let mut args = Vec::new();
+        let mut params = Vec::new();
         self.expect(Token::BlockOpen(lex::Block::Paren))?;
         let mut delimited = true;
         let mut variadic = None;
@@ -329,7 +329,7 @@ impl<'a> ParserImpl<'a> {
                 let tok = self.lex.next();
                 variadic = Some(tok.map(|_| {}));
             } else {
-                let arg = if args.is_empty() {
+                let param = if params.is_empty() {
                     let ref_ = self.lex.maybe(Token::Amp);
                     let mut_ = self.lex.maybe(Token::Keyword(Keyword::Mut));
                     let self_ = self.lex.maybe(Token::Keyword(Keyword::SelfLower));
@@ -351,7 +351,7 @@ impl<'a> ParserImpl<'a> {
                                     data: ref_.with_value(TyData::Ref(ty))
                                 }));
                         }
-                        Some(FnDeclArg {
+                        Some(FnDeclParam {
                             pub_name: self_.with_value(None),
                             priv_name: self_.with_value(Ident::self_lower()),
                             ty,
@@ -362,8 +362,8 @@ impl<'a> ParserImpl<'a> {
                 } else {
                     None
                 };
-                let arg = if let Some(arg) = arg {
-                    arg
+                let param = if let Some(param) = param {
+                    param
                 } else {
                     let (pub_name, priv_name) = if let Some(underscore) = self.lex.maybe(Token::Keyword(Keyword::Underscore)) {
                         let priv_name = self.ident()?;
@@ -375,11 +375,11 @@ impl<'a> ParserImpl<'a> {
                     };
                     self.expect(Token::Colon)?;
                     let ty = self.ty_expr()?;
-                    FnDeclArg { pub_name, priv_name, ty }
+                    FnDeclParam { pub_name, priv_name, ty }
                 };
-                let start = arg.pub_name.span.start;
-                let end = self.hir.node_kind(arg.ty).span.end;
-                args.push(self.hir.insert_fn_decl_arg(Span::new(start, end).spanned(arg)));
+                let start = param.pub_name.span.start;
+                let end = self.hir.node_kind(param.ty).span.end;
+                params.push(self.hir.insert_fn_decl_param(Span::new(start, end).spanned(param)));
             }
 
             delimited = self.lex.maybe(Token::Comma).is_some();
@@ -407,8 +407,8 @@ impl<'a> ParserImpl<'a> {
         Ok(self.hir.insert_fn_decl(span.spanned(FnDecl {
             name,
             vis,
-            ty_args,
-            args,
+            ty_params,
+            params,
             ret_ty,
             unsafe_,
             variadic,
@@ -594,12 +594,12 @@ impl<'a> ParserImpl<'a> {
                 }
             };
 
-            let ty_args = if self.lex.nth(0).value == Token::Lt {
+            let ty_params = if self.lex.nth(0).value == Token::Lt {
                 // FIXME remove added HIR nodes when restoring state
                 let save = self.save_state();
-                match self.path_ty_args() {
-                    Ok(ty_args) => {
-                        assert!(!ty_args.is_empty());
+                match self.path_ty_params() {
+                    Ok(ty_params) => {
+                        assert!(!ty_params.is_empty());
                         if !in_type_pos {
                             let tok = self.lex.nth(0);
                             match tok.value {
@@ -611,7 +611,7 @@ impl<'a> ParserImpl<'a> {
                                 | Token::Dot
                                 => {
                                     self.discard_state(save);
-                                    Ok(ty_args)
+                                    Ok(ty_params)
                                 }
                                 _ => {
                                     self.restore_state(save);
@@ -620,7 +620,7 @@ impl<'a> ParserImpl<'a> {
                             }
                         } else {
                             self.discard_state(save);
-                            Ok(ty_args)
+                            Ok(ty_params)
                         }
                     }
                     Err(e) => {
@@ -636,10 +636,10 @@ impl<'a> ParserImpl<'a> {
                 Ok(Vec::new())
             };
 
-            let done = ty_args.is_err();
+            let done = ty_params.is_err();
             items.push(PathItem {
                 ident,
-                ty_args: ty_args.unwrap_or_default(),
+                ty_params: ty_params.unwrap_or_default(),
             });
 
             if done || self.lex.maybe(Token::ColonColon).is_none() {
@@ -666,7 +666,7 @@ impl<'a> ParserImpl<'a> {
             PathEndIdent {
                 item: PathItem {
                     ident,
-                    ty_args: Vec::new(),
+                    ty_params: Vec::new(),
                 },
                 renamed_as,
             })))
@@ -742,7 +742,7 @@ impl<'a> ParserImpl<'a> {
                         let ident = self.ident()?;
                         prefix.push(PathItem {
                             ident,
-                            ty_args: Vec::new(),
+                            ty_params: Vec::new(),
                         });
                         state = State::SepOrEnd;
                     } else {
@@ -779,11 +779,11 @@ impl<'a> ParserImpl<'a> {
             })))
     }
 
-    fn path_ty_args(&mut self) -> PResult<Vec<NodeId>> {
+    fn path_ty_params(&mut self) -> PResult<Vec<NodeId>> {
         self.expect(Token::Lt)?;
-        let mut ty_args = Vec::new();
+        let mut ty_params = Vec::new();
         loop {
-            ty_args.push(self.ty_expr()?);
+            ty_params.push(self.ty_expr()?);
             let mut tok = self.lex.nth(0);
             // Split GtGt into Gt and Gt.
             if tok.value == Token::GtGt {
@@ -806,22 +806,22 @@ impl<'a> ParserImpl<'a> {
                 }
             }
         }
-        Ok(ty_args)
+        Ok(ty_params)
     }
 
-    fn maybe_formal_ty_args(&mut self) -> PResult<Vec<NodeId>> {
+    fn maybe_formal_ty_params(&mut self) -> PResult<Vec<NodeId>> {
         let tok = self.lex.nth(0);
         if tok.value != Token::Lt {
             return Ok(Vec::new());
         }
 
-        let mut ty_args = Vec::new();
+        let mut ty_params = Vec::new();
 
         self.lex.consume();
 
         loop {
             let name = self.ident()?;
-            ty_args.push(self.hir.insert_type_arg(name.span.spanned(TypeArg {
+            ty_params.push(self.hir.insert_type_param(name.span.spanned(TypeParam {
                 name,
             })));
 
@@ -840,7 +840,7 @@ impl<'a> ParserImpl<'a> {
                 _ => {}
             }
         };
-        Ok(ty_args)
+        Ok(ty_params)
     }
 
     fn block(&mut self) -> PResult<NodeId> {
@@ -1383,9 +1383,9 @@ impl<'a> ParserImpl<'a> {
 
     // Expects the opening paren to be already consumed.
     fn fn_call(&mut self, callee: NodeId, receiver: Option<NodeId>) -> PResult<NodeId> {
-        let mut args = Vec::new();
+        let mut params = Vec::new();
         let kind = if let Some(receiver) = receiver {
-            args.push(FnCallArg {
+            params.push(FnCallParam {
                 name: None,
                 value: receiver,
             });
@@ -1408,7 +1408,7 @@ impl<'a> ParserImpl<'a> {
                 ..Default::default()
             })?;
             if let Some(value) = value {
-                args.push(FnCallArg {
+                params.push(FnCallParam {
                     name,
                     value,
                 });
@@ -1434,7 +1434,7 @@ impl<'a> ParserImpl<'a> {
         Ok(self.hir.insert_fn_call(span.spanned(FnCall {
             callee,
             kind,
-            args,
+            params,
         })))
     }
 
@@ -1510,7 +1510,7 @@ impl<'a> ParserImpl<'a> {
         self.expect(Token::Keyword(Keyword::Struct))?;
 
         let name = self.ident()?;
-        let ty_args = self.maybe_formal_ty_args()?;
+        let ty_params = self.maybe_formal_ty_params()?;
         let ty = self.struct_type(true)?;
 
         let start = vis.as_ref().map(|v| v.span.start)
@@ -1519,14 +1519,14 @@ impl<'a> ParserImpl<'a> {
         Ok(self.hir.insert_struct(Span::new(start, end).spanned(Struct {
             vis,
             name,
-            ty_args,
+            ty_params,
             ty,
         })))
     }
 
     fn impl_(&mut self) -> PResult<NodeId> {
         let start = self.expect(Token::Keyword(Keyword::Impl))?.span.start;
-        let ty_args = self.maybe_formal_ty_args()?;
+        let ty_params = self.maybe_formal_ty_params()?;
         let sym1 = self.sym_path(true)?;
         let sym2 = if self.lex.maybe(Token::Keyword(Keyword::For)).is_some() {
             Some(self.sym_path(true)?)
@@ -1556,7 +1556,7 @@ impl<'a> ParserImpl<'a> {
             .span.end;
 
         Ok(self.hir.insert_impl(Span::new(start, end).spanned(Impl {
-            ty_args,
+            ty_params,
             trait_,
             for_,
             items,
@@ -1864,7 +1864,7 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | Cast
         | FieldAccess
         | FnCall
-        | FnDeclArg
+        | FnDeclParam
         | Let
         | LetDecl
         | Literal
@@ -1876,7 +1876,7 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | PathEndStar
         | Range
         | TyExpr
-        | TypeArg
+        | TypeParam
         | StructValue
         | StructValueField
         => true,

@@ -2,8 +2,8 @@ fn f1() -> i32 {
     "test"
 }
 
-fn f2(arg: u32) -> {String,} {
-    {arg, 42}
+fn f2(param: u32) -> {String,} {
+    {param, 42}
 }
 
 fn main() {

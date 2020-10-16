@@ -7,7 +7,7 @@ use crate::hir::*;
 use crate::hir::traverse::*;
 use crate::util::enums::EnumExt;
 
-use super::FnArgsKey;
+use super::FnSignature;
 
 #[derive(EnumAsInner)]
 pub enum ScopeItem {
@@ -45,7 +45,7 @@ impl Scope {
     }
 
     pub fn insert_fn(&mut self, name: S<Ident>, node: NodeId,
-        fn_decl_args_keys: &NodeMap<FnArgsKey>)
+        fn_decl_signatures: &NodeMap<FnSignature>)
     {
         match self.items.entry(name.value.clone()) {
             Entry::Occupied(mut e) => {
@@ -56,14 +56,14 @@ impl Scope {
                     ScopeItem::Single { .. } => unreachable!(),
                     ScopeItem::Fns(fns) => {
                         match fns.iter()
-                            .position(|s| fn_decl_args_keys[&s.node] == fn_decl_args_keys[&node])
+                            .position(|s| fn_decl_signatures[&s.node] == fn_decl_signatures[&node])
                         {
                             Some(i) => {
                                 let first = &fns[i].name;
                                 let new = name.span;
-                                let args_key = &fn_decl_args_keys[&node];
+                                let sign = &fn_decl_signatures[&node];
                                 panic!("function {}{} is defined multiple times: first at [{}:{}], redefined at [{}:{}]",
-                                    first.value, args_key, first.span.start, first.span.end, new.start, new.end);
+                                    first.value, sign, first.span.start, first.span.end, new.start, new.end);
                             }
                             None => {
                                 fns.push(ScopeFn {
@@ -138,7 +138,7 @@ pub struct DiscoverData {
     child_to_parent: NodeMap<NodeId>,
     node_to_module: NodeMap<NodeId>,
     node_to_fn_decl: NodeMap<NodeId>,
-    fn_decl_args_keys: NodeMap<FnArgsKey>,
+    fn_decl_signatures: NodeMap<FnSignature>,
 }
 
 impl DiscoverData {
@@ -178,7 +178,7 @@ impl DiscoverData {
         let scope = &mut self.scopes.entry(scope)
             .or_insert(Default::default())
             [kind];
-        scope.insert_fn(name, node, &self.fn_decl_args_keys);
+        scope.insert_fn(name, node, &self.fn_decl_signatures);
     }
 
     pub fn scope_of(&self, node: NodeId) -> NodeId {
@@ -231,12 +231,12 @@ impl DiscoverData {
         assert!(self.node_to_fn_decl.insert(node, fn_decl).is_none());
     }
 
-    pub fn fn_decl_args_key(&self, fn_decl: NodeId) -> &FnArgsKey {
-        &self.fn_decl_args_keys[&fn_decl]
+    pub fn fn_decl_signature(&self, fn_decl: NodeId) -> &FnSignature {
+        &self.fn_decl_signatures[&fn_decl]
     }
 
-    pub fn try_fn_decl_args_key(&self, fn_decl: NodeId) -> Option<&FnArgsKey> {
-        self.fn_decl_args_keys.get(&fn_decl)
+    pub fn try_fn_decl_signature(&self, fn_decl: NodeId) -> Option<&FnSignature> {
+        self.fn_decl_signatures.get(&fn_decl)
     }
 
     pub fn source_of(&self, mut node: NodeId, hir: &Hir) -> SourceId {
@@ -305,7 +305,7 @@ impl DiscoverData {
                                             if i > 0 {
                                                 print!(", ");
                                             }
-                                            let key = self.data.fn_decl_args_key(*node);
+                                            let key = self.data.fn_decl_signature(*node);
                                             print!("`{}::{}` {}:{} -> {:?} {:?} {}:{}",
                                                 ident, key,
                                                 name.span.start, name.span.end,
@@ -401,13 +401,13 @@ impl HirVisitor for Build<'_> {
         match ctx.kind {
             NodeKind::FnDecl => {
                 let name = ctx.hir.fn_decl(ctx.node).name.clone();
-                let args_key = FnArgsKey::from_decl(ctx.node, ctx.hir);
-                assert!(self.data.fn_decl_args_keys.insert(ctx.node, args_key).is_none());
+                let sign = FnSignature::from_decl(ctx.node, ctx.hir);
+                assert!(self.data.fn_decl_signatures.insert(ctx.node, sign).is_none());
                 self.insert_fn(NsKind::Value, name, ctx.node);
                 self.fn_decl_stack.push(ctx.node);
             },
-            NodeKind::FnDeclArg => {
-                let priv_name = ctx.hir.fn_decl_arg(ctx.node).priv_name.clone();
+            NodeKind::FnDeclParam => {
+                let priv_name = ctx.hir.fn_decl_param(ctx.node).priv_name.clone();
                 self.insert(NsKind::Value, priv_name.clone(), ctx.node);
             },
             NodeKind::Let => {},
@@ -429,7 +429,7 @@ impl HirVisitor for Build<'_> {
             }
             NodeKind::PathEndIdent if self.in_use => {
                 let PathEndIdent {
-                    item: PathItem { ident, ty_args: _, .. },
+                    item: PathItem { ident, ty_params: _, .. },
                     renamed_as,
                 } = ctx.hir.path_end_ident(ctx.node);
                 let name = if ident.value == Ident::self_lower() {
@@ -467,7 +467,7 @@ impl HirVisitor for Build<'_> {
             | NodeKind::StructValue
             | NodeKind::StructValueField
             | NodeKind::TyExpr
-            | NodeKind::TypeArg
+            | NodeKind::TypeParam
             | NodeKind::While
             => {},
         }
@@ -548,7 +548,7 @@ fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
         | FieldAccess
         | FnCall
         | FnDecl
-        | FnDeclArg
+        | FnDeclParam
         | IfExpr
         | Impl
         | Literal
@@ -561,7 +561,7 @@ fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
         | StructValue
         | StructValueField
         | TyExpr
-        | TypeArg
+        | TypeParam
         | While
         => Some(ScopeKind::Normal),
 

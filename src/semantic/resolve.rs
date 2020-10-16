@@ -49,7 +49,7 @@ impl ResolveData {
             if let Ok(reso) = resolver.resolve_in_package(&["main"]) {
                 let node = reso.nodes_of_kind(NsKind::Value)
                     .filter(|n| n.0 == package_id)
-                    .filter(|n| discover_data.fn_decl_args_key(n.1) == &FnArgsKey::empty())
+                    .filter(|n| discover_data.fn_decl_signature(n.1) == &FnSignature::empty())
                     .next()
                     .map(|n| n.1);
                 if let Some(node) = node {
@@ -248,7 +248,7 @@ impl<'a> Resolver<'a> {
                 NodeKind::PathEndStar | NodeKind::PathEndEmpty => {}
                 NodeKind::PathSegment => {
                     let PathSegment { prefix, suffix: _ } = self.hir.path_segment(n);
-                    for PathItem { ident, ty_args: _ } in prefix.iter().rev() {
+                    for PathItem { ident, ty_params: _ } in prefix.iter().rev() {
                         path_idents.push(ident.clone());
                     }
                 }

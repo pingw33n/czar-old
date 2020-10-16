@@ -119,7 +119,7 @@ impl<'a> Codegen<'a> {
 
     fn fn_body(&mut self, fn_decl: GlobalNodeId) {
         let package = &self.packages[fn_decl.0];
-        let FnDecl { args, body, .. } = package.hir.fn_decl(fn_decl.1);
+        let FnDecl { params, body, .. } = package.hir.fn_decl(fn_decl.1);
         if let Some(body) = *body {
             let fn_ = self.fn_decls[&fn_decl];
             self.llvm.append_new_bb(fn_, "header");
@@ -131,9 +131,9 @@ impl<'a> Codegen<'a> {
                 allocas,
             };
 
-            for (i, &arg) in args.iter().enumerate() {
-                let name = &package.hir.fn_decl_arg(arg).priv_name.value;
-                let val = self.alloca(arg, name, ctx);
+            for (i, &param) in params.iter().enumerate() {
+                let name = &package.hir.fn_decl_param(param).priv_name.value;
+                let val = self.alloca(param, name, ctx);
                 let param = fn_.param(i as u32);
                 self.headerb.store(param, val);
             }
@@ -171,13 +171,13 @@ impl<'a> Codegen<'a> {
                     self.llvm.int_type(32).const_int(idx as u128)]).into()
             }
             NodeKind::FnCall => {
-                let FnCall { callee, kind, args } = ctx.package.hir.fn_call(node);
+                let FnCall { callee, kind, params } = ctx.package.hir.fn_call(node);
                 if *kind != FnCallKind::Free {
                     todo!();
                 }
                 let callee = self.expr(*callee, ctx).to_direct(self.bodyb);
                 let args_ll = &mut Vec::new();
-                for &FnCallArg { value, .. } in args {
+                for &FnCallParam { value, .. } in params {
                     let v = self.expr(value, ctx).to_direct(self.bodyb);
                     args_ll.push(v);
                 }
@@ -225,7 +225,7 @@ impl<'a> Codegen<'a> {
                 self.bodyb.position_at_end(succ_bb);
                 ret_var.into()
             }
-            NodeKind::FnDeclArg => ctx.allocas[&node].into(),
+            NodeKind::FnDeclParam => ctx.allocas[&node].into(),
             NodeKind::LetDecl => {
                 let name = ctx.package.hir.let_decl(node).name.value.as_str();
                 Value::Indirect(self.alloca(node, name, ctx))
@@ -505,13 +505,13 @@ impl<'a> Codegen<'a> {
         }
         let package = &self.packages[unaliased.0];
         let ty_ll = match package.check_data.type_(unaliased.1).data() {
-            TypeData::Fn(FnType { args, result, .. }) => {
-                let args_ty = &mut Vec::with_capacity(args.len());
-                for &arg in args {
-                    args_ty.push(self.type_(arg));
+            TypeData::Fn(FnType { params, result, .. }) => {
+                let param_tys = &mut Vec::with_capacity(params.len());
+                for &param in params {
+                    param_tys.push(self.type_(param));
                 }
                 let res_ty = self.type_(*result);
-                TypeRef::function(res_ty, args_ty)
+                TypeRef::function(res_ty, param_tys)
             }
             &TypeData::Primitive(prim) => {
                 self.make_prim_type(prim)

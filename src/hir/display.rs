@@ -81,8 +81,8 @@ impl Display<'_> {
                 let FnDecl {
                     name,
                     vis,
-                    ty_args,
-                    args,
+                    ty_params,
+                    params,
                     ret_ty,
                     unsafe_,
                     variadic,
@@ -96,11 +96,11 @@ impl Display<'_> {
                 p.print_sep("fn")?;
                 p.print_sep(&name.value)?;
 
-                self.formal_ty_args(ty_args, p)?;
+                self.ty_params(ty_params, p)?;
 
                 p.print("(")?;
-                for (i, &arg) in args.iter().enumerate() {
-                    let FnDeclArg { pub_name, priv_name, ty } = self.hir.fn_decl_arg(arg);
+                for (i, &param) in params.iter().enumerate() {
+                    let FnDeclParam { pub_name, priv_name, ty } = self.hir.fn_decl_param(param);
                     if i > 0 {
                         p.print(", ")?;
                     }
@@ -122,7 +122,7 @@ impl Display<'_> {
                         self.node(*ty, false, p)?;
                     }
 
-                    if variadic.is_some() && i == args.len() - 1 {
+                    if variadic.is_some() && i == params.len() - 1 {
                         p.print(", ...")?;
                     }
                 }
@@ -141,12 +141,12 @@ impl Display<'_> {
                 }
                 p.println("")?;
             }
-            NodeKind::FnDeclArg => unreachable!(),
+            NodeKind::FnDeclParam => unreachable!(),
             NodeKind::FnCall => {
-                let FnCall { callee, kind, args } = self.hir.fn_call(node);
-                let mut args = args.iter();
+                let FnCall { callee, kind, params } = self.hir.fn_call(node);
+                let mut params = params.iter();
                 if *kind == FnCallKind::Method {
-                    let FnCallArg { name, value } = args.next().unwrap();
+                    let FnCallParam { name, value } = params.next().unwrap();
                     assert!(name.is_none());
                     self.expr(*value, p)?;
                     p.print('.')?;
@@ -154,7 +154,7 @@ impl Display<'_> {
                 self.expr(*callee, p)?;
 
                 p.print('(')?;
-                for (i, FnCallArg{ name, value }) in args.enumerate() {
+                for (i, FnCallParam{ name, value }) in params.enumerate() {
                     if i > 0 {
                         p.print(", ")?;
                     }
@@ -184,13 +184,13 @@ impl Display<'_> {
             }
             NodeKind::Impl => {
                 let Impl {
-                    ty_args,
+                    ty_params,
                     trait_,
                     for_,
                     items,
                 } = self.hir.impl_(node);
                 p.print("impl")?;
-                self.formal_ty_args(ty_args, p)?;
+                self.ty_params(ty_params, p)?;
 
                 p.print(' ')?;
                 if let Some(trait_) = trait_ {
@@ -427,11 +427,11 @@ impl Display<'_> {
                 }
             }
             NodeKind::Struct => {
-                let Struct { vis, name, ty_args, ty } = self.hir.struct_(node);
+                let Struct { vis, name, ty_params, ty } = self.hir.struct_(node);
                 self.vis(vis, p)?;
                 p.print_sep("struct ")?;
                 p.print(&name.value)?;
-                self.formal_ty_args(ty_args, p)?;
+                self.ty_params(ty_params, p)?;
                 p.print(' ')?;
                 self.struct_type(*ty, false, p)?;
                 p.println("")?;
@@ -512,7 +512,7 @@ impl Display<'_> {
                     }
                 }
             }
-            NodeKind::TypeArg => unreachable!(),
+            NodeKind::TypeParam => unreachable!(),
             NodeKind::Use => {
                 let Use { vis, path } = self.hir.use_(node);
                 self.vis(vis, p)?;
@@ -559,11 +559,11 @@ impl Display<'_> {
     }
 
     fn path_item(&self, item: &PathItem, p: &mut Printer) -> Result {
-        let PathItem { ident, ty_args } = item;
+        let PathItem { ident, ty_params } = item;
         self.ident(&ident.value, p)?;
-        if !ty_args.is_empty() {
+        if !ty_params.is_empty() {
             p.print("<")?;
-            for (i, v) in ty_args.iter().enumerate() {
+            for (i, v) in ty_params.iter().enumerate() {
                 if i > 0 {
                     p.print(", ")?;
                 }
@@ -683,10 +683,10 @@ impl Display<'_> {
         Ok(())
     }
 
-    fn formal_ty_args(&self, ty_args: &[NodeId], p: &mut Printer) -> Result {
-        if !ty_args.is_empty() {
+    fn ty_params(&self, ty_params: &[NodeId], p: &mut Printer) -> Result {
+        if !ty_params.is_empty() {
             p.print("<")?;
-            p.print_sep_seq(ty_args.iter().map(|&v| &self.hir.type_arg(v).name.value), ", ")?;
+            p.print_sep_seq(ty_params.iter().map(|&v| &self.hir.type_param(v).name.value), ", ")?;
             p.print(">")?;
         }
         Ok(())

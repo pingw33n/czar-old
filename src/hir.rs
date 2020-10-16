@@ -34,7 +34,7 @@ pub enum NodeKind {
     FieldAccess,
     FnCall,
     FnDecl,
-    FnDeclArg,
+    FnDeclParam,
     IfExpr,
     Impl,
     Let,
@@ -54,7 +54,7 @@ pub enum NodeKind {
     StructValue,
     StructValueField,
     TyExpr,
-    TypeArg,
+    TypeParam,
     Use,
     While,
 }
@@ -125,7 +125,7 @@ pub struct Hir {
     casts: NodeMap<Cast>,
     field_accesses: NodeMap<FieldAccess>,
     fn_decls: NodeMap<FnDecl>,
-    fn_decl_args: NodeMap<FnDeclArg>,
+    fn_decl_params: NodeMap<FnDeclParam>,
     fn_calls: NodeMap<FnCall>,
     if_exprs: NodeMap<IfExpr>,
     impls: NodeMap<Impl>,
@@ -144,7 +144,7 @@ pub struct Hir {
     struct_values: NodeMap<StructValue>,
     struct_value_fields: NodeMap<StructValueField>,
     ty_exprs: NodeMap<TyExpr>,
-    type_args: NodeMap<TypeArg>,
+    type_params: NodeMap<TypeParam>,
     uses: NodeMap<Use>,
     whiles: NodeMap<While>,
 
@@ -222,7 +222,7 @@ impl Hir {
         let end = self.insert_path_end_ident(ident.span.spanned(PathEndIdent {
             item: PathItem {
                 ident,
-                ty_args: Vec::new(),
+                ty_params: Vec::new(),
             },
             renamed_as: None,
         }));
@@ -246,7 +246,7 @@ impl Hir {
 
         let suffix = items.pop().unwrap();
         let suffix_start = suffix.ident.span.start;
-        let end = suffix.ty_args.last()
+        let end = suffix.ty_params.last()
             .map(|&v| self.node_kind(v).span.end)
             .unwrap_or(suffix.ident.span.end);
         let suffix = self.insert_path_end_ident(Span::new(suffix_start, end).spanned(
@@ -274,7 +274,7 @@ impl Hir {
         insert_cast, cast, cast_mut, try_cast, try_cast_mut, casts, Cast;
         insert_field_access, field_access, field_access_mut, try_field_access, try_field_access_mut, field_accesses, FieldAccess;
         insert_fn_decl, fn_decl, fn_decl_mut, try_fn_decl, try_fn_decl_mut, fn_decls, FnDecl;
-        insert_fn_decl_arg, fn_decl_arg, fn_decl_arg_mut, try_fn_decl_arg, try_fn_decl_arg_mut, fn_decl_args, FnDeclArg;
+        insert_fn_decl_param, fn_decl_param, fn_decl_param_mut, try_fn_decl_param, try_fn_decl_param_mut, fn_decl_params, FnDeclParam;
         insert_fn_call, fn_call, fn_call_mut, try_fn_call, try_fn_call_mut, fn_calls, FnCall;
         insert_if_expr, if_expr, if_expr_mut, try_if_expr, try_if_expr_mut, if_exprs, IfExpr;
         insert_impl, impl_, impl_mut, try_impl, try_impl_mut, impls, Impl;
@@ -293,7 +293,7 @@ impl Hir {
         insert_struct_value, struct_value, struct_value_mut, try_struct_value, try_struct_value_mut, struct_values, StructValue;
         insert_struct_value_field, struct_value_field, struct_value_field_mut, try_struct_value_field, try_struct_value_field_mut, struct_value_fields, StructValueField;
         insert_ty_expr, ty_expr, ty_expr_mut, try_ty_expr, try_ty_expr_mut, ty_exprs, TyExpr;
-        insert_type_arg, type_arg, type_arg_mut, try_type_arg, try_type_arg_mut, type_args, TypeArg;
+        insert_type_param, type_param, type_param_mut, try_type_param, try_type_param_mut, type_params, TypeParam;
         insert_use, use_, use_mut, try_use, try_use_mut, uses, Use;
         insert_while, while_, while_mut, try_while, try_while_mut, whiles, While;
     }
@@ -568,7 +568,7 @@ pub struct ModuleName {
 }
 
 #[derive(Debug)]
-pub struct TypeArg {
+pub struct TypeParam {
     pub name: S<Ident>,
 }
 
@@ -576,8 +576,8 @@ pub struct TypeArg {
 pub struct FnDecl {
     pub name: S<Ident>,
     pub vis: Option<S<Vis>>,
-    pub ty_args: Vec<NodeId>,
-    pub args: Vec<NodeId>,
+    pub ty_params: Vec<NodeId>,
+    pub params: Vec<NodeId>,
     pub ret_ty: Option<NodeId>,
     pub unsafe_: Option<S<()>>,
     pub variadic: Option<S<()>>,
@@ -585,13 +585,13 @@ pub struct FnDecl {
 }
 
 #[derive(Debug)]
-pub struct FnDeclArg {
+pub struct FnDeclParam {
     pub pub_name: S<Option<Ident>>,
     pub priv_name: S<Ident>,
     pub ty: NodeId,
 }
 
-impl FnDeclArg {
+impl FnDeclParam {
     pub fn name(&self) -> S<&Ident> {
         if let Some(n) = self.pub_name.value.as_ref() {
             self.pub_name.span.spanned(n)
@@ -611,11 +611,11 @@ pub enum FnCallKind {
 pub struct FnCall {
     pub callee: NodeId,
     pub kind: FnCallKind,
-    pub args: Vec<FnCallArg>,
+    pub params: Vec<FnCallParam>,
 }
 
 #[derive(Debug)]
-pub struct FnCallArg {
+pub struct FnCallParam {
     pub name: Option<S<Ident>>,
     pub value: NodeId,
 }
@@ -698,7 +698,7 @@ pub struct PathSegment {
 #[derive(Debug)]
 pub struct PathItem {
     pub ident: S<Ident>,
-    pub ty_args: Vec<NodeId>, // TyExpr
+    pub ty_params: Vec<NodeId>, // TyExpr
 }
 
 #[derive(Debug)]
@@ -783,7 +783,7 @@ pub struct StructValueField {
 pub struct Struct {
     pub vis: Option<S<Vis>>,
     pub name: S<Ident>,
-    pub ty_args: Vec<NodeId>,
+    pub ty_params: Vec<NodeId>,
     pub ty: NodeId, // StructType
 }
 
@@ -808,7 +808,7 @@ pub struct Range {
 
 #[derive(Debug)]
 pub struct Impl {
-    pub ty_args: Vec<NodeId>,
+    pub ty_params: Vec<NodeId>,
     pub trait_: Option<NodeId>, // SymPath
     pub for_: NodeId, // SymPath
     pub items: Vec<NodeId>,

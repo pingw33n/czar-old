@@ -10,11 +10,11 @@ fn fatal(span: crate::syntax::Span, s: impl std::fmt::Display) -> ! {
 }
 
 #[derive(Clone, Eq, Debug, Hash, PartialEq)]
-pub struct FnArgsKey {
+pub struct FnSignature {
     items: Vec<Ident>,
 }
 
-impl FnArgsKey {
+impl FnSignature {
     pub fn empty() -> Self {
         Self {
             items: Vec::new(),
@@ -39,25 +39,25 @@ impl FnArgsKey {
     }
 
     pub fn from_decl(node: NodeId, hir: &Hir) -> Self {
-        let args = &hir.fn_decl(node).args;
-        let it = args.iter()
-            .map(|&arg| hir.fn_decl_arg(arg).pub_name.value.as_ref()
+        let params = &hir.fn_decl(node).params;
+        let it = params.iter()
+            .map(|&param| hir.fn_decl_param(param).pub_name.value.as_ref()
                 .map(|v| v.clone())
                 .unwrap_or_else(|| Ident::underscore()));
         Self::from_iter(it)
     }
 
-    pub fn from_call(node: NodeId, hir: &Hir) -> FnArgsKey {
-        let args = &hir.fn_call(node).args;
-        let it = args.iter()
-            .map(|arg| arg.name.as_ref()
+    pub fn from_call(node: NodeId, hir: &Hir) -> FnSignature {
+        let params = &hir.fn_call(node).params;
+        let it = params.iter()
+            .map(|param| param.name.as_ref()
                 .map(|v| v.value.clone())
                 .unwrap_or_else(|| Ident::underscore()));
         Self::from_iter(it)
     }
 }
 
-impl std::fmt::Display for FnArgsKey {
+impl std::fmt::Display for FnSignature {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "(")?;
         for (i, item) in self.items.iter().enumerate() {
