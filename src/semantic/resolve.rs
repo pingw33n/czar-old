@@ -335,12 +335,17 @@ impl<'a> Resolver<'a> {
         let mut r = Resolution::default();
         let start = if anchor.is_some() { 0 } else { 1 };
         for (i, ident) in path_idents.iter().enumerate().skip(start) {
-            r = self.resolve_in_scope(
-                node,
-                scope,
-                ident.as_ref().map(|v| v.as_str()),
-                paths,
-            )?;
+            r = if ident.value.is_self_lower() {
+                    assert_eq!(i, path_idents.len() - 1);
+                    Resolution::single(NsKind::Type, (self.package_id, scope))
+                } else {
+                    self.resolve_in_scope(
+                        node,
+                        scope,
+                        ident.as_ref().map(|v| v.as_str()),
+                        paths,
+                    )?
+                };
             if let Some((pkg, sc)) = r.type_or_value() {
                 self = self.with_package(pkg);
                 scope = sc;

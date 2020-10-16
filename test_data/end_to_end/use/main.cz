@@ -1,0 +1,20 @@
+module m1 {
+    module m2 {
+        struct S {
+            s: String,
+        }
+
+        fn f(s: String) {
+            prints(s); println();
+        }
+    }
+}
+
+use m1::m2::{self, S};
+
+fn main() {
+    let s1 = S {s: "s1"};
+    let s2 = m2::S {s: "s2"};
+    m2::f(s: s1.s);
+    m2::f(s: s2.s);
+}

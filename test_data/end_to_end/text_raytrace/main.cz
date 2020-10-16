@@ -60,18 +60,21 @@ module color {
 }
 
 module sphere {
+    use super::vec3::{self, Vec3};
+    use super::color::Color;
+
     struct Sphere {
-        center: super::vec3::Vec3,
+        center: Vec3,
         radius: f32,
-        color: super::color::Color,
+        color: Color,
     }
 
-    fn new(center: super::vec3::Vec3, radius: f32, color: super::color::Color) -> Sphere {
+    fn new(center: Vec3, radius: f32, color: Color) -> Sphere {
         Sphere { center: center, radius: radius, color: color }
     }
 
-    fn normal(_ v: Sphere, _ pt: super::vec3::Vec3) -> super::vec3::Vec3 {
-        super::vec3::norm(super::vec3::sub(pt, v.center))
+    fn normal(_ v: Sphere, _ pt: Vec3) -> Vec3 {
+        vec3::norm(vec3::sub(pt, v.center))
     }
 }
 
