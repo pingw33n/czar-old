@@ -1,11 +1,10 @@
-use std::cell::RefCell;
 use std::path::Path;
-use std::rc::Rc;
 
-use crate::diag::Diag;
+use crate::diag::{Diag, DiagRef};
 use crate::hir::Ident;
 use crate::package::*;
 use crate::semantic::check::Check;
+use crate::semantic::diag::SemaDiag;
 use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
 use crate::syntax;
@@ -61,7 +60,10 @@ pub fn compile(
         packages,
     );
 
-    let diag = Rc::new(RefCell::new(diag));
+    let diag = SemaDiag {
+        diag: DiagRef::new(diag.into()),
+        error_state: Default::default(),
+    };
     let check_data = Check {
         package_id: id,
         hir: &hir,
@@ -73,12 +75,12 @@ pub fn compile(
     let check_data = match check_data {
         Ok(v) => v,
         Err(_) => {
-            let s = diag.borrow().print(path.parent().unwrap(), hir.sources()).to_string();
+            let s = diag.diag.borrow().print(path.parent().unwrap(), hir.sources()).to_string();
             return Err(Error(s));
         }
     };
 
-    if !diag.borrow().reports().iter().all(|r| matches!(r.severity, crate::diag::Severity::Error)) {
+    if !diag.diag.borrow().reports().iter().all(|r| matches!(r.severity, crate::diag::Severity::Error)) {
         todo!();
     }
 

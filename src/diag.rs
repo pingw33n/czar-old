@@ -27,6 +27,8 @@ pub struct SaveState {
     len: usize,
 }
 
+pub type DiagRef = std::rc::Rc<std::cell::RefCell<Diag>>;
+
 #[derive(Default)]
 pub struct Diag {
     reports: Vec<Report>,

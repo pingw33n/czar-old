@@ -1,4 +1,5 @@
 pub mod check;
+pub mod diag;
 pub mod discover;
 pub mod resolve;
 

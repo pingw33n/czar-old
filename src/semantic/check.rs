@@ -5,15 +5,14 @@ use if_chain::if_chain;
 use slab::Slab;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 
-use crate::diag::{self, Diag, Severity};
 use crate::hir::{self, *};
 use crate::hir::traverse::*;
 use crate::package::{GlobalNodeId, PackageId, Packages};
 use crate::util::iter::IteratorExt;
 
 use super::*;
+use super::diag::SemaDiag;
 use resolve::{ResolveData, Resolver};
 use discover::{DiscoverData, NsKind};
 
@@ -270,7 +269,7 @@ pub struct Check<'a> {
     pub discover_data: &'a DiscoverData,
     pub resolve_data: &'a ResolveData,
     pub packages: &'a Packages,
-    pub diag: Rc<RefCell<Diag>>,
+    pub diag: SemaDiag,
 }
 
 impl<'a> Check<'a> {
@@ -297,13 +296,12 @@ impl<'a> Check<'a> {
             unnamed_structs,
             hir: self.hir,
             diag: self.diag,
-            errors: Default::default(),
         };
         if self.package_id.is_std() {
             imp.build_primitive_types();
         }
         self.hir.traverse(imp);
-        if !imp.errors.borrow().fatal_in_mod {
+        if !imp.diag.error_state.borrow().fatal_in_mod {
             if let Some(entry_point) = self.resolve_data.entry_point() {
                 match imp.unaliased_typing(entry_point).data() {
                     TypeData::Fn(FnType { args, result, unsafe_ }) => {
@@ -324,7 +322,7 @@ impl<'a> Check<'a> {
                 }
             }
         }
-        let has_errors = imp.errors.borrow().has;
+        let has_errors = imp.diag.error_state.borrow().has;
         for (_, ty) in &check_data.types {
             assert!(ty.data.is_some(), "{:?} {:?}", ty, self.hir.node_kind(ty.node));
         }
@@ -367,21 +365,6 @@ impl UnnamedStructKey {
     }
 }
 
-#[derive(Default)]
-struct Errors {
-    /// Has any errors including non-fatal.
-    has: bool,
-
-    /// Has fatal module-level errors.
-    /// When this is becomes `true`, no more checking is performed.
-    fatal_in_mod: bool,
-
-    /// Has fatal function-level errors.
-    /// When a fatal error reported inside function body, no more checking of that function body is
-    /// done.
-    fatal_in_fn_decls: NodeMap<()>,
-}
-
 struct Impl<'a> {
     discover_data: &'a DiscoverData,
     resolve_data: &'a ResolveData,
@@ -395,8 +378,7 @@ struct Impl<'a> {
     /// Unnamed structs across all packages.
     unnamed_structs: HashMap<UnnamedStructKey, TypeId>,
     hir: &'a Hir,
-    diag: Rc<RefCell<Diag>>,
-    errors: RefCell<Errors>,
+    diag: SemaDiag,
 }
 
 impl Impl<'_> {
@@ -1128,26 +1110,7 @@ impl Impl<'_> {
     }
 
     fn error_span(&self, node: NodeId, span: Span, text: String) -> TypeId {
-        let id = {
-            let mut n = node;
-            loop {
-                n = self.discover_data.module_of(n);
-                if let Some(id) = self.hir.module(n).source_id {
-                    break id;
-                }
-            }
-        };
-
-        self.diag.borrow_mut().report(diag::Report {
-            severity: Severity::Error,
-            text,
-            source: Some(diag::Source {
-                id,
-                span,
-            })
-        });
-
-        self.errors.borrow_mut().has = true;
+        self.diag.error_span(self.hir, self.discover_data, node, span, text);
         self.primitive_type(PrimitiveType::Unit)
     }
 
@@ -1157,13 +1120,8 @@ impl Impl<'_> {
     }
 
     fn fatal_span(&self, node: NodeId, span: Span, text: String) -> TypeId {
-        let r = self.error_span(node, span, text);
-        if let Some(fn_decl) = self.discover_data.try_fn_decl_of(node) {
-            self.errors.borrow_mut().fatal_in_fn_decls.insert(fn_decl, ());
-        } else {
-            self.errors.borrow_mut().fatal_in_mod = true;
-        }
-        r
+        self.diag.fatal_span(self.hir, self.discover_data, node, span, text);
+        self.primitive_type(PrimitiveType::Unit)
     }
 
     fn display_type<'a>(&'a self, ty: TypeId) -> impl std::fmt::Display + 'a {
@@ -1478,7 +1436,7 @@ impl Impl<'_> {
 
 impl HirVisitor for Impl<'_> {
     fn before_node(&mut self, ctx: HirVisitorCtx) {
-        if self.errors.borrow().fatal_in_mod {
+        if self.diag.has_fatal_in_mod() {
             return;
         }
         if let Some(v) = reso_ctx(ctx.link) {
@@ -1490,14 +1448,10 @@ impl HirVisitor for Impl<'_> {
     }
 
     fn after_node(&mut self, ctx: HirVisitorCtx) {
-        if self.errors.borrow().fatal_in_mod {
+        if self.diag.has_fatal_in_mod() {
             return;
         }
-        let has_fatal_fn_err = self.discover_data.try_fn_decl_of(ctx.node)
-            .or_else(|| self.hir.try_fn_decl(ctx.node).map(|_| ctx.node))
-            .map(|v| self.errors.borrow().fatal_in_fn_decls.contains_key(&v))
-            .unwrap_or(false);
-        if !has_fatal_fn_err {
+        if !self.diag.has_fatal_in_fn(self.hir, self.discover_data, ctx.node) {
             self.check(ctx);
             if !self.has_complete_typing(ctx.node) {
                 self.do_typing(ctx);
