@@ -1,5 +1,5 @@
-pub mod prelude {
-    pub mod v1 {
+pub module prelude {
+    pub module v1 {
         pub use package::bool::bool;
         pub use package::char::char;
         pub use package::i8::i8;
@@ -41,71 +41,71 @@ pub mod prelude {
     }
 }
 
-pub mod f32 {
+pub module f32 {
     pub struct f32 {}
 }
 
-pub mod f64 {
+pub module f64 {
     pub struct f64 {}
 }
 
-pub mod i8 {
+pub module i8 {
     pub struct i8 {}
 }
 
-pub mod u8 {
+pub module u8 {
     pub struct u8 {}
 }
 
-pub mod i16 {
+pub module i16 {
     pub struct i16 {}
 }
 
-pub mod u16 {
+pub module u16 {
     pub struct u16 {}
 }
 
-pub mod i32 {
+pub module i32 {
     pub struct i32 {}
 }
 
-pub mod u32 {
+pub module u32 {
     pub struct u32 {}
 }
 
-pub mod i64 {
+pub module i64 {
     pub struct i64 {}
 }
 
-pub mod u64 {
+pub module u64 {
     pub struct u64 {}
 }
 
-pub mod i128 {
+pub module i128 {
     pub struct i128 {}
 }
 
-pub mod u128 {
+pub module u128 {
     pub struct u128 {}
 }
 
-pub mod isize {
+pub module isize {
     pub struct isize {}
 }
 
-pub mod usize {
+pub module usize {
     pub struct usize {}
 }
 
-pub mod bool {
+pub module bool {
     pub struct bool {}
 }
 
-pub mod char {
+pub module char {
     pub struct char {}
 }
 
-pub mod string {
+pub module string {
     pub /*FIXME ref */struct String {
     }
 }

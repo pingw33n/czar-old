@@ -18,7 +18,7 @@ fn f() {
     f: i32,
   }
   fn f() {
-    mod m {
+    module m {
       struct S {
         f: i32,
       }

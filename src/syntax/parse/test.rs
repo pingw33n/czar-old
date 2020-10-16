@@ -22,11 +22,11 @@ fn test() {
 fn mod_file_resolution() {
     let mut files = HashMap::new();
     files.insert(Path::new("foo/bar/main.cz").to_path_buf(), r#"
-        mod mod1;
-        mod mod3 {}
+        module mod1;
+        module mod3 {}
     "#.to_string());
     files.insert(Path::new("foo/bar/mod1.cz").to_path_buf(), r#"
-        pub mod mod2;
+        pub module mod2;
     "#.to_string());
     files.insert(Path::new("foo/bar/mod1/mod2.cz").to_path_buf(), "".to_string());
     struct Fs(HashMap<PathBuf, String>);

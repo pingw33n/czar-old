@@ -16,7 +16,7 @@ fn prim3() {
 }
 
 fn f2() {
-    mod m {}
+    module m {}
     m
 }
 

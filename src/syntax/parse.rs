@@ -171,7 +171,7 @@ impl<'a> ParserImpl<'a> {
                 }
             }
             Token::Keyword(Keyword::Fn) => self.fn_(vis)?,
-            Token::Keyword(Keyword::Mod) => self.module(top_level, vis)?,
+            Token::Keyword(Keyword::Module) => self.module(top_level, vis)?,
             Token::Keyword(Keyword::Static) => unimplemented!(),
             Token::Keyword(Keyword::Use) => self.use_(vis)?,
             Token::Keyword(Keyword::Struct) => self.struct_(vis)?,
@@ -182,8 +182,8 @@ impl<'a> ParserImpl<'a> {
                 self.impl_()?
             }
             _ => {
-                if let Some(vis) = vis {
-                    return self.error(vis.span,
+                if vis.is_some() {
+                    return self.error(tok0.span,
                         format!("expected item after visibility modifier, found `{}`", tok0.value));
                 }
                 return Ok(None);
@@ -219,9 +219,9 @@ impl<'a> ParserImpl<'a> {
     }
 
     fn module(&mut self, top_level: bool, vis: Option<S<Vis>>) -> PResult<NodeId> {
-        let mod_ = self.expect(Token::Keyword(Keyword::Mod))?;
+        let module = self.expect(Token::Keyword(Keyword::Module))?;
         let start = vis.as_ref().map(|v| v.span.start)
-            .unwrap_or(mod_.span.start);
+            .unwrap_or(module.span.start);
         let name = self.ident()?;
         let name = ModuleName {
             name,

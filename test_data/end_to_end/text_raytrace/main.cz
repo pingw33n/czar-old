@@ -3,7 +3,7 @@
 pub unsafe fn sqrtf(_ v: f32) -> f32;
 pub unsafe fn truncf(_ v: f32) -> f32;
 
-mod vec3 {
+module vec3 {
     struct Vec3 {
         x: f32,
         y: f32,
@@ -39,7 +39,7 @@ mod vec3 {
     }
 }
 
-mod color {
+module color {
     struct Color {
         r: f32,
         g: f32,
@@ -59,7 +59,7 @@ mod color {
     }
 }
 
-mod sphere {
+module sphere {
     struct Sphere {
         center: super::vec3::Vec3,
         radius: f32,

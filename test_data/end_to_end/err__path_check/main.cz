@@ -37,7 +37,7 @@ fn f6() {
 }
 
 fn f7() {
-    mod m {}
+    module m {}
     m();
 }
 

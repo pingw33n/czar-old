@@ -1,8 +1,8 @@
-mod m1 {
+module m1 {
     struct S {}
 }
 
-mod m2 {
+module m2 {
     struct S {}
 
     struct char {}

@@ -276,7 +276,7 @@ impl Display<'_> {
                 let Module { source_id: _, name, items } = self.hir.module(node);
                 if let Some(n) = name {
                     self.vis(&n.vis, p)?;
-                    p.print_sep("mod")?;
+                    p.print_sep("module")?;
                     p.print_sep(&n.name.value)?;
                     p.print_sep("{")?;
                     p.indent()?;

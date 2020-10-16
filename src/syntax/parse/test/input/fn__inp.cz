@@ -21,13 +21,13 @@ fn foo(&mut self, arg1: u32, arg2: Self, ...) -> &&mut Self {
   let self_: &Self = self;
 }
 
-mod m {
+module m {
   fn foo() {}
 }
 
 fn foo() {
   fn bar() {}
-  mod m {
+  module m {
     fn baz() {}
   }
 }
