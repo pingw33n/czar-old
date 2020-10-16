@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::hir::{self, SourceId, Sources};
 use crate::syntax::Span;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Severity {
     Error,
     Warning,
@@ -73,7 +73,11 @@ impl Diag {
     }
 
     fn print0(&self, base_dir: &Path, out: &mut std::fmt::Formatter, sources: &Sources) -> std::fmt::Result {
-        for (i, Report { severity, text, source }) in self.reports.iter().enumerate() {
+        let mut reps: Vec<_> = self.reports.iter().collect();
+        reps.sort_by_key(|r| (
+            r.severity,
+            r.source.as_ref().map(|s| (s.id, s.span.start, s.span.end))));
+        for (i, Report { severity, text, source }) in reps.iter().enumerate() {
             if i > 0 {
                 writeln!(out)?;
             }
