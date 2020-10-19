@@ -410,22 +410,27 @@ impl Impl<'_> {
         assert!(self.check_data.primitive_types.replace(map).is_none());
     }
 
-    fn ensure_typing(&mut self, node: NodeId) -> Result<TypeId, ()> {
+    fn ensure_opt_typing(&mut self, node: NodeId) -> Result<Option<TypeId>, ()> {
         if self.failed_typings.contains_key(&node) {
             return Err(());
         }
         if let Some(ty) = self.check_data.try_typing(node) {
-            Ok(ty)
+            Ok(Some(ty))
         } else {
             self.hir.traverse_from(node, self);
-            match self.typing(node) {
-                Ok(v) => Ok(v),
-                Err(()) => {
-                    assert!(self.failed_typings.insert(node, ()).is_none());
-                    Err(())
-                }
+            if self.failed_typings.contains_key(&node) {
+                return Err(());
             }
+            Ok(if let Some(ty) = self.check_data.try_typing(node) {
+                Some(self.type_(ty).id())
+            } else {
+                None
+            })
         }
+    }
+
+    fn ensure_typing(&mut self, node: NodeId) -> Result<TypeId, ()> {
+        self.ensure_opt_typing(node).transpose().unwrap()
     }
 
     fn check_data(&self, package_id: PackageId) -> &CheckData {
@@ -662,9 +667,7 @@ impl Impl<'_> {
                 self.resolve_struct_field(struct_ty, ctx.node, field)?
             }
             NodeKind::FnCall => self.type_fn_call(&ctx)?,
-            NodeKind::FnDecl => {
-                unreachable!()
-            }
+            NodeKind::FnDecl => return Err(()),
             NodeKind::FnDeclParam => {
                 self.typing(ctx.hir.fn_decl_param(ctx.node).ty)?
             }
@@ -1477,7 +1480,13 @@ impl Impl<'_> {
         };
         self.check_data.insert_path_to_target(ctx.node, (pkg, node));
         Ok(Some(if pkg == self.package_id {
-            self.ensure_typing(node)?
+            if let Some(ty) = self.ensure_opt_typing(node)? {
+                ty
+            } else {
+                self.error_span(ctx.node, span, format!(
+                    "expected type, found {}", self.describe_named((pkg, node))));
+                return Err(());
+            }
         } else {
             self.packages[pkg].check_data.typing(node)
         }))

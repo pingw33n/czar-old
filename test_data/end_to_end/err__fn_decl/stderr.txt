@@ -1,0 +1,49 @@
+error: could not find `T` in current scope
+  --> main.cz:2:13
+2 |     fn f(x: T) -> T {42}
+                ~
+
+error: could not find `T` in current scope
+  --> main.cz:2:19
+2 |     fn f(x: T) -> T {42}
+                      ~
+
+error: couldn't find function `f::()`: none of existing functions matches the signature
+  --> main.cz:3:5
+3 |     f() + 42
+        ~~~
+
+error: could not find `T` in current scope
+  --> main.cz:7:21
+7 |     fn f(x: i32) -> T {42}
+                        ~
+
+error: couldn't find function `f::()`: none of existing functions matches the signature
+  --> main.cz:8:5
+8 |     f() + 42
+        ~~~
+
+error: expected type, found module `m2`
+  --> main.cz:15:16
+15 |     fn f(x: m::m2, y: m2) -> m {}
+                    ~~
+
+error: could not find `m2` in current scope
+  --> main.cz:15:23
+15 |     fn f(x: m::m2, y: m2) -> m {}
+                           ~~
+
+error: expected type, found module `m`
+  --> main.cz:15:30
+15 |     fn f(x: m::m2, y: m2) -> m {}
+                                  ~
+
+error: couldn't find function `f::()`: none of existing functions matches the signature
+  --> main.cz:16:5
+16 |     f() + 42
+         ~~~
+
+error: expected type, found module `m`
+  --> main.cz:21:15
+21 |     fn f() -> m {}
+                   ~

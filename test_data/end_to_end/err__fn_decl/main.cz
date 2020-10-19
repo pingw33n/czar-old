@@ -1,0 +1,30 @@
+fn f1() {
+    fn f(x: T) -> T {42}
+    f() + 42
+}
+
+fn f2() {
+    fn f(x: i32) -> T {42}
+    f() + 42
+}
+
+fn f3() {
+    module m {
+        module m2 {}
+    }
+    fn f(x: m::m2, y: m2) -> m {}
+    f() + 42
+}
+
+fn f4() {
+    module m {}
+    fn f() -> m {}
+    f() + 42
+}
+
+fn main() {
+    f1();
+    f2();
+    f3();
+    f4();
+}
