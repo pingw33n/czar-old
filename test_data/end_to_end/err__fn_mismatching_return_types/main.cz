@@ -15,5 +15,9 @@ fn f5() -> i32 {
     "stuff";
 }
 
+fn f6() {
+    "foo" + 32
+}
+
 fn main() {
 }

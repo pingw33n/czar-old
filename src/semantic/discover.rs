@@ -137,7 +137,6 @@ pub struct DiscoverData {
     node_to_scope: NodeMap<NodeId>,
     child_to_parent: NodeMap<NodeId>,
     node_to_module: NodeMap<NodeId>,
-    node_to_fn_decl: NodeMap<NodeId>,
     fn_decl_signatures: NodeMap<FnSignature>,
 }
 
@@ -150,7 +149,6 @@ impl DiscoverData {
             scope_stack: Vec::new(),
             node_stack: Vec::new(),
             module_stack: Vec::new(),
-            fn_decl_stack: Vec::new(),
         });
         data
     }
@@ -216,19 +214,6 @@ impl DiscoverData {
     fn set_module_of(&mut self, node: NodeId, module: NodeId) {
         assert_ne!(node, module);
         assert!(self.node_to_module.insert(node, module).is_none());
-    }
-
-    pub fn fn_decl_of(&self, node: NodeId) -> NodeId {
-        self.node_to_fn_decl[&node]
-    }
-
-    pub fn try_fn_decl_of(&self, node: NodeId) -> Option<NodeId> {
-        self.node_to_fn_decl.get(&node).copied()
-    }
-
-    fn set_fn_decl_of(&mut self, node: NodeId, fn_decl: NodeId) {
-        assert_ne!(node, fn_decl);
-        assert!(self.node_to_fn_decl.insert(node, fn_decl).is_none());
     }
 
     pub fn fn_decl_signature(&self, fn_decl: NodeId) -> &FnSignature {
@@ -340,7 +325,6 @@ struct Build<'a> {
     scope_stack: Vec<(ScopeKind, NodeId)>,
     node_stack: Vec<NodeId>,
     module_stack: Vec<NodeId>,
-    fn_decl_stack: Vec<NodeId>,
 }
 
 impl Build<'_> {
@@ -389,9 +373,6 @@ impl HirVisitor for Build<'_> {
         if let Some(&module) = self.module_stack.last() {
             self.data.set_module_of(ctx.node, module);
         }
-        if let Some(&fn_decl) = self.fn_decl_stack.last() {
-            self.data.set_fn_decl_of(ctx.node, fn_decl);
-        }
         self.node_stack.push(ctx.node);
 
         if let Some(&(_, scope)) = self.scope_stack.last() {
@@ -404,7 +385,6 @@ impl HirVisitor for Build<'_> {
                 let sign = FnSignature::from_decl(ctx.node, ctx.hir);
                 assert!(self.data.fn_decl_signatures.insert(ctx.node, sign).is_none());
                 self.insert_fn(NsKind::Value, name, ctx.node);
-                self.fn_decl_stack.push(ctx.node);
             },
             NodeKind::FnDeclParam => {
                 let priv_name = ctx.hir.fn_decl_param(ctx.node).priv_name.clone();
@@ -494,9 +474,6 @@ impl HirVisitor for Build<'_> {
             self.module_stack.pop().unwrap();
         }
         match ctx.kind {
-            NodeKind::FnDecl => {
-                assert_eq!(self.fn_decl_stack.pop().unwrap(), ctx.node);
-            },
             NodeKind::Use => {
                 assert!(self.in_use);
                 self.in_use = false;

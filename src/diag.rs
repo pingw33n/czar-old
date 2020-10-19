@@ -1,7 +1,8 @@
 use std::fmt::{Result, Write};
 use std::path::Path;
 
-use crate::hir::{self, SourceId, Sources};
+use crate::hir::{self, Hir, NodeId, SourceId, Sources};
+use crate::semantic::discover::DiscoverData;
 use crate::syntax::Span;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -25,6 +26,7 @@ pub struct Report {
 
 pub struct SaveState {
     len: usize,
+    error_count: usize,
 }
 
 pub type DiagRef = std::rc::Rc<std::cell::RefCell<Diag>>;
@@ -32,26 +34,55 @@ pub type DiagRef = std::rc::Rc<std::cell::RefCell<Diag>>;
 #[derive(Default)]
 pub struct Diag {
     reports: Vec<Report>,
+    error_count: usize,
 }
 
 impl Diag {
     pub fn report(&mut self, report: Report) {
+        if matches!(report.severity, Severity::Error) {
+            self.error_count += 1;
+        }
         self.reports.push(report);
+    }
+
+    pub fn error_span(&mut self,
+        hir: &Hir,
+        discover_data: &DiscoverData,
+        node: NodeId,
+        span: Span,
+        text: String,
+    ) {
+        let id = discover_data.source_of(node, hir);
+
+        self.report(Report {
+            severity: Severity::Error,
+            text,
+            source: Some(Source {
+                id,
+                span,
+            })
+        });
     }
 
     pub fn reports(&self) -> &[Report] {
         &self.reports
     }
 
+    pub fn error_count(&self) -> usize {
+        self.error_count
+    }
+
     pub fn save_state(&self) -> SaveState {
         SaveState {
             len: self.reports.len(),
+            error_count: self.error_count,
         }
     }
 
     pub fn restore_state(&mut self, state: SaveState) {
         assert!(self.reports.len() >= state.len);
         self.reports.truncate(state.len);
+        self.error_count = state.error_count;
     }
 
     pub fn print<'a>(&'a self, base_dir: impl AsRef<Path> + 'a, sources: &'a Sources) -> impl std::fmt::Display + 'a {

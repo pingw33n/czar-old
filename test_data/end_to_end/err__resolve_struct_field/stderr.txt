@@ -1,59 +1,64 @@
-error: expected expression of struct type, found `bool`
-  --> main.cz:2:5
+error: unknown field `0` on type `bool`
+  --> main.cz:2:10
 2 |     true.0;
-        ~~~~
+             ~
 
-error: expected expression of struct type, found `?integer`
-  --> main.cz:6:5
-6 |     {42}.field;
-        ~~~~
+error: mismatching return types: function `f1::()` expects `u32`, found `{}`
+  --> main.cz:2:11
+2 |     true.0;
+              ~
 
-error: expected expression of struct type, found `{}`
-  --> main.cz:10:5
+error: unknown field `field` on type `?integer`
+  --> main.cz:6:10
+6 |     {42}.field
+             ~~~~~
+
+error: unknown field `bad` on type `{}`
+  --> main.cz:10:8
 10 |     {}.bad;
-         ~~
+            ~~~
 
-error: expected expression of struct type, found `{}`
-  --> main.cz:14:5
-14 |     {}.42;
-         ~~
+error: unknown field `42` on type `{}`
+  --> main.cz:14:8
+14 |     {}.42
+            ~~
 
-error: unknown field `bad` on struct `{?integer,}`
+error: unknown field `bad` on type `{?integer,}`
   --> main.cz:18:11
 18 |     {42,}.bad;
                ~~~
 
-error: unknown field `42` on struct `{?integer,}`
+error: unknown field `42` on type `{?integer,}`
   --> main.cz:22:11
 22 |     {42,}.42;
                ~~
 
-error: unknown field `bad` on struct `{foo: ?integer}`
+error: unknown field `bad` on type `{foo: ?integer}`
   --> main.cz:26:15
 26 |     {foo: 42}.bad;
                    ~~~
 
-error: unknown field `42` on struct `{foo: ?integer}`
+error: unknown field `42` on type `{foo: ?integer}`
   --> main.cz:30:15
 30 |     {foo: 42}.42;
                    ~~
 
-error: unknown field `bad` on struct `Foo`
+error: unknown field `bad` on type `Foo`
   --> main.cz:35:19
 35 |     Foo {foo: 42}.bad;
                        ~~~
 
-error: unknown field `42` on struct `Foo`
+error: unknown field `42` on type `Foo`
   --> main.cz:40:19
 40 |     Foo {foo: 42}.42;
                        ~~
 
-error: unknown field `bad` on struct `Foo`
+error: unknown field `bad` on type `Foo`
   --> main.cz:45:14
 45 |     Foo {42}.bad;
                   ~~~
 
-error: unknown field `42` on struct `Foo`
+error: unknown field `42` on type `Foo`
   --> main.cz:50:15
 50 |     Foo {42,}.42;
                    ~~

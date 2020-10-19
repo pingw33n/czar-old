@@ -1,18 +1,17 @@
 use enum_as_inner::EnumAsInner;
 use enum_map::EnumMap;
 use enum_map_derive::Enum;
-use if_chain::if_chain;
 use slab::Slab;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
+use crate::diag::DiagRef;
 use crate::hir::{self, *};
 use crate::hir::traverse::*;
 use crate::package::{GlobalNodeId, PackageId, Packages};
 use crate::util::iter::IteratorExt;
 
 use super::*;
-use super::diag::SemaDiag;
 use resolve::{ResolveData, Resolver};
 use discover::{DiscoverData, NsKind};
 
@@ -249,6 +248,10 @@ impl CheckData {
         self.path_to_target[&path]
     }
 
+    pub fn try_target_of(&self, path: NodeId) -> Option<GlobalNodeId> {
+        self.path_to_target.get(&path).copied()
+    }
+
     fn insert_path_to_target(&mut self, path: NodeId, target: GlobalNodeId) {
         assert!(self.path_to_target.insert(path, target).is_none());
     }
@@ -258,17 +261,20 @@ impl CheckData {
     }
 }
 
+#[derive(Debug)]
+pub struct CheckError(());
+
 pub struct Check<'a> {
     pub package_id: PackageId,
     pub hir: &'a Hir,
     pub discover_data: &'a DiscoverData,
     pub resolve_data: &'a ResolveData,
     pub packages: &'a Packages,
-    pub diag: SemaDiag,
+    pub diag: DiagRef,
 }
 
 impl<'a> Check<'a> {
-    pub fn run(self) -> CheckData {
+    pub fn run(self) -> Result<CheckData, CheckError> {
         let mut check_data = CheckData::default();
 
         let mut unnamed_structs = HashMap::new();
@@ -290,37 +296,23 @@ impl<'a> Check<'a> {
             type_id_set: Default::default(),
             unnamed_structs,
             hir: self.hir,
-            diag: self.diag,
+            diag: self.diag.clone(),
+            failed_typings: Default::default(),
         };
         if self.package_id.is_std() {
             imp.build_primitive_types();
         }
         self.hir.traverse(imp);
-        if !imp.diag.error_state.borrow().fatal_in_mod {
-            if let Some(entry_point) = self.resolve_data.entry_point() {
-                match imp.unaliased_typing(entry_point).data() {
-                    TypeData::Fn(FnType { params, result, unsafe_ }) => {
-                        assert_eq!(params.len(), 0);
-                        if !matches!(imp.unalias_type(*result).data(), TypeData::Primitive(PrimitiveType::Unit)) {
-                            let node = self.hir.fn_decl(entry_point).ret_ty.unwrap();
-                            imp.fatal(node, "`main` function must have unit return type".into());
-                        }
-                        if *unsafe_ {
-                            let span = self.hir.fn_decl(entry_point).unsafe_.unwrap().span;
-                            imp.fatal_span(entry_point, span, "`main` function must not be unsafe".into());
-                        }
-                        if self.hir.fn_decl(entry_point).body.is_none() {
-                            imp.fatal(entry_point, "`main` function must not be external".into());
-                        }
-                    }
-                    _ => unreachable!(),
-                }
-            }
+        if let Some(entry_point) = self.resolve_data.entry_point() {
+            imp.check_entry_point(entry_point).map_err(|_| CheckError(()))?;
+        }
+        if self.diag.borrow().error_count() > 0 {
+            return Err(CheckError(()));
         }
         for (_, ty) in &check_data.types {
             assert!(ty.data.is_some(), "{:?} {:?}", ty, self.hir.node_kind(ty.node));
         }
-        check_data
+        Ok(check_data)
     }
 }
 
@@ -368,7 +360,8 @@ struct Impl<'a> {
     /// Unnamed structs across all packages.
     unnamed_structs: HashMap<UnnamedStructKey, TypeId>,
     hir: &'a Hir,
-    diag: SemaDiag,
+    diag: DiagRef,
+    failed_typings: NodeMap<()>,
 }
 
 impl Impl<'_> {
@@ -417,12 +410,21 @@ impl Impl<'_> {
         assert!(self.check_data.primitive_types.replace(map).is_none());
     }
 
-    fn build_type(&mut self, node: NodeId) -> TypeId {
+    fn ensure_typing(&mut self, node: NodeId) -> Result<TypeId, ()> {
+        if self.failed_typings.contains_key(&node) {
+            return Err(());
+        }
         if let Some(ty) = self.check_data.try_typing(node) {
-            ty
+            Ok(ty)
         } else {
             self.hir.traverse_from(node, self);
-            self.check_data.typing(node)
+            match self.typing(node) {
+                Ok(v) => Ok(v),
+                Err(()) => {
+                    assert!(self.failed_typings.insert(node, ()).is_none());
+                    Err(())
+                }
+            }
         }
     }
 
@@ -434,16 +436,12 @@ impl Impl<'_> {
         }
     }
 
-    fn type_(&self, id: TypeId) -> &Type {
-        self.check_data(id.0).type_(id.1)
-    }
-
-    fn unalias_type(&self, mut id: TypeId) -> &Type {
+    fn type_(&self, mut id: TypeId) -> &Type {
         #[cfg(debug_assertions)] {
             assert!(self.type_id_set.borrow_mut().is_empty());
         }
         let ty = loop {
-            let ty = self.type_(id);
+            let ty = self.check_data(id.0).type_(id.1);
             if let Some(&next_id) = ty.data().as_type() {
                 #[cfg(debug_assertions)] {
                     assert!(self.type_id_set.borrow_mut().insert(next_id));
@@ -469,6 +467,7 @@ impl Impl<'_> {
     }
 
     fn insert_typing(&mut self, node: NodeId, data: TypeData) -> TypeId {
+        debug_assert!(!self.failed_typings.contains_key(&node));
         let ty = self.insert_type(node, data);
         self.check_data.insert_typing(node, ty);
         ty
@@ -478,28 +477,40 @@ impl Impl<'_> {
         (PackageId::std(), self.check_data(PackageId::std()).primitive(ty))
     }
 
-    fn unaliased_typing(&self, node: NodeId) -> &Type {
-        self.try_unaliased_typing(node).unwrap()
-    }
-
-    fn try_unaliased_typing(&self, node: NodeId) -> Option<&Type> {
-        let ty = self.check_data.try_typing(node)?;
-        Some(self.unalias_type(ty))
+    fn typing(&self, node: NodeId) -> Result<TypeId, ()> {
+        if self.failed_typings.contains_key(&node) {
+            return Err(());
+        }
+        let ty = self.check_data.typing(node);
+        Ok(self.type_(ty).id())
     }
 
     fn begin_typing(&mut self, node: NodeId) -> TypeId {
+        debug_assert!(!self.failed_typings.contains_key(&node));
         let ty = self.check_data.insert_type((self.package_id, node), None);
         self.check_data.insert_typing(node, ty);
         ty
     }
 
-    fn finish_typing(&mut self, node: NodeId, ty: TypeId) {
-        if let Some(id) = self.check_data.try_typing(node) {
-            assert_eq!(id.0, self.package_id);
-            let typ = self.check_data.type_mut(id.1);
-            assert_eq!(typ.node(), (self.package_id, node));
-            assert!(typ.data.replace(TypeData::Type(ty)).is_none());
-        } else {
+    fn insert_failed_typing(&mut self, node: NodeId) {
+        assert!(self.failed_typings.insert(node, ()).is_none());
+    }
+
+    fn finish_typing(&mut self, node: NodeId, ty: Result<TypeId, ()>) {
+        debug_assert!(!self.failed_typings.contains_key(&node));
+        if ty.is_err() {
+            self.insert_failed_typing(node);
+        }
+        if let Some(incomplete_ty) = self.check_data.try_typing(node) {
+            assert_eq!(incomplete_ty.0, self.package_id);
+            if let Ok(ty) = ty {
+                let typ = self.check_data.type_mut(incomplete_ty.1);
+                assert_eq!(typ.node(), (self.package_id, node));
+                assert!(typ.data.replace(TypeData::Type(ty)).is_none());
+            } else {
+                self.insert_failed_typing(node);
+            }
+        } else if let Ok(ty) = ty {
             self.check_data.insert_typing(node, ty)
         }
     }
@@ -524,7 +535,7 @@ impl Impl<'_> {
         *self.reso_ctxs.last().unwrap()
     }
 
-    fn do_pre_typing(&mut self, ctx: HirVisitorCtx) {
+    fn do_pre_typing(&mut self, ctx: HirVisitorCtx) -> Result<(), ()> {
         match ctx.kind {
             NodeKind::FnDecl => {
                 let FnDecl {
@@ -538,14 +549,25 @@ impl Impl<'_> {
                     self.error_span(ctx.node, name.span,
                         "external function must be marked as `unsafe`".into());
                 }
-                let params: Vec<_> = params.iter()
-                    .copied()
-                    .map(|n| self.build_type(n))
-                    .collect();
-                let result = ret_ty.map(|n| self.build_type(n))
-                    .unwrap_or_else(|| self.primitive_type(PrimitiveType::Unit));
+                let mut param_tys = Vec::with_capacity(params.len());
+                let mut err = false;
+                for &n in params {
+                    if let Ok(ty) = self.ensure_typing(n) {
+                        param_tys.push(ty);
+                    } else {
+                        err = true;
+                    }
+                }
+                let result = if let Some(n) = *ret_ty {
+                    self.ensure_typing(n)?
+                } else {
+                    self.primitive_type(PrimitiveType::Unit)
+                };
+                if err {
+                    return Err(());
+                }
                 self.insert_typing(ctx.node, TypeData::Fn(FnType {
-                    params,
+                    params: param_tys,
                     result,
                     unsafe_: unsafe_.is_some(),
                 }));
@@ -579,9 +601,10 @@ impl Impl<'_> {
                 unimplemented!("{:?}", ctx.hir.node_kind(ctx.node));
             },
         }
+        Ok(())
     }
 
-    fn check(&mut self, ctx: HirVisitorCtx) {
+    fn check(&mut self, ctx: HirVisitorCtx) -> Result<(), ()> {
         match ctx.kind {
             NodeKind::FnDecl => {
                 let FnDecl {
@@ -589,17 +612,17 @@ impl Impl<'_> {
                     ret_ty,
                     body,
                     .. } = ctx.hir.fn_decl(ctx.node);
-                let expected_ret_ty = ret_ty
-                    .map(|n| self.unaliased_typing(n).id())
-                    .unwrap_or(self.primitive_type(PrimitiveType::Unit));
+                let expected_ret_ty = if let Some(n) = *ret_ty {
+                    self.typing(n)?
+                } else {
+                    self.primitive_type(PrimitiveType::Unit)
+                };
                 if let Some(body) = *body {
-                    self.unify(self.check_data.typing(body), expected_ret_ty);
-                    let actual_ret_ty = self.unaliased_typing(body).id();
-
+                    let (actual_ret_ty, expected_ret_ty) = self.unify(self.typing(body)?, expected_ret_ty);
                     if actual_ret_ty != expected_ret_ty {
                         let node = ctx.hir.block(body).exprs.last()
                             .copied().unwrap_or(body);
-                        self.fatal(node, format!(
+                        self.error(node, format!(
                             "mismatching return types: function `{fname}::{fsign}` expects `{exp}`, found `{act}`",
                             fname=name.value, fsign= FnSignature::from_decl(ctx.node, ctx.hir),
                             exp=self.display_type(expected_ret_ty),
@@ -610,9 +633,10 @@ impl Impl<'_> {
             },
             _ => {},
         }
+        Ok(())
     }
 
-    fn do_typing(&mut self, ctx: HirVisitorCtx) {
+    fn do_typing(&mut self, ctx: HirVisitorCtx) -> Result<Option<TypeId>, ()> {
         let ty = match ctx.kind {
             NodeKind::Block => {
                 if let Some(&expr) = ctx.hir.block(ctx.node).exprs.last() {
@@ -626,7 +650,7 @@ impl Impl<'_> {
                         | Use
                         | While
                         => self.primitive_type(PrimitiveType::Unit),
-                        _ => self.check_data.typing(expr)
+                        _ => self.typing(expr)?
                     }
                 } else {
                     self.primitive_type(PrimitiveType::Unit)
@@ -634,33 +658,33 @@ impl Impl<'_> {
             }
             NodeKind::FieldAccess => {
                 let hir::FieldAccess { receiver, field } = ctx.hir.field_access(ctx.node);
-                let struct_ty = self.check_data.typing(*receiver);
-                self.resolve_struct_field(Some(*receiver), struct_ty, ctx.node, field)
-                    .unwrap_or_else(|| self.primitive_type(PrimitiveType::Unit))
+                let struct_ty = self.typing(*receiver)?;
+                self.resolve_struct_field(struct_ty, ctx.node, field)?
             }
-            NodeKind::FnCall => self.type_fn_call(&ctx),
+            NodeKind::FnCall => self.type_fn_call(&ctx)?,
             NodeKind::FnDecl => {
                 unreachable!()
             }
             NodeKind::FnDeclParam => {
-                self.check_data.typing(ctx.hir.fn_decl_param(ctx.node).ty)
+                self.typing(ctx.hir.fn_decl_param(ctx.node).ty)?
             }
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
-                let actual_cond_ty = self.unaliased_typing(cond);
-                if !matches!(actual_cond_ty.data(), TypeData::Primitive(PrimitiveType::Bool)) {
-                    self.fatal(cond, format!(
-                        "invalid type of `if` condition: expected `bool`, found `{}`",
-                        self.display_type(actual_cond_ty.id())));
+                if let Ok(actual_cond_ty) = self.typing(cond) {
+                    if actual_cond_ty != self.primitive_type(PrimitiveType::Bool) {
+                        self.error(cond, format!(
+                            "invalid type of `if` condition: expected `bool`, found `{}`",
+                            self.display_type(actual_cond_ty)));
+                    }
                 }
-                let if_true_ty = self.check_data.typing(if_true);
+                let if_true_ty = self.typing(if_true)?;
                 if let Some(if_false) = if_false {
-                    let if_false_ty = self.check_data.typing(if_false);
-                    self.unify(if_true_ty, if_false_ty);
-                    let if_true_ty = self.unalias_type(if_true_ty).id();
-                    let if_false_ty = self.unalias_type(if_false_ty).id();
+                    let if_false_ty = self.typing(if_false)?;
+                    let (if_true_ty, if_false_ty) = self.unify(if_true_ty, if_false_ty);
+                    let if_true_ty = self.type_(if_true_ty).id();
+                    let if_false_ty = self.type_(if_false_ty).id();
                     if if_true_ty != if_false_ty {
-                        self.fatal(ctx.node, format!("mismatching types of `if` arms: `{}`, `{}`",
+                        self.error(ctx.node, format!("mismatching types of `if` arms: `{}`, `{}`",
                             self.display_type(if_true_ty),
                             self.display_type(if_false_ty)));
                     }
@@ -673,24 +697,22 @@ impl Impl<'_> {
             NodeKind::LetDecl => {
                 let &LetDecl { ty, init, .. } = ctx.hir.let_decl(ctx.node);
                 if let Some(ty) = ty {
+                    let ty = self.typing(ty)?;
                     if let Some(init) = init {
-                        self.unify(self.check_data.typing(ty), self.check_data.typing(init));
-                    }
-
-                    let typ = self.check_data.typing(ty);
-                    if let Some(init) = init {
-                        let actual = self.unaliased_typing(init).id();
-                        let expected = self.unalias_type(typ).id();
-                        if actual != expected {
-                            self.fatal(init, format!("mismatching types: expected `{}`, found `{}`",
-                                self.display_type(expected), self.display_type(actual)));
+                        let (exp, act) = self.unify(ty, self.typing(init)?);
+                        if act != exp {
+                            self.error(init, format!("mismatching types: expected `{}`, found `{}`",
+                                self.display_type(exp), self.display_type(act)));
                         }
+                        act
+                    } else {
+                        ty
                     }
-                    typ
                 } else if let Some(init) = init {
-                    self.check_data.typing(init)
+                    self.typing(init)?
                 } else {
-                    self.fatal(ctx.node, "can't infer variable type".into())
+                    self.error(ctx.node, "can't infer variable type".into());
+                    return Err(());
                 }
             }
             NodeKind::Literal => {
@@ -733,70 +755,105 @@ impl Impl<'_> {
                     Literal::Char(_) => self.primitive_type(PrimitiveType::Char),
                 }
             }
-            NodeKind::Module => return,
+            NodeKind::Module => return Ok(None),
             NodeKind::Op => {
                 match ctx.hir.op(ctx.node) {
                     &Op::Binary(op) => {
-                        self.type_binary_op(op, ctx)
+                        self.type_binary_op(op, ctx)?
                     }
                     &Op::Unary(op) => {
-                        self.type_unary_op(op, ctx)
+                        self.type_unary_op(op, ctx)?
                     }
                 }
             }
             NodeKind::Struct => {
-                self.check_data.typing(ctx.hir.struct_(ctx.node).ty)
+                self.typing(ctx.hir.struct_(ctx.node).ty)?
             }
             NodeKind::StructType => {
                 let fields = &ctx.hir.struct_type(ctx.node).fields;
                 let named = ctx.hir.try_struct(self.discover_data.parent_of(ctx.node)).is_some();
                 if named {
-                    let fields: Vec<_> = fields
-                        .iter()
-                        .map(|f| self.check_data.typing(f.ty))
-                        .collect();
+                    let mut field_tys = Vec::with_capacity(fields.len());
+                    let mut err = false;
+                    for f in fields {
+                        if let Ok(ty) = self.typing(f.ty) {
+                            field_tys.push(ty);
+                        } else {
+                            err = true;
+                        }
+                    }
+                    if err {
+                        return Err(());
+                    }
                     self.insert_type(ctx.node, TypeData::Struct(StructType {
-                        fields,
+                        fields: field_tys,
                     }))
                 } else {
-                    let fields: Vec<_> = fields
-                        .iter()
-                        .map(|f|
-                            (f.name.clone().map(|v| v.value),
-                            self.unaliased_typing(f.ty).id()))
-                        .collect();
-                    self.unnamed_struct(ctx.node, UnnamedStructKey::new(fields))
+                    let mut field_tys = Vec::with_capacity(fields.len());
+                    let mut err = false;
+                    for f in fields {
+                        if let Ok(ty) = self.typing(f.ty) {
+                            field_tys.push((f.name.clone().map(|v| v.value), ty));
+                        } else {
+                            err = true;
+                        }
+                    }
+                    if err {
+                        return Err(());
+                    }
+                    self.unnamed_struct(ctx.node, UnnamedStructKey::new(field_tys))
                 }
             }
             NodeKind::StructValueField => {
                 let value = ctx.hir.struct_value_field(ctx.node).value;
-                self.check_data.typing(value)
+                self.typing(value)?
             }
             NodeKind::Path => {
-                if self.reso_ctx() == ResoCtx::Import {
-                    return
-                } else {
-                    let segment = ctx.hir.path(ctx.node).segment;
-                    let target = self.check_data.target_of(segment);
+                let segment = ctx.hir.path(ctx.node).segment;
+                if let Some(target) = self.check_data.try_target_of(segment) {
                     self.check_data.insert_path_to_target(ctx.node, target);
-                    self.check_data.typing(segment)
+                    self.typing(segment)?
+                } else {
+                    return Err(());
+                }
+            }
+            NodeKind::PathEndIdent => return self.type_path_end_ident(&ctx),
+            NodeKind::PathSegment => {
+                let suffix = &ctx.hir.path_segment(ctx.node).suffix;
+                if suffix.len() == 1 {
+                    if let Some(target) = self.check_data.try_target_of(suffix[0]) {
+                        self.check_data.insert_path_to_target(ctx.node, target);
+                        self.typing(suffix[0])?
+                    } else {
+                        return Err(());
+                    }
+                } else {
+                    return Ok(None);
                 }
             }
             NodeKind::StructValue => {
                 let StructValue { name, explicit_tuple, fields } = ctx.hir.struct_value(ctx.node);
                 assert!(explicit_tuple.is_none() || !fields.is_empty());
                 let ty = if let Some(name) = *name {
-                    self.check_data.typing(name)
+                    self.typing(name)?
                 } else {
                     if fields.is_empty() {
                         self.primitive_type(PrimitiveType::Unit)
                     } else {
-                        let key = UnnamedStructKey::new(fields.iter()
-                            .map(|&v| ctx.hir.struct_value_field(v))
-                            .map(|v| (v.name.clone().map(|v| v.value),
-                                self.unaliased_typing(v.value).id()))
-                            .collect());
-                        self.unnamed_struct(ctx.node, key)
+                        let mut field_tys = Vec::with_capacity(fields.len());
+                        let mut err = false;
+                        for &f in fields {
+                            let f = ctx.hir.struct_value_field(f);
+                            if let Ok(ty) = self.typing(f.value) {
+                                field_tys.push((f.name.clone().map(|v| v.value), ty));
+                            } else {
+                                err = true;
+                            }
+                        }
+                        if err {
+                            return Err(());
+                        }
+                        self.unnamed_struct(ctx.node, UnnamedStructKey::new(field_tys))
                     }
                 };
                 for (i, &field_node) in fields.iter().enumerate() {
@@ -806,45 +863,35 @@ impl Impl<'_> {
                     } else {
                         ctx.hir.node_kind(field.value).span.spanned(Field::Index(i as u32))
                     };
-                    let expected_ty = if let Some(v) = self.resolve_struct_field(None, ty, field_node, &f) {
+                    let expected_ty = if let Ok(v) = self.resolve_struct_field(ty, field_node, &f) {
                         v
                     } else {
                         continue;
                     };
                     // No point in checking types for unnamed struct since it's been defined by the
                     // actual types.
-                    if name.is_some() {
-                        let expected_ty = self.unalias_type(expected_ty).id();
+                    if name.is_none() {
+                        continue;
+                    }
 
-                        self.unify(self.check_data.typing(field_node), expected_ty);
-                        let actual_ty = self.unaliased_typing(field_node).id();
+                    let actual_ty = if let Ok(ty) = self.typing(field_node) {
+                        ty
+                    } else {
+                        continue;
+                    };
+                    let (actual_ty, expected_ty) = self.unify(actual_ty, expected_ty);
 
-                        if expected_ty != actual_ty {
-                            let text = format!(
-                                "mismatching types in struct `{struct_ty}` field `{field}`: expected `{exp}`, found `{act}`",
-                                struct_ty = self.display_type(ty),
-                                field = f.value,
-                                exp = self.display_type(expected_ty),
-                                act = self.display_type(actual_ty));
-                            self.fatal(field.value, text);
-                        }
+                    if expected_ty != actual_ty {
+                        let text = format!(
+                            "mismatching types in struct `{struct_ty}` field `{field}`: expected `{exp}`, found `{act}`",
+                            struct_ty = self.display_type(ty),
+                            field = f.value,
+                            exp = self.display_type(expected_ty),
+                            act = self.display_type(actual_ty));
+                        self.error(field.value, text);
                     }
                 }
                 ty
-            }
-            NodeKind::PathEndIdent => self.type_path_end_ident(&ctx),
-            NodeKind::PathSegment => {
-                if_chain! {
-                    if self.reso_ctx() != ResoCtx::Import;
-                    if let Some(&suffix) = ctx.hir.path_segment(ctx.node).suffix.first();
-                    then {
-                        let target = self.check_data.target_of(suffix);
-                        self.check_data.insert_path_to_target(ctx.node, target);
-                        self.check_data.typing(suffix)
-                    } else {
-                        return;
-                    }
-                }
             }
             NodeKind::TyExpr => {
                 let TyExpr { muta: _, data } = ctx.hir.ty_expr(ctx.node);
@@ -856,7 +903,7 @@ impl Impl<'_> {
                     | &TyData::Path(node)
                     | &TyData::Struct(node)
                     => {
-                        self.check_data.typing(node)
+                        self.typing(node)?
                     }
                 }
             }
@@ -869,29 +916,30 @@ impl Impl<'_> {
             NodeKind::While
             => {
                 let cond = ctx.hir.while_(ctx.node).cond;
-                let actual_cond_ty = self.unaliased_typing(cond);
-                if !matches!(actual_cond_ty.data(), TypeData::Primitive(PrimitiveType::Bool)) {
-                    self.fatal(cond, format!(
-                        "invalid type of `while` condition: expected `bool`, found `{}`",
-                        self.display_type(actual_cond_ty.id())));
+                if let Ok(actual_cond_ty) = self.typing(cond) {
+                    if actual_cond_ty != self.primitive_type(PrimitiveType::Bool) {
+                        self.error(cond, format!(
+                            "invalid type of `while` condition: expected `bool`, found `{}`",
+                            self.display_type(actual_cond_ty)));
+                    }
                 }
                 self.primitive_type(PrimitiveType::Unit)
             },
             _ => unimplemented!("{:?}", ctx.hir.node_kind(ctx.node))
         };
-        self.finish_typing(ctx.node, ty);
+        Ok(Some(ty))
     }
 
-    fn type_binary_op(&mut self, BinaryOp { kind, left, right }: BinaryOp, ctx: HirVisitorCtx) -> TypeId {
-        self.unify(self.check_data.typing(left), self.check_data.typing(right));
+    fn type_binary_op(&mut self, BinaryOp { kind, left, right }: BinaryOp, ctx: HirVisitorCtx) -> Result<TypeId, ()> {
+        let (left_ty, right_ty) = self.unify(self.typing(left)?, self.typing(right)?);
+        let left_ty = self.type_(left_ty);
+        let right_ty = self.type_(right_ty);
 
-        let left_ty = self.unaliased_typing(left);
-        let right_ty = self.unaliased_typing(right);
         use BinaryOpKind::*;
-        match kind.value {
+        let ty = match kind.value {
             Assign => {
                 if left_ty.id() != right_ty.id() {
-                    self.fatal(right, format!(
+                    self.error(right, format!(
                         "mismatching types: expected `{}`, found `{}`",
                         self.display_type(left_ty.id()),
                         self.display_type(right_ty.id())));
@@ -911,7 +959,7 @@ impl Impl<'_> {
                     _ => false,
                 };
                 if !ok {
-                    self.fatal_span(ctx.node, kind.span, format!(
+                    self.error_span(ctx.node, kind.span, format!(
                         "binary operation `{}` can't be applied to types `{}`, `{}`",
                         kind.value,
                         self.display_type(left_ty.id()),
@@ -927,22 +975,24 @@ impl Impl<'_> {
                     _ => false,
                 };
                 if !ok {
-                    self.fatal_span(ctx.node, kind.span, format!(
+                    self.error_span(ctx.node, kind.span, format!(
                         "binary operation `{}` can't be applied to types `{}`, `{}`",
                         kind.value,
                         self.display_type(left_ty.id()),
                         self.display_type(right_ty.id())));
+                    return Err(());
                 }
                 left_ty.id()
             }
             _ => todo!("{:?}", kind),
-        }
+        };
+        Ok(ty)
     }
 
-    fn type_unary_op(&mut self, UnaryOp { kind, arg }: UnaryOp, ctx: HirVisitorCtx) -> TypeId {
-        let arg_ty = self.unaliased_typing(arg);
+    fn type_unary_op(&mut self, UnaryOp { kind, arg }: UnaryOp, ctx: HirVisitorCtx) -> Result<TypeId, ()> {
+        let arg_ty = self.type_(self.typing(arg)?);
         use UnaryOpKind::*;
-        match kind.value {
+        let ty = match kind.value {
             Neg => {
                 let ok = match arg_ty.data() {
                     TypeData::Primitive(prim) if prim.as_number().is_some() => true,
@@ -950,35 +1000,37 @@ impl Impl<'_> {
                     _ => false,
                 };
                 if !ok {
-                    self.fatal_span(ctx.node, kind.span, format!(
+                    self.error_span(ctx.node, kind.span, format!(
                         "unary operation `{}` can't be applied to type `{}`",
                         kind.value, self.display_type(arg_ty.id())));
+                    return Err(());
                 }
                 arg_ty.id()
             }
             _ => todo!(),
-        }
+        };
+        Ok(ty)
     }
 
-    fn unify(&mut self, ty1: TypeId, ty2: TypeId) {
+    fn unify(&mut self, ty1: TypeId, ty2: TypeId) -> (TypeId, TypeId) {
         if ty1 == ty2 {
-            return;
+            return (ty1, ty2);
         }
         let (ty, to_type) = {
-            let ty1 = self.unalias_type(ty1);
+            let ty1 = self.type_(ty1);
             if ty1.id() == ty2 {
-                return;
+                return (ty2, ty2);
             }
-            let ty2 = self.unalias_type(ty2);
+            let ty2 = self.type_(ty2);
             if ty1.id() == ty2.id() {
-                return;
+                return (ty1.id(), ty1.id());
             }
             use TypeData::*;
             match (ty1.data(), ty2.data()) {
                 (&UnknownNumber(num), Primitive(pt)) if pt.as_number() == Some(num) => (ty1.id(), ty2.id()),
                 (Primitive(pt), &UnknownNumber(num)) if pt.as_number() == Some(num) => (ty2.id(), ty1.id()),
                 (UnknownNumber(l), UnknownNumber(r)) if l == r => (ty1.id(), ty2.id()),
-                _ => return,
+                _ => return (ty1.id(), ty2.id()),
             }
         };
         assert_eq!(ty.0, self.package_id);
@@ -986,6 +1038,7 @@ impl Impl<'_> {
         assert!(typ.data().as_unknown_number().is_some());
         assert!(self.unknown_num_types.remove(&ty.1));
         typ.data = Some(TypeData::Type(to_type));
+        (to_type, to_type)
     }
 
     fn handle_unknown_num_types(&mut self) {
@@ -1004,57 +1057,61 @@ impl Impl<'_> {
         }
     }
 
-    fn has_complete_typing(&self, node: NodeId) -> bool {
+    fn has_complete_typing(&self, node: NodeId) -> Result<bool, ()> {
+        if self.failed_typings.contains_key(&node) {
+            return Err(());
+        }
         let id = if let Some(v) = self.check_data.try_typing(node) {
             v
         } else {
-            return false;
+            return Ok(false);
         };
-        if id.0 == self.package_id {
+        Ok(if id.0 == self.package_id {
             self.check_data.type_(id.1).data.is_some()
         } else {
             debug_assert!(self.type_(id).data.is_some());
             true
-        }
+        })
     }
 
     fn resolve_struct_field(&mut self,
-        receiver: Option<NodeId>,
         struct_ty: TypeId,
         field_node: NodeId,
         field: &S<Field>,
-    ) -> Option<TypeId> {
+    ) -> Result<TypeId, ()> {
         let (idx, ty) = {
-            let struct_ty = self.unalias_type(struct_ty);
-            let field_tys = if let Some(StructType { fields }) = struct_ty.data().as_struct() {
-                fields
+            let struct_ty = self.type_(struct_ty);
+            let field_tys = if let TypeData::Struct(StructType { fields }) = struct_ty.data() {
+                &fields[..]
             } else {
-                self.fatal(receiver.unwrap(), format!(
-                    "expected expression of struct type, found `{}`",
-                    self.display_type(struct_ty.id())));
-                return None;
+                &[]
             };
 
             let struct_hir = self.hir(struct_ty.package_id);
             // TODO This is inefficient as the method is going to be called often for field accesses.
             let field_count;
-            let field_names: HashMap<_, _> = match struct_hir.node_kind(struct_ty.node).value {
-                NodeKind::StructType => {
-                    let fields = &struct_hir.struct_type(struct_ty.node).fields;
-                    field_count = fields.len();
-                    fields.iter().enumerate()
-                        .filter_map(|(i, f)| f.name.clone().map(|n| (n.value, i)))
-                        .collect()
+            let field_names: HashMap<_, _> = if !field_tys.is_empty() {
+                match struct_hir.node_kind(struct_ty.node).value {
+                    NodeKind::StructType => {
+                        let fields = &struct_hir.struct_type(struct_ty.node).fields;
+                        field_count = fields.len();
+                        fields.iter().enumerate()
+                            .filter_map(|(i, f)| f.name.clone().map(|n| (n.value, i)))
+                            .collect()
+                    }
+                    NodeKind::StructValue => {
+                        let fields = &struct_hir.struct_value(struct_ty.node).fields;
+                        field_count = fields.len();
+                        fields.iter().enumerate()
+                            .map(|(i, &v)| (i, self.hir.struct_value_field(v)))
+                            .filter_map(|(i, f)| f.name.clone().map(|n| (n.value, i)))
+                            .collect()
+                    }
+                    _ => unreachable!(),
                 }
-                NodeKind::StructValue => {
-                    let fields = &struct_hir.struct_value(struct_ty.node).fields;
-                    field_count = fields.len();
-                    fields.iter().enumerate()
-                        .map(|(i, &v)| (i, self.hir.struct_value_field(v)))
-                        .filter_map(|(i, f)| f.name.clone().map(|n| (n.value, i)))
-                        .collect()
-                }
-                _ => unreachable!()
+            } else {
+                field_count = 0;
+                Default::default()
             };
 
             let idx = match &field.value {
@@ -1062,18 +1119,18 @@ impl Impl<'_> {
                     if let Some(&i) = field_names.get(ident) {
                         i as u32
                     } else {
-                        self.fatal_span(field_node, field.span, format!(
-                            "unknown field `{}` on struct `{}`",
+                        self.error_span(field_node, field.span, format!(
+                            "unknown field `{}` on type `{}`",
                             ident, self.display_type(struct_ty.id())));
-                        return None;
+                        return Err(());
                     }
                 }
                 &Field::Index(i) => {
                     if !field_names.is_empty() || i as usize >= field_count {
-                        self.fatal_span(field_node, field.span, format!(
-                            "unknown field `{}` on struct `{}`",
+                        self.error_span(field_node, field.span, format!(
+                            "unknown field `{}` on type `{}`",
                             i, self.display_type(struct_ty.id())));
-                        return None;
+                        return Err(());
                     }
                     i
                 }
@@ -1081,7 +1138,7 @@ impl Impl<'_> {
             (idx, field_tys[idx as usize])
         };
         assert!(self.check_data.struct_fields.insert(field_node, idx).is_none());
-        Some(ty)
+        Ok(ty)
     }
 
     fn unnamed_struct(&mut self, node: NodeId, key: UnnamedStructKey) -> TypeId {
@@ -1098,24 +1155,13 @@ impl Impl<'_> {
         }
     }
 
-    fn error(&self, node: NodeId, text: String) -> TypeId {
+    fn error(&self, node: NodeId, text: String) {
         let span = self.hir.node_kind(node).span;
-        self.error_span(node, span, text)
+        self.error_span(node, span, text);
     }
 
-    fn error_span(&self, node: NodeId, span: Span, text: String) -> TypeId {
-        self.diag.error_span(self.hir, self.discover_data, node, span, text);
-        self.primitive_type(PrimitiveType::Unit)
-    }
-
-    fn fatal(&self, node: NodeId, text: String) -> TypeId {
-        let span = self.hir.node_kind(node).span;
-        self.fatal_span(node, span, text)
-    }
-
-    fn fatal_span(&self, node: NodeId, span: Span, text: String) -> TypeId {
-        self.diag.fatal_span(self.hir, self.discover_data, node, span, text);
-        self.primitive_type(PrimitiveType::Unit)
+    fn error_span(&self, node: NodeId, span: Span, text: String) {
+        self.diag.borrow_mut().error_span(self.hir, self.discover_data, node, span, text);
     }
 
     fn display_type<'a>(&'a self, ty: TypeId) -> impl std::fmt::Display + 'a {
@@ -1229,23 +1275,24 @@ impl Impl<'_> {
         }
     }
 
-    fn type_fn_call(&mut self, ctx: &HirVisitorCtx) -> TypeId {
+    fn type_fn_call(&mut self, ctx: &HirVisitorCtx) -> Result<TypeId, ()> {
         let FnCall {
             callee,
             kind,
             params: actual_params,
             .. } = ctx.hir.fn_call(ctx.node);
         let (fn_decl_node, res) = {
-            let callee_ty = self.unaliased_typing(*callee);
+            let callee_ty = self.type_(self.typing(*callee)?);
             if *kind != FnCallKind::Free {
                 unimplemented!();
             }
             let res = if let Some(v) = callee_ty.data().as_fn() {
                 v.result
             } else {
-                return self.fatal(*callee, format!(
+                self.error(*callee, format!(
                     "invalid callee type: expected function, found `{}`",
                     self.display_type(callee_ty.id())));
+                return Err(());
             };
             let fn_decl_node = callee_ty.node();
             (fn_decl_node, res)
@@ -1258,21 +1305,24 @@ impl Impl<'_> {
             .iter()
             .zip(expected_params.iter())
         {
-            self.unify(self.check_data.typing(actual.value), self.check_data(fn_decl_node.0).typing(expected));
-
-            let expected_ty = self.unalias_type(self.check_data(fn_decl_node.0).typing(expected)).id();
-            let actual_ty = self.unaliased_typing(actual.value).id();
+            let actual_ty = if let Ok(ty) = self.typing(actual.value) {
+                ty
+            } else {
+                continue;
+            };
+            let expected_ty = self.check_data(fn_decl_node.0).typing(expected);
+            let (actual_ty, expected_ty) = self.unify(actual_ty, expected_ty);
             if actual_ty != expected_ty {
                 let hir = self.hir(fn_decl_node.0);
                 let name = &hir.fn_decl(fn_decl_node.1).name.value;
-                self.fatal(actual.value, format!(
+                self.error(actual.value, format!(
                     "mismatching types in fn call of `{fname}::{fsign}`: expected `{exp}`, found `{act}`",
                     fname=name, fsign= FnSignature::from_decl(fn_decl_node.1, hir),
                     exp=self.display_type(expected_ty), act=self.display_type(actual_ty)));
             }
         }
 
-        res
+        Ok(res)
     }
 
     fn describe_named(&self, node: GlobalNodeId) -> String {
@@ -1303,9 +1353,9 @@ impl Impl<'_> {
         }
     }
 
-    fn type_path_end_ident(&mut self, ctx: &HirVisitorCtx) -> TypeId {
+    fn type_path_end_ident(&mut self, ctx: &HirVisitorCtx) -> Result<Option<TypeId>, ()> {
         let span = ctx.hir.path_end_ident(ctx.node).item.ident.span;
-        let reso = self.resolve_data.resolution_of(ctx.node);
+        let reso = self.resolve_data.try_resolution_of(ctx.node).ok_or({})?;
         assert!(!reso.is_empty());
         let reso_ctx = self.reso_ctx();
         let (pkg, node) = {
@@ -1357,18 +1407,20 @@ impl Impl<'_> {
                 } else {
                     if let Some(name) = &name {
                         // There are other fns with the same name but none with matching signature.
-                        return self.fatal_span(ctx.node, call_span, format!(
+                        self.error_span(ctx.node, call_span, format!(
                             "couldn't find function `{}::{}`: none of existing functions matches the signature",
                             name, call_sign));
+                        return Err(());
                     }
                     if let Some(node) = reso.nodes_of_kind(NsKind::Value).next() {
                         // Could be a variable.
                         node
                     } else {
                         let node = reso.nodes_of_kind(NsKind::Type).next().unwrap();
-                        return self.fatal_span(ctx.node, span, format!(
+                        self.error_span(ctx.node, span, format!(
                             "expected function but found {}",
                             self.describe_named(node)));
+                        return Err(());
                     }
                 }
             } else {
@@ -1378,8 +1430,9 @@ impl Impl<'_> {
                         let kind = self.hir(node.0).node_kind(node.1).value;
                         if !can_import(kind) {
                             let node = self.describe_named(node);
-                            return self.fatal_span(ctx.node, span, format!(
+                            self.error_span(ctx.node, span, format!(
                                 "{} can't be imported", node));
+                            return Err(());
                         }
                     } else {
                         if cfg!(debug_assertions) {
@@ -1388,7 +1441,8 @@ impl Impl<'_> {
                             }
                         }
                     }
-                    return self.primitive_type(PrimitiveType::Unit);
+                    self.primitive_type(PrimitiveType::Unit);
+                    return Ok(None);
                 } else {
                     let ns_kind = reso_ctx.to_ns_kind().unwrap();
                     let mut it = reso.nodes_of_kind(ns_kind);
@@ -1401,7 +1455,8 @@ impl Impl<'_> {
                             } else {
                                 "invalid function reference, must include function's signature".into()
                             };
-                            return self.fatal_span(ctx.node, span, text);
+                            self.error_span(ctx.node, span, text);
+                            return Err(());
                         } else {
                             assert!(it.next().is_none());
                         }
@@ -1413,42 +1468,59 @@ impl Impl<'_> {
                             NsKind::Type => "type expression",
                             NsKind::Value => "expression",
                         };
-                        return self.fatal_span(ctx.node, span, format!(
+                        self.error_span(ctx.node, span, format!(
                             "expected {}, found {}", exp_str, node));
+                        return Err(());
                     }
                 }
             }
         };
         self.check_data.insert_path_to_target(ctx.node, (pkg, node));
-        if pkg == self.package_id {
-            self.build_type(node)
+        Ok(Some(if pkg == self.package_id {
+            self.ensure_typing(node)?
         } else {
             self.packages[pkg].check_data.typing(node)
+        }))
+    }
+
+    fn check_entry_point(&self, node: NodeId) -> Result<(), ()> {
+        let ty = self.typing(node)?;
+        match self.type_(ty).data() {
+            TypeData::Fn(FnType { params, result, unsafe_ }) => {
+                assert_eq!(params.len(), 0);
+                if !matches!(self.type_(*result).data(), TypeData::Primitive(PrimitiveType::Unit)) {
+                    let node = self.hir.fn_decl(node).ret_ty.unwrap();
+                    self.error(node, "`main` function must have unit return type".into());
+                }
+                if *unsafe_ {
+                    let span = self.hir.fn_decl(node).unsafe_.unwrap().span;
+                    self.error_span(node, span, "`main` function must not be unsafe".into());
+                }
+                if self.hir.fn_decl(node).body.is_none() {
+                    self.error(node, "`main` function must not be external".into());
+                }
+            }
+            _ => unreachable!(),
         }
+        Ok(())
     }
 }
 
 impl HirVisitor for Impl<'_> {
     fn before_node(&mut self, ctx: HirVisitorCtx) {
-        if self.diag.has_fatal_in_mod() {
-            return;
-        }
         if let Some(v) = reso_ctx(ctx.link) {
             self.reso_ctxs.push(v);
         }
-        if self.check_data.try_typing(ctx.node).is_none() {
-            self.do_pre_typing(ctx);
+        if self.has_complete_typing(ctx.node) == Ok(false) {
+            let _ = self.do_pre_typing(ctx);
         }
     }
 
     fn after_node(&mut self, ctx: HirVisitorCtx) {
-        if self.diag.has_fatal_in_mod() {
-            return;
-        }
-        if !self.diag.has_fatal_in_fn(self.hir, self.discover_data, ctx.node) {
-            self.check(ctx);
-            if !self.has_complete_typing(ctx.node) {
-                self.do_typing(ctx);
+        let _ = self.check(ctx);
+        if self.has_complete_typing(ctx.node) == Ok(false) {
+            if let Some(ty) = self.do_typing(ctx).transpose() {
+                self.finish_typing(ctx.node, ty);
             }
         }
 

@@ -4,7 +4,6 @@ use crate::diag::{Diag, DiagRef};
 use crate::hir::Ident;
 use crate::package::*;
 use crate::semantic::check::Check;
-use crate::semantic::diag::SemaDiag;
 use crate::semantic::discover::DiscoverData;
 use crate::semantic::resolve::ResolveData;
 use crate::syntax;
@@ -54,10 +53,7 @@ pub fn compile(
     let discover_data = DiscoverData::build(&hir);
     // discover_data.print_scopes(&hir);
 
-    let diag = SemaDiag {
-        diag: DiagRef::new(diag.into()),
-        error_state: Default::default(),
-    };
+    let diag = DiagRef::new(diag.into());
 
     let resolve_data = ResolveData::build(
         &discover_data,
@@ -78,23 +74,23 @@ pub fn compile(
         diag: diag.clone(),
     }.run();
 
-    {
-        let diag = diag.diag.borrow();
-        if !diag.reports().iter().all(|r| matches!(r.severity, crate::diag::Severity::Error)) {
-            todo!();
-        }
-        if !diag.reports().is_empty() {
-            let s = diag.print(base_dir, hir.sources()).to_string();
-            return Err(Error(s));
-        }
+    if diag.borrow().reports().iter().any(|r| matches!(r.severity, crate::diag::Severity::Warning)) {
+        todo!();
     }
 
-    Ok(Package {
-        id,
-        name,
-        hir,
-        discover_data,
-        resolve_data,
-        check_data,
-    })
+    if let Ok(check_data) = check_data {
+        Ok(Package {
+            id,
+            name,
+            hir,
+            discover_data,
+            resolve_data,
+            check_data,
+        })
+    } else {
+        let diag = diag.borrow();
+        assert!(!diag.reports().is_empty());
+        let s = diag.print(base_dir, hir.sources()).to_string();
+        return Err(Error(s));
+    }
 }

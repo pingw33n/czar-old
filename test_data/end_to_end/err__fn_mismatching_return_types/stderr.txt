@@ -22,3 +22,8 @@ error: mismatching return types: function `f5::()` expects `i32`, found `{}`
   --> main.cz:15:12
 15 |     "stuff";
                 ~
+
+error: binary operation `+` can't be applied to types `String`, `?integer`
+  --> main.cz:19:11
+19 |     "foo" + 32
+               ~

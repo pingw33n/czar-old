@@ -1,6 +1,7 @@
 use if_chain::if_chain;
 use std::collections::HashSet;
 
+use crate::diag::DiagRef;
 use crate::hir::*;
 use crate::hir::traverse::*;
 use crate::package::{GlobalNodeId, PackageId, PackageKind, Packages};
@@ -8,7 +9,6 @@ use crate::util::enums::EnumExt;
 use crate::util::iter::IteratorExt;
 
 use super::*;
-use super::diag::SemaDiag;
 use super::discover::{DiscoverData, NsKind, ScopeItem};
 
 #[derive(Debug, Default)]
@@ -25,7 +25,7 @@ impl ResolveData {
         package_name: &Ident,
         package_kind: PackageKind,
         packages: &Packages,
-        diag: SemaDiag,
+        diag: DiagRef,
     ) -> Self {
         let mut resolve_data = ResolveData::default();
         hir.traverse(&mut Build {
@@ -55,7 +55,7 @@ impl ResolveData {
                 if let Some(node) = node {
                     resolve_data.entry_point = Some(node);
                 } else {
-                    diag.error_span(hir, discover_data, hir.root, Span::empty(), format!(
+                    diag.borrow_mut().error_span(hir, discover_data, hir.root, Span::empty(), format!(
                         "`main::()` function not found in package `{}`", package_name));
                 }
             }
@@ -86,7 +86,7 @@ struct Build<'a> {
     resolve_data: &'a mut ResolveData,
     package_id: PackageId,
     packages: &'a Packages,
-    diag: SemaDiag,
+    diag: DiagRef,
 }
 
 impl HirVisitor for Build<'_> {
@@ -176,7 +176,7 @@ pub struct Resolver<'a> {
     pub hir: &'a Hir,
     pub package_id: PackageId,
     pub packages: &'a Packages,
-    pub diag: SemaDiag,
+    pub diag: DiagRef,
 }
 
 impl<'a> Resolver<'a> {
@@ -450,7 +450,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn error<T>(&self, node: NodeId, span: Span, text: String) -> Result<T> {
-        self.diag.fatal_span(self.hir, self.discover_data, node, span, text);
+        self.diag.borrow_mut().error_span(self.hir, self.discover_data, node, span, text);
         return Err(ResolveError(()));
     }
 }
