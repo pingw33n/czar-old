@@ -349,8 +349,8 @@ impl Build<'_> {
         }
     }
 
-    fn insert(&mut self, ns: NsKind, name: S<Ident>, node: NodeId, report_err: bool) -> Result<(), ()> {
-        self.insert0(Some(ScopeKind::Normal), ns, name, node, report_err)
+    fn insert(&mut self, ns: NsKind, name: S<Ident>, node: NodeId) {
+        let _ = self.insert0(Some(ScopeKind::Normal), ns, name, node, true);
     }
 
     fn insert_var(&mut self, ns: NsKind, name: S<Ident>, node: NodeId) {
@@ -395,7 +395,7 @@ impl Build<'_> {
     fn insert_all_namespaces(&mut self, name: S<Ident>, node: NodeId) {
         let mut ok = true;
         for ns in NsKind::iter() {
-            ok &= self.insert(ns, name.clone(), node, ok).is_ok();
+            ok &= self.insert0(Some(ScopeKind::Normal), ns, name.clone(), node, ok).is_ok();
         }
     }
 
@@ -431,7 +431,7 @@ impl HirVisitor for Build<'_> {
             },
             NodeKind::FnDefParam => {
                 let priv_name = ctx.hir.fn_def_param(ctx.node).priv_name.clone();
-                let _ = self.insert(NsKind::Value, priv_name.clone(), ctx.node, true);
+                self.insert(NsKind::Value, priv_name.clone(), ctx.node);
             },
             NodeKind::Let => {},
             NodeKind::LetDef => {
@@ -443,12 +443,12 @@ impl HirVisitor for Build<'_> {
 
                 let Module { name, .. } = &ctx.hir.module(ctx.node);
                 if let Some(name) = name {
-                    let _ = self.insert(NsKind::Type, name.name.clone(), ctx.node, true);
+                    self.insert(NsKind::Type, name.name.clone(), ctx.node);
                 }
             }
             NodeKind::Struct => {
                 let name = ctx.hir.struct_(ctx.node).name.clone();
-                let _ = self.insert(NsKind::Type, name, ctx.node, true);
+                self.insert(NsKind::Type, name, ctx.node);
             }
             NodeKind::PathEndIdent if self.in_use => {
                 let PathEndIdent {
