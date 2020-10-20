@@ -33,10 +33,10 @@ impl FnSignature {
         }
     }
 
-    pub fn from_decl(node: NodeId, hir: &Hir) -> Self {
-        let params = &hir.fn_decl(node).params;
+    pub fn from_def(node: NodeId, hir: &Hir) -> Self {
+        let params = &hir.fn_def(node).params;
         let it = params.iter()
-            .map(|&param| hir.fn_decl_param(param).pub_name.value.as_ref()
+            .map(|&param| hir.fn_def_param(param).pub_name.value.as_ref()
                 .map(|v| v.clone())
                 .unwrap_or_else(|| Ident::underscore()));
         Self::from_iter(it)

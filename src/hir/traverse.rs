@@ -21,7 +21,7 @@ pub enum NodeLink {
     FieldAccessReceiver,
     FnCall(FnCallLink),
     Fn(FnLink),
-    FnDeclParamType,
+    FnDefParamType,
     IfExpr(IfExprLink),
     Impl(ImplLink),
     LoopBlock,
@@ -30,7 +30,7 @@ pub enum NodeLink {
     Path(PathLink),
     Range(RangeLink),
     Root,
-    StructDecl(StructDeclLink),
+    StructDef(StructDefLink),
     StructTypeFieldType,
     StructValue(StructValueLink),
     TyExpr(TyExprLink),
@@ -47,7 +47,7 @@ pub enum CastLink {
 
 #[derive(Clone, Copy, Debug)]
 pub enum FnLink {
-    Decl,
+    Def,
     TypeParam,
     Param,
     RetType,
@@ -87,7 +87,7 @@ pub enum RangeLink {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum StructDeclLink {
+pub enum StructDefLink {
     Type,
     TypeParam,
 }
@@ -110,7 +110,7 @@ pub enum ArrayLink {
 
 #[derive(Clone, Copy, Debug)]
 pub enum LetLink {
-    Decl,
+    Def,
     Type,
     Init,
 }
@@ -200,14 +200,14 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     self.traverse0(param.value, NodeLink::FnCall(FnCallLink::ParamValue));
                 }
             },
-            NodeKind::FnDecl => {
-                let FnDecl {
+            NodeKind::FnDef => {
+                let FnDef {
                     ty_params,
                     params,
                     ret_ty,
                     body,
                     ..
-                } = self.hir.fn_decl(node);
+                } = self.hir.fn_def(node);
 
                 for &ty_param in ty_params {
                     self.traverse0(ty_param, NodeLink::Fn(FnLink::TypeParam));
@@ -222,9 +222,9 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     self.traverse0(body, NodeLink::Fn(FnLink::Body));
                 }
             },
-            NodeKind::FnDeclParam => {
-                let &FnDeclParam { ty, .. } = self.hir.fn_decl_param(node);
-                self.traverse0(ty, NodeLink::FnDeclParamType);
+            NodeKind::FnDefParam => {
+                let &FnDefParam { ty, .. } = self.hir.fn_def_param(node);
+                self.traverse0(ty, NodeLink::FnDefParamType);
             },
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false, .. } = self.hir.if_expr(node);
@@ -245,11 +245,11 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 }
             },
             NodeKind::Let => {
-                let &Let { decl } = self.hir.let_(node);
-                self.traverse0(decl, NodeLink::Let(LetLink::Decl));
+                let &Let { def } = self.hir.let_(node);
+                self.traverse0(def, NodeLink::Let(LetLink::Def));
             }
-            NodeKind::LetDecl => {
-                let &LetDecl { ty, init, .. } = self.hir.let_decl(node);
+            NodeKind::LetDef => {
+                let &LetDef { ty, init, .. } = self.hir.let_def(node);
                 if let Some(ty) = ty {
                     self.traverse0(ty, NodeLink::Let(LetLink::Type));
                 }
@@ -291,9 +291,9 @@ impl<T: HirVisitor> Traverser<'_, T> {
             NodeKind::Struct => {
                 let Struct { ty_params, ty, .. } = self.hir.struct_(node);
                 for &ty_param in ty_params {
-                    self.traverse0(ty_param, NodeLink::StructDecl(StructDeclLink::TypeParam));
+                    self.traverse0(ty_param, NodeLink::StructDef(StructDefLink::TypeParam));
                 }
-                self.traverse0(*ty, NodeLink::StructDecl(StructDeclLink::Type));
+                self.traverse0(*ty, NodeLink::StructDef(StructDefLink::Type));
             },
             NodeKind::StructType => {
                 let StructType { fields, .. } = self.hir.struct_type(node);

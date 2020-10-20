@@ -21,7 +21,7 @@ pub enum ScopeItem {
 
 pub struct ScopeFn {
     pub name: S<Ident>,
-    pub node: NodeId, // FnDecl
+    pub node: NodeId, // FnDef
 }
 
 #[derive(Default)]
@@ -47,7 +47,7 @@ impl Scope {
     fn insert_fn(&mut self,
         name: S<Ident>,
         node: NodeId,
-        fn_decl_signatures: &NodeMap<FnSignature>,
+        fn_def_signatures: &NodeMap<FnSignature>,
     ) -> Result<(), ()> {
         match self.items.entry(name.value.clone()) {
             Entry::Occupied(mut e) => {
@@ -58,7 +58,7 @@ impl Scope {
                     ScopeItem::Single { .. } => unreachable!(),
                     ScopeItem::Fns(fns) => {
                         match fns.iter()
-                            .position(|s| fn_decl_signatures[&s.node] == fn_decl_signatures[&node])
+                            .position(|s| fn_def_signatures[&s.node] == fn_def_signatures[&node])
                         {
                             Some(_) => Err(()),
                             None => {
@@ -126,7 +126,7 @@ pub struct DiscoverData {
     node_to_scope: NodeMap<NodeId>,
     child_to_parent: NodeMap<NodeId>,
     node_to_module: NodeMap<NodeId>,
-    fn_decl_signatures: NodeMap<FnSignature>,
+    fn_def_signatures: NodeMap<FnSignature>,
 }
 
 impl DiscoverData {
@@ -139,7 +139,7 @@ impl DiscoverData {
             scope_stack: Vec::new(),
             node_stack: Vec::new(),
             module_stack: Vec::new(),
-            fn_decl_stack: Vec::new(),
+            fn_def_stack: Vec::new(),
             diag,
         });
         data
@@ -168,7 +168,7 @@ impl DiscoverData {
         let scope = &mut self.scopes.entry(scope)
             .or_insert(Default::default())
             [kind];
-        match scope.insert_fn(name.clone(), node, &self.fn_decl_signatures){
+        match scope.insert_fn(name.clone(), node, &self.fn_def_signatures){
             Ok(()) => Ok(()),
             Err(()) => Err(()),
         }
@@ -211,12 +211,12 @@ impl DiscoverData {
         assert!(self.node_to_module.insert(node, module).is_none());
     }
 
-    pub fn fn_decl_signature(&self, fn_decl: NodeId) -> &FnSignature {
-        &self.fn_decl_signatures[&fn_decl]
+    pub fn fn_def_signature(&self, fn_def: NodeId) -> &FnSignature {
+        &self.fn_def_signatures[&fn_def]
     }
 
-    pub fn try_fn_decl_signature(&self, fn_decl: NodeId) -> Option<&FnSignature> {
-        self.fn_decl_signatures.get(&fn_decl)
+    pub fn try_fn_def_signature(&self, fn_def: NodeId) -> Option<&FnSignature> {
+        self.fn_def_signatures.get(&fn_def)
     }
 
     pub fn source_of(&self, mut node: NodeId, hir: &Hir) -> SourceId {
@@ -281,11 +281,11 @@ impl DiscoverData {
                                     ScopeItem::Fns(fns) => {
                                         for (i, ScopeFn { name, node }) in fns.iter().enumerate() {
                                             let n = ctx.hir.node_kind(*node);
-                                            assert_eq!(n.value, NodeKind::FnDecl);
+                                            assert_eq!(n.value, NodeKind::FnDef);
                                             if i > 0 {
                                                 print!(", ");
                                             }
-                                            let key = self.data.fn_decl_signature(*node);
+                                            let key = self.data.fn_def_signature(*node);
                                             print!("`{}::{}` {}:{} -> {:?} {:?} {}:{}",
                                                 ident, key,
                                                 name.span.start, name.span.end,
@@ -321,7 +321,7 @@ struct Build<'a> {
     scope_stack: Vec<(ScopeKind, NodeId)>,
     node_stack: Vec<NodeId>,
     module_stack: Vec<NodeId>,
-    fn_decl_stack: Vec<NodeId>,
+    fn_def_stack: Vec<NodeId>,
     diag: DiagRef,
 }
 
@@ -373,12 +373,12 @@ impl Build<'_> {
             ScopeItem::Fns(fns) => {
                 self.diag.borrow_mut().error_span(self.hir, self.data, node, name.span,
                     format!("function `{}::{}` is defined multiple times",
-                        fns[0].name.value, self.data.fn_decl_signature(node)));
+                        fns[0].name.value, self.data.fn_def_signature(node)));
             }
         }
     }
 
-    /// Note the `node` is never `FnDecl`, that one is handled in `insert_fn()`.
+    /// Note the `node` is never `FnDef`, that one is handled in `insert_fn()`.
     fn report_dup_name_error(&self, scope: NodeId, ns: NsKind, name: &S<Ident>, node: NodeId) {
         let existing = &self.data.scope(scope, ns).items[&name.value];
         match existing {
@@ -425,20 +425,20 @@ impl HirVisitor for Build<'_> {
         }
 
         match ctx.kind {
-            NodeKind::FnDecl => {
-                let name = ctx.hir.fn_decl(ctx.node).name.clone();
-                let sign = FnSignature::from_decl(ctx.node, ctx.hir);
-                assert!(self.data.fn_decl_signatures.insert(ctx.node, sign).is_none());
+            NodeKind::FnDef => {
+                let name = ctx.hir.fn_def(ctx.node).name.clone();
+                let sign = FnSignature::from_def(ctx.node, ctx.hir);
+                assert!(self.data.fn_def_signatures.insert(ctx.node, sign).is_none());
                 self.insert_fn(NsKind::Value, name, ctx.node);
-                self.fn_decl_stack.push(ctx.node);
+                self.fn_def_stack.push(ctx.node);
             },
-            NodeKind::FnDeclParam => {
-                let priv_name = ctx.hir.fn_decl_param(ctx.node).priv_name.clone();
+            NodeKind::FnDefParam => {
+                let priv_name = ctx.hir.fn_def_param(ctx.node).priv_name.clone();
                 let _ = self.insert(NsKind::Value, priv_name.clone(), ctx.node, true);
             },
             NodeKind::Let => {},
-            NodeKind::LetDecl => {
-                let name = ctx.hir.let_decl(ctx.node).name.clone();
+            NodeKind::LetDef => {
+                let name = ctx.hir.let_def(ctx.node).name.clone();
                 self.insert_var(NsKind::Value, name, ctx.node);
             },
             NodeKind::Module => {
@@ -521,8 +521,8 @@ impl HirVisitor for Build<'_> {
             self.module_stack.pop().unwrap();
         }
         match ctx.kind {
-            NodeKind::FnDecl => {
-                assert_eq!(self.fn_decl_stack.pop().unwrap(), ctx.node);
+            NodeKind::FnDef => {
+                assert_eq!(self.fn_def_stack.pop().unwrap(), ctx.node);
             },
             NodeKind::Use => {
                 assert!(self.in_use);
@@ -560,7 +560,7 @@ enum ScopeKind {
 fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
     use NodeKind::*;
     match kind {
-        | LetDecl
+        | LetDef
         | Path
         | PathEndEmpty
         | PathEndIdent
@@ -574,8 +574,8 @@ fn scope_kind(kind: NodeKind) -> Option<ScopeKind> {
         | Cast
         | FieldAccess
         | FnCall
-        | FnDecl
-        | FnDeclParam
+        | FnDef
+        | FnDefParam
         | IfExpr
         | Impl
         | Literal

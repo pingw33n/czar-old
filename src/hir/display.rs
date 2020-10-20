@@ -77,8 +77,8 @@ impl Display<'_> {
 
                 p.print(&field.value)?;
             }
-            NodeKind::FnDecl => {
-                let FnDecl {
+            NodeKind::FnDef => {
+                let FnDef {
                     name,
                     vis,
                     ty_params,
@@ -87,7 +87,7 @@ impl Display<'_> {
                     unsafe_,
                     variadic,
                     body,
-                } = self.hir.fn_decl(node);
+                } = self.hir.fn_def(node);
 
                 self.vis(vis, p)?;
                 if unsafe_.is_some() {
@@ -100,7 +100,7 @@ impl Display<'_> {
 
                 p.print("(")?;
                 for (i, &param) in params.iter().enumerate() {
-                    let FnDeclParam { pub_name, priv_name, ty } = self.hir.fn_decl_param(param);
+                    let FnDefParam { pub_name, priv_name, ty } = self.hir.fn_def_param(param);
                     if i > 0 {
                         p.print(", ")?;
                     }
@@ -141,7 +141,7 @@ impl Display<'_> {
                 }
                 p.println("")?;
             }
-            NodeKind::FnDeclParam => unreachable!(),
+            NodeKind::FnDefParam => unreachable!(),
             NodeKind::FnCall => {
                 let FnCall { callee, kind, params } = self.hir.fn_call(node);
                 let mut params = params.iter();
@@ -247,11 +247,11 @@ impl Display<'_> {
                 }
             }
             NodeKind::Let => {
-                let &Let { decl } = self.hir.let_(node);
-                self.node(decl, at_group_level, p)?;
+                let &Let { def } = self.hir.let_(node);
+                self.node(def, at_group_level, p)?;
             }
-            NodeKind::LetDecl => {
-                let LetDecl { mut_, name, ty, init } = self.hir.let_decl(node);
+            NodeKind::LetDef => {
+                let LetDef { mut_, name, ty, init } = self.hir.let_def(node);
                 p.print("let ")?;
                 if mut_.is_some() {
                     p.print("mut ")?;

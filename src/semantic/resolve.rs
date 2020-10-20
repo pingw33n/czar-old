@@ -49,7 +49,7 @@ impl ResolveData {
             if let Ok(reso) = resolver.resolve_in_package(&["main"]) {
                 let node = reso.nodes_of_kind(NsKind::Value)
                     .filter(|n| n.0 == package_id)
-                    .filter(|n| discover_data.fn_decl_signature(n.1) == &FnSignature::empty())
+                    .filter(|n| discover_data.fn_def_signature(n.1) == &FnSignature::empty())
                     .next()
                     .map(|n| n.1);
                 if let Some(node) = node {

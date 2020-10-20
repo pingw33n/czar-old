@@ -33,12 +33,12 @@ pub enum NodeKind {
     Cast,
     FieldAccess,
     FnCall,
-    FnDecl,
-    FnDeclParam,
+    FnDef,
+    FnDefParam,
     IfExpr,
     Impl,
     Let,
-    LetDecl,
+    LetDef,
     Literal,
     Loop,
     Module,
@@ -124,13 +124,13 @@ pub struct Hir {
     block_flow_ctls: NodeMap<BlockFlowCtl>,
     casts: NodeMap<Cast>,
     field_accesses: NodeMap<FieldAccess>,
-    fn_decls: NodeMap<FnDecl>,
-    fn_decl_params: NodeMap<FnDeclParam>,
+    fn_defs: NodeMap<FnDef>,
+    fn_def_params: NodeMap<FnDefParam>,
     fn_calls: NodeMap<FnCall>,
     if_exprs: NodeMap<IfExpr>,
     impls: NodeMap<Impl>,
     lets: NodeMap<Let>,
-    let_decls: NodeMap<LetDecl>,
+    let_defs: NodeMap<LetDef>,
     literals: NodeMap<Literal>,
     loops: NodeMap<Loop>,
     modules: NodeMap<Module>,
@@ -273,13 +273,13 @@ impl Hir {
         insert_block_flow_ctl, block_flow_ctl, block_flow_ctl_mut, try_block_flow_ctl, try_block_flow_ctl_mut, block_flow_ctls, BlockFlowCtl;
         insert_cast, cast, cast_mut, try_cast, try_cast_mut, casts, Cast;
         insert_field_access, field_access, field_access_mut, try_field_access, try_field_access_mut, field_accesses, FieldAccess;
-        insert_fn_decl, fn_decl, fn_decl_mut, try_fn_decl, try_fn_decl_mut, fn_decls, FnDecl;
-        insert_fn_decl_param, fn_decl_param, fn_decl_param_mut, try_fn_decl_param, try_fn_decl_param_mut, fn_decl_params, FnDeclParam;
+        insert_fn_def, fn_def, fn_def_mut, try_fn_def, try_fn_def_mut, fn_defs, FnDef;
+        insert_fn_def_param, fn_def_param, fn_def_param_mut, try_fn_def_param, try_fn_def_param_mut, fn_def_params, FnDefParam;
         insert_fn_call, fn_call, fn_call_mut, try_fn_call, try_fn_call_mut, fn_calls, FnCall;
         insert_if_expr, if_expr, if_expr_mut, try_if_expr, try_if_expr_mut, if_exprs, IfExpr;
         insert_impl, impl_, impl_mut, try_impl, try_impl_mut, impls, Impl;
         insert_let, let_, let_mut, try_let, try_let_mut, lets, Let;
-        insert_let_decl, let_decl, let_decl_mut, try_let_decl, try_let_decl_mut, let_decls, LetDecl;
+        insert_let_def, let_def, let_def_mut, try_let_def, try_let_def_mut, let_defs, LetDef;
         insert_literal, literal, literal_mut, try_literal, try_literal_mut, literals, Literal;
         insert_loop, loop_, loop_mut, try_loop, try_loop_mut, loops, Loop;
         insert_module, module, module_mut, try_module, try_module_mut, modules, Module;
@@ -428,11 +428,11 @@ pub struct UnaryOp {
 
 #[derive(Debug)]
 pub struct Let {
-    pub decl: NodeId,
+    pub def: NodeId,
 }
 
 #[derive(Debug)]
-pub struct LetDecl {
+pub struct LetDef {
     pub mut_: Option<S<()>>,
     pub name: S<Ident>,
     pub ty: Option<NodeId>,
@@ -573,7 +573,7 @@ pub struct TypeParam {
 }
 
 #[derive(Debug)]
-pub struct FnDecl {
+pub struct FnDef {
     pub name: S<Ident>,
     pub vis: Option<S<Vis>>,
     pub ty_params: Vec<NodeId>,
@@ -585,13 +585,13 @@ pub struct FnDecl {
 }
 
 #[derive(Debug)]
-pub struct FnDeclParam {
+pub struct FnDefParam {
     pub pub_name: S<Option<Ident>>,
     pub priv_name: S<Ident>,
     pub ty: NodeId,
 }
 
-impl FnDeclParam {
+impl FnDefParam {
     pub fn name(&self) -> S<&Ident> {
         if let Some(n) = self.pub_name.value.as_ref() {
             self.pub_name.span.spanned(n)

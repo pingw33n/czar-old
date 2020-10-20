@@ -56,7 +56,7 @@ pub struct Codegen<'a> {
     bodyb: BuilderRef,
     headerb: BuilderRef,
     packages: &'a Packages,
-    fn_decls: HashMap<GlobalNodeId, llvm::DValueRef>,
+    fn_defs: HashMap<GlobalNodeId, llvm::DValueRef>,
     fn_body_todos: HashSet<GlobalNodeId>,
     types: HashMap<TypeId, llvm::TypeRef>,
 }
@@ -71,7 +71,7 @@ impl<'a> Codegen<'a> {
             bodyb,
             headerb,
             packages,
-            fn_decls: HashMap::new(),
+            fn_defs: HashMap::new(),
             fn_body_todos: HashSet::new(),
             types: HashMap::new(),
         }
@@ -80,7 +80,7 @@ impl<'a> Codegen<'a> {
     pub fn lower(&mut self, package_id: PackageId) {
         let entry_point = self.packages[package_id].resolve_data.entry_point().unwrap();
 
-        self.fn_decl((package_id, entry_point));
+        self.fn_def((package_id, entry_point));
 
         while let Some(&node) = self.fn_body_todos.iter().next() {
             self.fn_body(node);
@@ -97,8 +97,8 @@ impl<'a> Codegen<'a> {
         self.emit(file, format)
     }
 
-    fn fn_decl(&mut self, node: GlobalNodeId) -> llvm::DValueRef {
-        if let Some(&v) = self.fn_decls.get(&node) {
+    fn fn_def(&mut self, node: GlobalNodeId) -> llvm::DValueRef {
+        if let Some(&v) = self.fn_defs.get(&node) {
             return v;
         }
 
@@ -108,20 +108,20 @@ impl<'a> Codegen<'a> {
         let name = if package.resolve_data.entry_point() == Some(node.1) {
             "__main"
         } else {
-            package.hir.fn_decl(node.1).name.value.as_str()
+            package.hir.fn_def(node.1).name.value.as_str()
         };
         let fn_ = self.llvm.add_function(&name, ty);
-        assert!(self.fn_decls.insert(node, fn_).is_none());
+        assert!(self.fn_defs.insert(node, fn_).is_none());
         assert!(self.fn_body_todos.insert(node));
 
         fn_
     }
 
-    fn fn_body(&mut self, fn_decl: GlobalNodeId) {
-        let package = &self.packages[fn_decl.0];
-        let FnDecl { params, body, .. } = package.hir.fn_decl(fn_decl.1);
+    fn fn_body(&mut self, fn_def: GlobalNodeId) {
+        let package = &self.packages[fn_def.0];
+        let FnDef { params, body, .. } = package.hir.fn_def(fn_def.1);
         if let Some(body) = *body {
-            let fn_ = self.fn_decls[&fn_decl];
+            let fn_ = self.fn_defs[&fn_def];
             self.llvm.append_new_bb(fn_, "header");
 
             let allocas = &mut HashMap::new();
@@ -132,7 +132,7 @@ impl<'a> Codegen<'a> {
             };
 
             for (i, &param) in params.iter().enumerate() {
-                let name = &package.hir.fn_decl_param(param).priv_name.value;
+                let name = &package.hir.fn_def_param(param).priv_name.value;
                 let val = self.alloca(param, name, ctx);
                 let param = fn_.param(i as u32);
                 self.headerb.store(param, val);
@@ -184,12 +184,12 @@ impl<'a> Codegen<'a> {
                 self.bodyb.call(callee, args_ll).into()
             }
             NodeKind::Let => {
-                let &Let { decl } = ctx.package.hir.let_(node);
+                let &Let { def } = ctx.package.hir.let_(node);
 
-                let &LetDecl { init, .. } = ctx.package.hir.let_decl(decl);
+                let &LetDef { init, .. } = ctx.package.hir.let_def(def);
 
                 if let Some(init) = init {
-                    let p = self.expr(decl, ctx).indirect();
+                    let p = self.expr(def, ctx).indirect();
                     let v = self.expr(init, ctx).to_direct(self.bodyb);
                     self.bodyb.store(v, p);
                 }
@@ -225,9 +225,9 @@ impl<'a> Codegen<'a> {
                 self.bodyb.position_at_end(succ_bb);
                 ret_var.into()
             }
-            NodeKind::FnDeclParam => ctx.allocas[&node].into(),
-            NodeKind::LetDecl => {
-                let name = ctx.package.hir.let_decl(node).name.value.as_str();
+            NodeKind::FnDefParam => ctx.allocas[&node].into(),
+            NodeKind::LetDef => {
+                let name = ctx.package.hir.let_def(node).name.value.as_str();
                 Value::Indirect(self.alloca(node, name, ctx))
             }
             NodeKind::Literal => {
@@ -361,8 +361,8 @@ impl<'a> Codegen<'a> {
                 } else {
                     &self.packages[reso.0]
                 };
-                if package.hir.node_kind(reso.1).value == NodeKind::FnDecl {
-                    self.fn_decl(reso).into()
+                if package.hir.node_kind(reso.1).value == NodeKind::FnDef {
+                    self.fn_def(reso).into()
                 } else {
                     self.expr(reso.1, &mut ExprCtx {
                         package,
@@ -413,9 +413,9 @@ impl<'a> Codegen<'a> {
 
                 self.unit_literal().into()
             }
-            // FnDecl here is only reachable directly.
+            // FnDef here is only reachable directly.
             // Indirect case is handled within the Path case.
-            | NodeKind::FnDecl
+            | NodeKind::FnDef
             | NodeKind::Module
             | NodeKind::Use
             | NodeKind::Struct => {

@@ -351,7 +351,7 @@ impl<'a> ParserImpl<'a> {
                                     data: ref_.with_value(TyData::Ref(ty))
                                 }));
                         }
-                        Some(FnDeclParam {
+                        Some(FnDefParam {
                             pub_name: self_.with_value(None),
                             priv_name: self_.with_value(Ident::self_lower()),
                             ty,
@@ -375,11 +375,11 @@ impl<'a> ParserImpl<'a> {
                     };
                     self.expect(Token::Colon)?;
                     let ty = self.ty_expr()?;
-                    FnDeclParam { pub_name, priv_name, ty }
+                    FnDefParam { pub_name, priv_name, ty }
                 };
                 let start = param.pub_name.span.start;
                 let end = self.hir.node_kind(param.ty).span.end;
-                params.push(self.hir.insert_fn_decl_param(Span::new(start, end).spanned(param)));
+                params.push(self.hir.insert_fn_def_param(Span::new(start, end).spanned(param)));
             }
 
             delimited = self.lex.maybe(Token::Comma).is_some();
@@ -404,7 +404,7 @@ impl<'a> ParserImpl<'a> {
         };
 
         let span = Span::new(start, end);
-        Ok(self.hir.insert_fn_decl(span.spanned(FnDecl {
+        Ok(self.hir.insert_fn_def(span.spanned(FnDef {
             name,
             vis,
             ty_params,
@@ -1105,14 +1105,14 @@ impl<'a> ParserImpl<'a> {
                 let end = init.or(ty).map(|v| self.hir.node_kind(v).span.end)
                     .unwrap_or(name.span.end);
                 let span = Span::new(start, end);
-                let decl = self.hir.insert_let_decl(span.spanned(LetDecl {
+                let def = self.hir.insert_let_def(span.spanned(LetDef {
                     mut_,
                     name,
                     ty,
                     init,
                 }));
                 self.hir.insert_let(span.spanned(Let {
-                    decl,
+                    def,
                 }))
             }
             // `while` expression
@@ -1851,7 +1851,7 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | Impl
         | IfExpr
         | Loop
-        | FnDecl
+        | FnDef
         | Module
         | Struct
         | StructType
@@ -1864,9 +1864,9 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | Cast
         | FieldAccess
         | FnCall
-        | FnDeclParam
+        | FnDefParam
         | Let
-        | LetDecl
+        | LetDef
         | Literal
         | Op
         | Path
