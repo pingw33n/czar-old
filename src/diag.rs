@@ -64,6 +64,16 @@ impl Diag {
         });
     }
 
+    pub fn error(&mut self,
+        hir: &Hir,
+        discover_data: &DiscoverData,
+        node: NodeId,
+        text: String,
+    ) {
+        let span = hir.node_kind(node).span;
+        self.error_span(hir, discover_data, node, span, text);
+    }
+
     pub fn reports(&self) -> &[Report] {
         &self.reports
     }

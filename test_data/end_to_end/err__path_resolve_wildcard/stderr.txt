@@ -1,9 +1,14 @@
+error: only symbols from current package can be imported by wildcard import
+  --> main.cz:15:16
+15 | use std::char::*;
+                    ~
+
 error: `S` found in multiple wildcard imports
-  --> main.cz:17:13
-17 |     let v = S{};
+  --> main.cz:18:13
+18 |     let v = S{};
                  ~
 
 error: `char` found in multiple wildcard imports
-  --> main.cz:18:12
-18 |     let v: char;
+  --> main.cz:19:12
+19 |     let v: char;
                 ~~~~

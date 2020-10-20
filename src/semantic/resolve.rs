@@ -102,6 +102,12 @@ impl HirVisitor for Build<'_> {
                     diag: self.diag.clone(),
                 }.resolve_node(ctx.node);
                 if let Ok(target) = target {
+                    if ctx.kind == NodeKind::PathEndStar && !target.nodes()
+                        .all(|(_, (pkg, _))| pkg == self.package_id)
+                    {
+                        self.diag.borrow_mut().error(ctx.hir, self.discover_data, ctx.node,
+                            "only symbols from current package can be imported by wildcard import".into());
+                    }
                     self.resolve_data.insert(ctx.node, target);
                 }
             }
