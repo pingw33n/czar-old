@@ -1,0 +1,39 @@
+error: expected expression, found module `m`
+  --> main.cz:6:5
+6 |     m = 42;
+        ~
+
+error: expected expression, found struct type `S`
+  --> main.cz:7:5
+7 |     S = 42;
+        ~
+
+error: can't assign to this expression
+  --> main.cz:8:5
+8 |     5 = 42;
+        ~
+
+error: can't assign to this expression
+  --> main.cz:9:5
+9 |     5 + 4 / 2 = 42;
+        ~~~~~~~~~
+
+error: can't assign to this expression
+  --> main.cz:10:5
+10 |     2.0 = 42;
+         ~~~
+
+error: can't assign to this expression
+  --> main.cz:11:5
+11 |     if true { "t" } else { "f" } = 42;
+         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error: invalid function reference, must include function's signature: `main::()`
+  --> main.cz:12:5
+12 |     main = 42;
+         ~~~~
+
+error: can't assign to this expression
+  --> main.cz:13:5
+13 |     main() = 42;
+         ~~~~~~

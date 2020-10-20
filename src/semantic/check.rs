@@ -205,6 +205,7 @@ pub struct CheckData {
     struct_fields: NodeMap<u32>,
     /// Unnamed structs introduced in this package.
     unnamed_structs: HashMap<UnnamedStructKey, LocalTypeId>,
+    lvalues: NodeMap<()>,
 }
 
 impl CheckData {
@@ -258,6 +259,14 @@ impl CheckData {
 
     pub fn struct_field(&self, node: NodeId) -> u32 {
         self.struct_fields[&node]
+    }
+
+    fn set_lvalue(&mut self, node: NodeId) {
+        assert!(self.lvalues.insert(node, ()).is_none());
+    }
+
+    fn is_lvalue(&self, node: NodeId) -> bool {
+        self.lvalues.contains_key(&node)
     }
 }
 
@@ -662,6 +671,7 @@ impl Impl<'_> {
                 }
             }
             NodeKind::FieldAccess => {
+                self.check_data.set_lvalue(ctx.node);
                 let hir::FieldAccess { receiver, field } = ctx.hir.field_access(ctx.node);
                 let struct_ty = self.typing(*receiver)?;
                 self.resolve_struct_field(struct_ty, ctx.node, field)?
@@ -698,6 +708,7 @@ impl Impl<'_> {
                 self.primitive_type(PrimitiveType::Bool)
             }
             NodeKind::LetDef => {
+                self.check_data.set_lvalue(ctx.node);
                 let &LetDef { ty, init, .. } = ctx.hir.let_def(ctx.node);
                 if let Some(ty) = ty {
                     let ty = self.typing(ty)?;
@@ -814,6 +825,9 @@ impl Impl<'_> {
             NodeKind::Path => {
                 let segment = ctx.hir.path(ctx.node).segment;
                 if let Some(target) = self.check_data.try_target_of(segment) {
+                    if self.check_data(target.0).is_lvalue(target.1) {
+                        self.check_data.set_lvalue(ctx.node);
+                    }
                     self.check_data.insert_path_to_target(ctx.node, target);
                     self.typing(segment)?
                 } else {
@@ -941,7 +955,9 @@ impl Impl<'_> {
         use BinaryOpKind::*;
         let ty = match kind.value {
             Assign => {
-                if left_ty.id() != right_ty.id() {
+                if !self.check_data.is_lvalue(left) {
+                    self.error(left, "can't assign to this expression".into());
+                } else if left_ty.id() != right_ty.id() {
                     self.error(right, format!(
                         "mismatching types: expected `{}`, found `{}`",
                         self.display_type(left_ty.id()),
