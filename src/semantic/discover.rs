@@ -139,7 +139,6 @@ impl DiscoverData {
             scope_stack: Vec::new(),
             node_stack: Vec::new(),
             module_stack: Vec::new(),
-            fn_def_stack: Vec::new(),
             diag,
         });
         data
@@ -321,7 +320,6 @@ struct Build<'a> {
     scope_stack: Vec<(ScopeKind, NodeId)>,
     node_stack: Vec<NodeId>,
     module_stack: Vec<NodeId>,
-    fn_def_stack: Vec<NodeId>,
     diag: DiagRef,
 }
 
@@ -430,7 +428,6 @@ impl HirVisitor for Build<'_> {
                 let sign = FnSignature::from_def(ctx.node, ctx.hir);
                 assert!(self.data.fn_def_signatures.insert(ctx.node, sign).is_none());
                 self.insert_fn(NsKind::Value, name, ctx.node);
-                self.fn_def_stack.push(ctx.node);
             },
             NodeKind::FnDefParam => {
                 let priv_name = ctx.hir.fn_def_param(ctx.node).priv_name.clone();
@@ -521,9 +518,6 @@ impl HirVisitor for Build<'_> {
             self.module_stack.pop().unwrap();
         }
         match ctx.kind {
-            NodeKind::FnDef => {
-                assert_eq!(self.fn_def_stack.pop().unwrap(), ctx.node);
-            },
             NodeKind::Use => {
                 assert!(self.in_use);
                 self.in_use = false;

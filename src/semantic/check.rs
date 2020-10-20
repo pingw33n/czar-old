@@ -594,6 +594,7 @@ impl Impl<'_> {
             | NodeKind::FnCall
             | NodeKind::FnDefParam
             | NodeKind::IfExpr
+            | NodeKind::Impl
             | NodeKind::Let
             | NodeKind::LetDef
             | NodeKind::Literal
