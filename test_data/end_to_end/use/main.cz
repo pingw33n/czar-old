@@ -12,9 +12,26 @@ module m1 {
 
 use m1::m2::{self, S};
 
-fn main() {
+fn f1() {
     let s1 = S {s: "s1"};
     let s2 = m2::S {s: "s2"};
     m2::f(s: s1.s);
     m2::f(s: s2.s);
+}
+
+fn f2() {
+    module mod1 {
+        fn f() { prints("f"); println(); }
+        fn f(x: i32) { print_i32(x); println(); }
+    }
+
+    use mod1::f;
+
+    f();
+    f(x: 42);
+}
+
+fn main() {
+    f1();
+    f2();
 }

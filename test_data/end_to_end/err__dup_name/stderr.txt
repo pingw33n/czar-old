@@ -1,0 +1,89 @@
+error: function `f::()` is defined multiple times
+  --> main.cz:3:4
+3 | fn f() -> i32 {42}
+       ~
+
+error: function `f::(_)` is defined multiple times
+  --> main.cz:4:4
+4 | fn f(_ x: i32) {}
+       ~
+
+error: function `f::()` is defined multiple times
+  --> main.cz:5:4
+5 | fn f() {}
+       ~
+
+error: function `f::(x)` is defined multiple times
+  --> main.cz:8:4
+8 | fn f(x: i32) {}
+       ~
+
+error: name `name1` is defined multiple times
+  --> main.cz:11:8
+11 | module name1 {}
+            ~~~~~
+
+error: name `name1` is defined multiple times
+  --> main.cz:12:8
+12 | struct name1 {}
+            ~~~~~
+
+error: name `name1` is defined multiple times
+  --> main.cz:13:8
+13 | module name1 {}
+            ~~~~~
+
+error: name `name1` is defined multiple times
+  --> main.cz:17:12
+17 |     module name1 {}
+                ~~~~~
+
+error: name `name1` is defined multiple times
+  --> main.cz:21:5
+21 | use name1;
+         ~~~~~
+
+error: name `name1` is defined multiple times
+  --> main.cz:22:11
+22 | use mod1::name1;
+               ~~~~~
+
+error: name `name1` is defined multiple times
+  --> main.cz:23:16
+23 | use mod1::f as name1;
+                    ~~~~~
+
+error: name `T` is defined multiple times
+  --> main.cz:26:10
+26 | use T as T;
+              ~
+
+error: name `T` is defined multiple times
+  --> main.cz:27:10
+27 | use T as T;
+              ~
+
+error: name `f` clashes with identically named functions
+  --> main.cz:38:11
+38 | use mod2::f;
+               ~
+
+error: name `name2` clashes with identically named function
+  --> main.cz:41:16
+41 | use mod2::f as name2;
+                    ~~~~~
+
+error: name `mod2` is defined multiple times
+  --> main.cz:43:12
+43 | use mod2::{self, f, mod3::{name1}};
+                ~~~~
+
+error: name `f` is defined multiple times
+  --> main.cz:43:18
+43 | use mod2::{self, f, mod3::{name1}};
+                      ~
+
+error: name `name1` is defined multiple times
+  --> main.cz:43:28
+43 | use mod2::{self, f, mod3::{name1}};
+                                ~~~~~

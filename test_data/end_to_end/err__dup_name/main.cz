@@ -1,0 +1,46 @@
+fn f() {}
+fn f(_ x: i32) {}
+fn f() -> i32 {42}
+fn f(_ x: i32) {}
+fn f() {}
+
+fn f(x: i32) {}
+fn f(x: i32) {}
+
+struct name1 {x: i32}
+module name1 {}
+struct name1 {}
+module name1 {}
+
+module mod1 {
+    struct name1 {}
+    module name1 {}
+    fn f() {}
+}
+
+use name1;
+use mod1::name1;
+use mod1::f as name1;
+
+struct T {}
+use T as T;
+use T as T;
+
+module mod2 {
+    fn f() {}
+    fn f(x: i32) {}
+
+    module mod3 {
+        struct name1 {}
+    }
+}
+
+use mod2::f;
+
+fn name2() {}
+use mod2::f as name2;
+
+use mod2::{self, f, mod3::{name1}};
+
+fn main() {
+}

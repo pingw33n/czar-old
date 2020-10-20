@@ -20,5 +20,11 @@ fn f5() {
     foo("test", b: 42);
 }
 
+fn f6() {
+    let f = 42;
+    fn f() {}
+    f();
+}
+
 fn main() {
 }

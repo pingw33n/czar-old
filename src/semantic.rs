@@ -4,10 +4,6 @@ pub mod resolve;
 
 use crate::hir::*;
 
-fn fatal(span: crate::syntax::Span, s: impl std::fmt::Display) -> ! {
-    panic!("[{}:{}] {}", span.start, span.end, s);
-}
-
 #[derive(Clone, Eq, Debug, Hash, PartialEq)]
 pub struct FnSignature {
     items: Vec<Ident>,
