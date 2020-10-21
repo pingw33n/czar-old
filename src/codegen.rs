@@ -521,8 +521,8 @@ impl<'a> Codegen<'a> {
                 let package = &self.packages[unaliased.0];
                 let node = package.check_data.type_(unaliased.1).node().1;
                 let tys = &mut Vec::new();
-                for &field_ty in fields {
-                    tys.push(self.type_(field_ty));
+                for &check::StructTypeField { ty, ..} in fields {
+                    tys.push(self.type_(ty));
                 }
                 let name = package.hir.try_struct(package.discover_data.parent_of(node))
                     .map(|v| v.name.value.as_str())

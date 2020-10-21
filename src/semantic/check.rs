@@ -187,8 +187,16 @@ pub struct FnType {
 }
 
 #[derive(Debug)]
+pub struct StructTypeField {
+    /// Original index of the field as defined in HIR.
+    /// Record struct type will have the field order normalized.
+    pub def_idx: u32,
+    pub ty: TypeId,
+}
+
+#[derive(Debug)]
 pub struct StructType {
-    pub fields: Vec<TypeId>,
+    pub fields: Vec<StructTypeField>,
 }
 
 pub type LocalTypeId = usize;
@@ -201,9 +209,10 @@ pub struct CheckData {
     typings: NodeMap<TypeId>,
     primitive_types: Option<Box<EnumMap<PrimitiveType, LocalTypeId>>>,
     path_to_target: NodeMap<GlobalNodeId>,
-    /// Maps `FieldAccess` and `StructValueField` nodes to the field index on a named struct.
+    /// Maps `FieldAccess` and `StructValueField` nodes to the field index on a struct type.
+    /// Note the index may not correspond to index of HIR field, use `StructTypeField::def_idx`.
     struct_fields: NodeMap<u32>,
-    /// Unnamed structs introduced in this package.
+    /// Unnamed tuple and record structs defined in this package.
     unnamed_structs: HashMap<UnnamedStructKey, LocalTypeId>,
     lvalues: NodeMap<()>,
 }
@@ -289,6 +298,7 @@ impl<'a> Check<'a> {
         let mut unnamed_structs = HashMap::new();
         for package in self.packages.iter() {
             for (k, ty) in &package.check_data.unnamed_structs {
+                // TODO How bad is this in terms of perf/mem?
                 assert!(unnamed_structs.insert(k.clone(), (package.id, *ty)).is_none());
             }
         }
@@ -346,13 +356,35 @@ impl ResoCtx {
 struct UnnamedStructKey(Vec<(Option<Ident>, TypeId)>);
 
 impl UnnamedStructKey {
-    fn new(mut fields: Vec<(Option<Ident>, TypeId)>) -> Self {
-        fields.sort_by(|a, b| a.0.cmp(&b.0));
-        Self(fields)
-    }
-
-    fn field_types(&self) -> Vec<TypeId> {
-        self.0.iter().map(|v| v.1).collect()
+    /// Also returns fields in normalized order. For tuples this is the same as the input order.
+    fn new(fields: Vec<(Option<Ident>, TypeId)>) -> (Self, Vec<StructTypeField>) {
+        #[derive(Clone)]
+        struct Field {
+            def_idx: u32,
+            name: Option<Ident>,
+            ty: TypeId,
+        }
+        let mut fields: Vec<_> = fields
+            .into_iter()
+            .enumerate()
+            .map(|(def_idx, (name, ty))| Field {
+                name,
+                def_idx: def_idx as u32,
+                ty,
+            })
+            .collect();
+        fields.sort_by(|a, b| a.name.cmp(&b.name));
+        let ty_fields = fields.iter()
+            .cloned()
+            .map(|Field { def_idx, ty, .. }| StructTypeField {
+                def_idx,
+                ty,
+            })
+            .collect();
+        let key_fields = fields.into_iter()
+            .map(|Field { name, ty, .. }| (name, ty))
+            .collect();
+        (Self(key_fields), ty_fields)
     }
 }
 
@@ -366,7 +398,7 @@ struct Impl<'a> {
     reso_ctxs: Vec<ResoCtx>,
     #[cfg(debug_assertions)]
     type_id_set: RefCell<HashSet<TypeId>>,
-    /// Unnamed structs across all packages.
+    /// Unnamed record and tuple structs defined in all packages.
     unnamed_structs: HashMap<UnnamedStructKey, TypeId>,
     hir: &'a Hir,
     diag: DiagRef,
@@ -781,48 +813,6 @@ impl Impl<'_> {
                     }
                 }
             }
-            NodeKind::Struct => {
-                self.typing(ctx.hir.struct_(ctx.node).ty)?
-            }
-            NodeKind::StructType => {
-                let fields = &ctx.hir.struct_type(ctx.node).fields;
-                let named = ctx.hir.try_struct(self.discover_data.parent_of(ctx.node)).is_some();
-                if named {
-                    let mut field_tys = Vec::with_capacity(fields.len());
-                    let mut err = false;
-                    for f in fields {
-                        if let Ok(ty) = self.typing(f.ty) {
-                            field_tys.push(ty);
-                        } else {
-                            err = true;
-                        }
-                    }
-                    if err {
-                        return Err(());
-                    }
-                    self.insert_type(ctx.node, TypeData::Struct(StructType {
-                        fields: field_tys,
-                    }))
-                } else {
-                    let mut field_tys = Vec::with_capacity(fields.len());
-                    let mut err = false;
-                    for f in fields {
-                        if let Ok(ty) = self.typing(f.ty) {
-                            field_tys.push((f.name.clone().map(|v| v.value), ty));
-                        } else {
-                            err = true;
-                        }
-                    }
-                    if err {
-                        return Err(());
-                    }
-                    self.unnamed_struct(ctx.node, UnnamedStructKey::new(field_tys))
-                }
-            }
-            NodeKind::StructValueField => {
-                let value = ctx.hir.struct_value_field(ctx.node).value;
-                self.typing(value)?
-            }
             NodeKind::Path => {
                 let segment = ctx.hir.path(ctx.node).segment;
                 if let Some(target) = self.check_data.try_target_of(segment) {
@@ -849,6 +839,51 @@ impl Impl<'_> {
                     return Ok(None);
                 }
             }
+            NodeKind::Struct => {
+                self.typing(ctx.hir.struct_(ctx.node).ty)?
+            }
+            NodeKind::StructType => {
+                let fields = &ctx.hir.struct_type(ctx.node).fields;
+                let named = ctx.hir.try_struct(self.discover_data.parent_of(ctx.node)).is_some();
+                if named {
+                    let mut field_tys = Vec::with_capacity(fields.len());
+                    let mut err = false;
+                    for (def_idx, f) in fields.iter().enumerate() {
+                        if let Ok(ty) = self.typing(f.ty) {
+                            field_tys.push(StructTypeField {
+                                def_idx: def_idx as u32,
+                                ty,
+                            });
+                        } else {
+                            err = true;
+                        }
+                    }
+                    if err {
+                        return Err(());
+                    }
+                    self.insert_type(ctx.node, TypeData::Struct(StructType {
+                        fields: field_tys,
+                    }))
+                } else {
+                    let mut field_tys = Vec::with_capacity(fields.len());
+                    let mut err = false;
+                    for f in fields {
+                        if let Ok(ty) = self.typing(f.ty) {
+                            field_tys.push((f.name.clone().map(|v| v.value), ty));
+                        } else {
+                            err = true;
+                        }
+                    }
+                    if err {
+                        return Err(());
+                    }
+                    self.unnamed_struct(ctx.node, field_tys)
+                }
+            }
+            NodeKind::StructValueField => {
+                let value = ctx.hir.struct_value_field(ctx.node).value;
+                self.typing(value)?
+            }
             NodeKind::StructValue => {
                 let StructValue { name, explicit_tuple, fields } = ctx.hir.struct_value(ctx.node);
                 assert!(explicit_tuple.is_none() || !fields.is_empty());
@@ -871,7 +906,7 @@ impl Impl<'_> {
                         if err {
                             return Err(());
                         }
-                        self.unnamed_struct(ctx.node, UnnamedStructKey::new(field_tys))
+                        self.unnamed_struct(ctx.node, field_tys)
                     }
                 };
                 for (i, &field_node) in fields.iter().enumerate() {
@@ -1101,7 +1136,7 @@ impl Impl<'_> {
     ) -> Result<TypeId, ()> {
         let (idx, ty) = {
             let struct_ty = self.type_(struct_ty);
-            let field_tys = if let TypeData::Struct(StructType { fields }) = struct_ty.data() {
+            let ty_fields = if let TypeData::Struct(StructType { fields }) = struct_ty.data() {
                 &fields[..]
             } else {
                 &[]
@@ -1110,21 +1145,27 @@ impl Impl<'_> {
             let struct_hir = self.hir(struct_ty.package_id);
             // TODO This is inefficient as the method is going to be called often for field accesses.
             let field_count;
-            let field_names: HashMap<_, _> = if !field_tys.is_empty() {
+            let field_names: HashMap<_, _> = if !ty_fields.is_empty() {
                 match struct_hir.node_kind(struct_ty.node).value {
                     NodeKind::StructType => {
-                        let fields = &struct_hir.struct_type(struct_ty.node).fields;
-                        field_count = fields.len();
-                        fields.iter().enumerate()
-                            .filter_map(|(i, f)| f.name.clone().map(|n| (n.value, i)))
+                        let def_fields = &struct_hir.struct_type(struct_ty.node).fields;
+                        field_count = def_fields.len();
+                        ty_fields.iter().enumerate()
+                            .filter_map(|(i, &StructTypeField { def_idx, .. })| {
+                                let def_field = &def_fields[def_idx as usize];
+                                def_field.name.clone().map(|n| (n.value, i))
+                            })
                             .collect()
                     }
                     NodeKind::StructValue => {
-                        let fields = &struct_hir.struct_value(struct_ty.node).fields;
-                        field_count = fields.len();
-                        fields.iter().enumerate()
-                            .map(|(i, &v)| (i, self.hir.struct_value_field(v)))
-                            .filter_map(|(i, f)| f.name.clone().map(|n| (n.value, i)))
+                        let def_fields = &struct_hir.struct_value(struct_ty.node).fields;
+                        field_count = def_fields.len();
+                        ty_fields.iter().enumerate()
+                            .filter_map(|(i, &StructTypeField { def_idx, .. })| {
+                                let def_field = def_fields[def_idx as usize];
+                                let def_field = self.hir.struct_value_field(def_field);
+                                def_field.name.clone().map(|n| (n.value, i))
+                            })
                             .collect()
                     }
                     _ => unreachable!(),
@@ -1155,18 +1196,19 @@ impl Impl<'_> {
                     i
                 }
             };
-            (idx, field_tys[idx as usize])
+            (idx, ty_fields[idx as usize].ty)
         };
         assert!(self.check_data.struct_fields.insert(field_node, idx).is_none());
         Ok(ty)
     }
 
-    fn unnamed_struct(&mut self, node: NodeId, key: UnnamedStructKey) -> TypeId {
+    fn unnamed_struct(&mut self, node: NodeId, fields: Vec<(Option<Ident>, TypeId)>) -> TypeId {
+        let (key, fields) = UnnamedStructKey::new(fields);
         if let Some(&ty) = self.unnamed_structs.get(&key) {
             ty
         } else {
             let ty = self.insert_type(node, TypeData::Struct(StructType {
-                fields: key.field_types(),
+                fields,
             }));
             assert_eq!(ty.0, self.package_id);
             self.unnamed_structs.insert(key.clone(), ty);
@@ -1227,16 +1269,19 @@ impl Impl<'_> {
                         Ok(())
                     }
                     &TypeData::Primitive(v) => write!(f, "{}", v),
-                    TypeData::Struct(StructType { fields: field_tys }) => {
+                    TypeData::Struct(StructType { fields: ty_fields }) => {
                         if let Some(Struct { name , ty_params, .. }) = self.hir.try_struct(self.discover_data.parent_of(ty.node)) {
                             write!(f, "{}", name.value)?;
                             if !ty_params.is_empty() {
                                 todo!();
                             }
-                        } else if let Some(hir::StructType { fields }) = self.hir.try_struct_type(ty.node) {
-                            assert_eq!(fields.len(), field_tys.len());
-                            let mut fields: Vec<_> = fields.iter().zip(field_tys.iter())
-                                .map(|(f, ty)| (f.name.as_ref().map(|v| v.value.clone()), *ty))
+                        } else if let Some(hir::StructType { fields: def_fields }) = self.hir.try_struct_type(ty.node) {
+                            assert_eq!(def_fields.len(), ty_fields.len());
+                            let mut fields: Vec<_> = ty_fields.iter()
+                                .map(|ty_field| {
+                                    let def_field = &def_fields[ty_field.def_idx as usize];
+                                    (def_field.name.as_ref().map(|v| v.value.clone()), ty_field.ty)
+                                })
                                 .collect();
                             let tuple = fields.first().map(|(n, _)| n.is_some()) != Some(true);
                             if !tuple {
@@ -1257,11 +1302,15 @@ impl Impl<'_> {
                             }
                             write!(f, "}}")?;
                         } else {
-                            let fields = &self.hir.struct_value(ty.node).fields;
+                            let def_fields = &self.hir.struct_value(ty.node).fields;
                             // TODO can this be deduped with hir::StructType code above?
-                            assert_eq!(fields.len(), field_tys.len());
-                            let mut fields: Vec<_> = fields.iter().zip(field_tys.iter())
-                                .map(|(&f, &ty)| (self.hir.struct_value_field(f).name.as_ref().map(|v| v.value.clone()), ty))
+                            assert_eq!(def_fields.len(), ty_fields.len());
+                            let mut fields: Vec<_> = ty_fields.iter()
+                                .map(|ty_field| {
+                                    let def_field = def_fields[ty_field.def_idx as usize];
+                                    let name = self.hir.struct_value_field(def_field).name.as_ref().map(|v| v.value.clone());
+                                    (name, ty_field.ty)
+                                })
                                 .collect();
                             let tuple = fields.first().map(|(n, _)| n.is_some()) != Some(true);
                             if !tuple {

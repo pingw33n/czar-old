@@ -1,0 +1,40 @@
+fn f1() -> {str: String, int: i32} {
+    {str: "f1", int: 1_i32}
+}
+
+fn f2() -> {str: String, int: i32} {
+    {int: 2_i32, str: "f2"}
+}
+
+fn f3() -> {int: i32, str: String} {
+    {str: "f3", int: 3_i32}
+}
+
+fn f4() -> {String, i32} {
+    {"f4", 4_i32}
+}
+
+fn f5() -> {i32, String} {
+    {5_i32, "f5"}
+}
+
+fn print(str: String, int: i32) {
+    prints("str: "); prints(str); prints(" int: "); print_i32(int); println();
+}
+
+fn main() {
+    let v = f1();
+    print(str: v.str, int: v.int);
+
+    let v = f2();
+    print(str: v.str, int: v.int);
+
+    let v = f3();
+    print(str: v.str, int: v.int);
+
+    let v = f4();
+    print(str: v.0, int: v.1);
+
+    let v = f5();
+    print(str: v.1, int: v.0);
+}

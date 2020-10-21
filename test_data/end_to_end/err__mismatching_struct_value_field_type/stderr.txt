@@ -18,7 +18,7 @@ error: mismatching types in struct `Tuple` field `1`: expected `String`, found `
 14 |     Tuple { "foo", 42 };
                         ~~
 
-error: mismatching types: expected `{bar: String, foo: i32}`, found `{bar: ?integer, foo: String}`
+error: mismatching types: expected `{bar: i32, foo: String}`, found `{bar: String, foo: ?integer}`
   --> main.cz:21:9
 21 |     } = {
              ~
