@@ -1,0 +1,17 @@
+fn f1(_ x: i32) -> i32 {
+    x = 12345;
+    x = 42;
+    x
+}
+
+fn f2() -> i32 {
+    let x = 42;
+    x = 12345;
+    x = 4242;
+    x + 100
+}
+
+fn main() {
+    print_i32(f1(0)); println();
+    print_i32(f2()); println();
+}

@@ -712,6 +712,7 @@ impl Impl<'_> {
             NodeKind::FnCall => self.type_fn_call(&ctx)?,
             NodeKind::FnDef => return Err(()),
             NodeKind::FnDefParam => {
+                self.check_data.set_lvalue(ctx.node);
                 self.typing(ctx.hir.fn_def_param(ctx.node).ty)?
             }
             NodeKind::IfExpr => {
