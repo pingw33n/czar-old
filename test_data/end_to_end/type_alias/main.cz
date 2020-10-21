@@ -1,0 +1,38 @@
+type MyString = String;
+type MyInt = i32;
+
+fn average(a: MyInt, _ b: MyInt) -> MyInt {
+    (a + b) / 2
+}
+
+struct S {
+    i: MyInt,
+    s: MyString,
+}
+
+fn get() -> {str: MyString, int: MyInt} {
+    {str: "test_2", int: 42_2_i32}
+}
+
+fn get2() -> {MyInt, MyString} {
+    {42_3_i32, "test_3"}
+}
+
+fn main() {
+    let s: MyString = "test";
+    prints(s); println();
+    let i = average(a: 10, 100);
+    print_i32(i); println();
+
+    let s = S { i: i, s: s };
+    prints(s.s); println();
+    print_i32(s.i); println();
+
+    let s = get();
+    prints(s.str); println();
+    print_i32(s.int); println();
+
+    let s = get2();
+    prints(s.1); println();
+    print_i32(s.0); println();
+}

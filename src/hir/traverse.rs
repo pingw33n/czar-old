@@ -33,6 +33,7 @@ pub enum NodeLink {
     StructDef(StructDefLink),
     StructTypeFieldType,
     StructValue(StructValueLink),
+    TypeAlias(TypeAliasLink),
     TyExpr(TyExprLink),
     UsePath,
     Let(LetLink),
@@ -134,6 +135,12 @@ pub enum StructValueLink {
     Name,
     Field,
     FieldValue,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum TypeAliasLink {
+    TyParam,
+    Ty,
 }
 
 #[derive(Clone, Copy)]
@@ -279,6 +286,32 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     }
                 }
             },
+            NodeKind::Path => {
+                let &Path { anchor: _, segment } = self.hir.path(node);
+                self.traverse0(segment, NodeLink::Path(PathLink::Segment));
+            },
+            NodeKind::PathEndEmpty => {},
+            NodeKind::PathEndIdent => {
+                let PathEndIdent {
+                    item: PathItem { ident: _, ty_params },
+                    renamed_as: _,
+                } = self.hir.path_end_ident(node);
+                for &node in ty_params {
+                    self.traverse0(node, NodeLink::Path(PathLink::EndIdentTyParams));
+                }
+            },
+            NodeKind::PathEndStar => {},
+            NodeKind::PathSegment => {
+                let PathSegment { prefix, suffix } = self.hir.path_segment(node);
+                for PathItem { ident: _, ty_params } in prefix {
+                    for &node in ty_params {
+                        self.traverse0(node, NodeLink::Path(PathLink::SegmentItemTyParams));
+                    }
+                }
+                for &node in suffix {
+                    self.traverse0(node, NodeLink::Path(PathLink::SegmentSuffix));
+                }
+            },
             NodeKind::Range => {
                 let &Range { start, end, .. } = self.hir.range(node);
                 if let Some(start) = start {
@@ -314,32 +347,6 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 let value = self.hir.struct_value_field(node).value;
                 self.traverse0(value, NodeLink::StructValue(StructValueLink::FieldValue))
             }
-            NodeKind::Path => {
-                let &Path { anchor: _, segment } = self.hir.path(node);
-                self.traverse0(segment, NodeLink::Path(PathLink::Segment));
-            },
-            NodeKind::PathEndEmpty => {},
-            NodeKind::PathEndIdent => {
-                let PathEndIdent {
-                    item: PathItem { ident: _, ty_params },
-                    renamed_as: _,
-                } = self.hir.path_end_ident(node);
-                for &node in ty_params {
-                    self.traverse0(node, NodeLink::Path(PathLink::EndIdentTyParams));
-                }
-            },
-            NodeKind::PathEndStar => {},
-            NodeKind::PathSegment => {
-                let PathSegment { prefix, suffix } = self.hir.path_segment(node);
-                for PathItem { ident: _, ty_params } in prefix {
-                    for &node in ty_params {
-                        self.traverse0(node, NodeLink::Path(PathLink::SegmentItemTyParams));
-                    }
-                }
-                for &node in suffix {
-                    self.traverse0(node, NodeLink::Path(PathLink::SegmentSuffix));
-                }
-            },
             NodeKind::TyExpr => {
                 let TyExpr { data, .. } = self.hir.ty_expr(node);
                 match &data.value {
@@ -353,6 +360,13 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     &TyData::Struct(n)  => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Struct)),
                     &TyData::Slice(Slice { ty: n, .. }) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Slice)),
                 }
+            },
+            NodeKind::TypeAlias => {
+                let TypeAlias { vis: _, name: _, ty_params, ty } = self.hir.type_alias(node);
+                for &ty_param in ty_params {
+                    self.traverse0(ty_param, NodeLink::TypeAlias(TypeAliasLink::TyParam));
+                }
+                self.traverse0(*ty, NodeLink::TypeAlias(TypeAliasLink::Ty));
             },
             NodeKind::TypeParam => {},
             NodeKind::Use => {

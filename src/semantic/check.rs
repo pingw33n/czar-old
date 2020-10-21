@@ -553,8 +553,6 @@ impl Impl<'_> {
                 let typ = self.check_data.type_mut(incomplete_ty.1);
                 assert_eq!(typ.node(), (self.package_id, node));
                 assert!(typ.data.replace(TypeData::Type(ty)).is_none());
-            } else {
-                self.insert_failed_typing(node);
             }
         } else if let Ok(ty) = ty {
             self.check_data.insert_typing(node, ty)
@@ -618,7 +616,9 @@ impl Impl<'_> {
                     unsafe_: unsafe_.is_some(),
                 }));
             }
-            NodeKind::Struct => {
+            | NodeKind::Struct
+            | NodeKind::TypeAlias
+            => {
                 self.begin_typing(ctx.node);
             }
             | NodeKind::Block
@@ -959,6 +959,13 @@ impl Impl<'_> {
                         self.typing(node)?
                     }
                 }
+            }
+            NodeKind::TypeAlias => {
+                let TypeAlias { vis: _, name: _, ty_params, ty } = ctx.hir.type_alias(ctx.node);
+                if !ty_params.is_empty() {
+                    todo!();
+                }
+                self.typing(*ty)?
             }
             | NodeKind::PathEndEmpty
             | NodeKind::PathEndStar
@@ -1632,6 +1639,7 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | StructDef(_)
         | StructTypeFieldType
         | StructValue(StructValueLink::Name)
+        | TypeAlias(_)
         | TyExpr(_)
         => ResoCtx::Type,
 

@@ -1,0 +1,31 @@
+type T1 = i32;
+type T2 = String;
+type T3 = {T1, T2};
+type T4 = {s: T2, i: T1};
+
+struct T5Unaliased {i: T1, s: T2}
+type T5 = T5Unaliased;
+
+struct T6Unaliased {T1, T2}
+type T6 = T6Unaliased;
+
+fn t1() -> T1 { 42_i32 }
+fn t2() -> T2 { "t2" }
+fn t3() -> T3 { {t1(), t2()} }
+fn t4() -> T4 { {i: t1(), s: t2()} }
+fn t5() -> T5 { T5Unaliased {i: t1(), s: t2()} }
+fn t6() -> T6 { T6Unaliased {t1(), t2()} }
+
+
+fn f1(_ t1: T1, _ t2: T2, _ t3: T3, _ t4: T4, _ t5: T5, _ t6: T6) {}
+
+fn f2_1() -> T1 { t6() }
+fn f2_2() -> T2 { t5() }
+fn f2_3() -> T3 { t4() }
+fn f2_4() -> T4 { t3() }
+fn f2_5() -> T5 { t2() }
+fn f2_6() -> T6 { t1() }
+
+fn main() {
+    f1(t6(), t5(), t4(), t3(), t2(), t1());
+}

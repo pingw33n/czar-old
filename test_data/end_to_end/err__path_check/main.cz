@@ -74,5 +74,11 @@ fn f14() {
     let z = z;
 }
 
+fn f15() {
+    let x = 42;
+    type T = x;
+    type T2 = f14;
+}
+
 fn main() {
 }

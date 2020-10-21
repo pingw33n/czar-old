@@ -42,5 +42,9 @@ use mod2::f as name2;
 
 use mod2::{self, f, mod3::{name1}};
 
+type name1 = u32;
+type name3 = T;
+type name3 = T;
+
 fn main() {
 }

@@ -175,6 +175,7 @@ impl<'a> ParserImpl<'a> {
             Token::Keyword(Keyword::Static) => unimplemented!(),
             Token::Keyword(Keyword::Use) => self.use_(vis)?,
             Token::Keyword(Keyword::Struct) => self.struct_(vis)?,
+            Token::Keyword(Keyword::Type) => self.type_alias(vis)?,
             Token::Keyword(Keyword::Impl) => {
                 if let Some(vis) = vis {
                     return self.error(vis.span, "invalid visibility for impl block".into())
@@ -1524,6 +1525,26 @@ impl<'a> ParserImpl<'a> {
         })))
     }
 
+    fn type_alias(&mut self, vis: Option<S<Vis>>) -> PResult<NodeId> {
+        self.expect(Token::Keyword(Keyword::Type))?;
+
+        let name = self.ident()?;
+        let ty_params = self.maybe_formal_ty_params()?;
+        self.expect(Token::Eq)?;
+        let ty = self.ty_expr()?;
+        self.expect(Token::Semi)?;
+
+        let start = vis.as_ref().map(|v| v.span.start)
+            .unwrap_or(name.span.start);
+        let end = self.hir.node_kind(ty).span.end;
+        Ok(self.hir.insert_type_alias(Span::new(start, end).spanned(TypeAlias {
+            vis,
+            name,
+            ty_params,
+            ty,
+        })))
+    }
+
     fn impl_(&mut self) -> PResult<NodeId> {
         let start = self.expect(Token::Keyword(Keyword::Impl))?.span.start;
         let ty_params = self.maybe_formal_ty_params()?;
@@ -1855,8 +1876,8 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | Module
         | Struct
         | StructType
-        // `;` is the part of the `use` itself.
-        | Use
+        | TypeAlias // `;` is part of the `type T = X;` itself.
+        | Use // `;` is part of the `use path;` itself.
         | While
         => false,
 

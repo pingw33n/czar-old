@@ -67,3 +67,13 @@ error: could not find `z` in current scope
   --> main.cz:74:13
 74 |     let z = z;
                  ~
+
+error: expected type expression, found variable `x`
+  --> main.cz:79:14
+79 |     type T = x;
+                  ~
+
+error: expected type expression, found function `f14`
+  --> main.cz:80:15
+80 |     type T2 = f14;
+                   ~~~

@@ -1,0 +1,18 @@
+type T = T;
+pub type T = T;
+pub type T<T, U> = Self::T<
+  U,
+  Z<V<Self::V>>
+>;
+
+fn f() {
+  type X = Y;
+  {
+    type X<T> = Y<T>;
+  }
+}
+
+module mod1 {
+  type X = Y;
+  type X<T> = Y<T>;
+}

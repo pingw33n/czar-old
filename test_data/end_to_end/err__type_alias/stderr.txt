@@ -1,0 +1,59 @@
+error: mismatching return types: function `f2_1::()` expects `i32`, found `T6Unaliased`
+  --> main.cz:22:19
+22 | fn f2_1() -> T1 { t6() }
+                       ~~~~
+
+error: mismatching return types: function `f2_2::()` expects `String`, found `T5Unaliased`
+  --> main.cz:23:19
+23 | fn f2_2() -> T2 { t5() }
+                       ~~~~
+
+error: mismatching return types: function `f2_3::()` expects `{i32, String}`, found `{i: i32, s: String}`
+  --> main.cz:24:19
+24 | fn f2_3() -> T3 { t4() }
+                       ~~~~
+
+error: mismatching return types: function `f2_4::()` expects `{i: i32, s: String}`, found `{i32, String}`
+  --> main.cz:25:19
+25 | fn f2_4() -> T4 { t3() }
+                       ~~~~
+
+error: mismatching return types: function `f2_5::()` expects `T5Unaliased`, found `String`
+  --> main.cz:26:19
+26 | fn f2_5() -> T5 { t2() }
+                       ~~~~
+
+error: mismatching return types: function `f2_6::()` expects `T6Unaliased`, found `i32`
+  --> main.cz:27:19
+27 | fn f2_6() -> T6 { t1() }
+                       ~~~~
+
+error: mismatching types in fn call of `f1::(_:_:_:_:_:_)`: expected `i32`, found `T6Unaliased`
+  --> main.cz:30:8
+30 |     f1(t6(), t5(), t4(), t3(), t2(), t1());
+            ~~~~
+
+error: mismatching types in fn call of `f1::(_:_:_:_:_:_)`: expected `String`, found `T5Unaliased`
+  --> main.cz:30:14
+30 |     f1(t6(), t5(), t4(), t3(), t2(), t1());
+                  ~~~~
+
+error: mismatching types in fn call of `f1::(_:_:_:_:_:_)`: expected `{i32, String}`, found `{i: i32, s: String}`
+  --> main.cz:30:20
+30 |     f1(t6(), t5(), t4(), t3(), t2(), t1());
+                        ~~~~
+
+error: mismatching types in fn call of `f1::(_:_:_:_:_:_)`: expected `{i: i32, s: String}`, found `{i32, String}`
+  --> main.cz:30:26
+30 |     f1(t6(), t5(), t4(), t3(), t2(), t1());
+                              ~~~~
+
+error: mismatching types in fn call of `f1::(_:_:_:_:_:_)`: expected `T5Unaliased`, found `String`
+  --> main.cz:30:32
+30 |     f1(t6(), t5(), t4(), t3(), t2(), t1());
+                                    ~~~~
+
+error: mismatching types in fn call of `f1::(_:_:_:_:_:_)`: expected `T6Unaliased`, found `i32`
+  --> main.cz:30:38
+30 |     f1(t6(), t5(), t4(), t3(), t2(), t1());
+                                          ~~~~

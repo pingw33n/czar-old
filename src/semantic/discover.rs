@@ -517,6 +517,10 @@ impl HirVisitor for Build<'_> {
                 assert!(self.in_use);
                 self.insert_wildcard_import(ctx.node);
             }
+            NodeKind::TypeAlias => {
+                let name = ctx.hir.type_alias(ctx.node).name.clone();
+                self.insert_name(ScopeItemKind::Forward, NsKind::Type, name, ctx.node);
+            }
             NodeKind::Use => {
                 assert!(!self.in_use);
                 self.in_use = true;
@@ -596,6 +600,7 @@ fn creates_scope(kind: NodeKind) -> bool {
         | StructValue
         | StructValueField
         | TyExpr
+        | TypeAlias
         | TypeParam
         | Use
         | While

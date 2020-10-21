@@ -87,3 +87,13 @@ error: name `name1` is defined multiple times
   --> main.cz:43:28
 43 | use mod2::{self, f, mod3::{name1}};
                                 ~~~~~
+
+error: name `name1` is defined multiple times
+  --> main.cz:45:6
+45 | type name1 = u32;
+          ~~~~~
+
+error: name `name3` is defined multiple times
+  --> main.cz:47:6
+47 | type name3 = T;
+          ~~~~~

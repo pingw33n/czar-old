@@ -53,6 +53,7 @@ pub enum NodeKind {
     StructType,
     StructValue,
     StructValueField,
+    TypeAlias,
     TyExpr,
     TypeParam,
     Use,
@@ -143,6 +144,7 @@ pub struct Hir {
     struct_types: NodeMap<StructType>,
     struct_values: NodeMap<StructValue>,
     struct_value_fields: NodeMap<StructValueField>,
+    type_aliases: NodeMap<TypeAlias>,
     ty_exprs: NodeMap<TyExpr>,
     type_params: NodeMap<TypeParam>,
     uses: NodeMap<Use>,
@@ -292,6 +294,7 @@ impl Hir {
         insert_struct_type, struct_type, struct_type_mut, try_struct_type, try_struct_type_mut, struct_types, StructType;
         insert_struct_value, struct_value, struct_value_mut, try_struct_value, try_struct_value_mut, struct_values, StructValue;
         insert_struct_value_field, struct_value_field, struct_value_field_mut, try_struct_value_field, try_struct_value_field_mut, struct_value_fields, StructValueField;
+        insert_type_alias, type_alias, type_alias_mut, try_type_alias, try_type_alias_mut, type_aliases, TypeAlias;
         insert_ty_expr, ty_expr, ty_expr_mut, try_ty_expr, try_ty_expr_mut, ty_exprs, TyExpr;
         insert_type_param, type_param, type_param_mut, try_type_param, try_type_param_mut, type_params, TypeParam;
         insert_use, use_, use_mut, try_use, try_use_mut, uses, Use;
@@ -632,6 +635,14 @@ pub enum Literal {
     Int(IntLiteral),
     Float(FloatLiteral),
     Unit,
+}
+
+#[derive(Debug)]
+pub struct TypeAlias {
+    pub vis: Option<S<Vis>>,
+    pub name: S<Ident>,
+    pub ty_params: Vec<NodeId>,
+    pub ty: NodeId,
 }
 
 #[derive(Debug)]
