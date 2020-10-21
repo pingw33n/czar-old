@@ -28,7 +28,17 @@ error: mismatching types in fn call of `foo::(_:b)`: expected `String`, found `?
 20 |     foo("test", b: 42);
                         ~~
 
+error: function `f::()` clashes with other non-function names
+  --> main.cz:25:8
+25 |     fn f() {}
+            ~
+
 error: invalid callee type: expected function, found `i32`
   --> main.cz:26:5
 26 |     f();
+         ~
+
+error: invalid callee type: expected function, found `?integer`
+  --> main.cz:32:5
+32 |     f();
          ~

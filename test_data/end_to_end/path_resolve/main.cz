@@ -1,0 +1,13 @@
+module m1 {
+    module m2 {
+        fn f() { prints("f"); println(); }
+    }
+    fn m2() { prints("m2"); println(); }
+}
+
+use m1::m2;
+
+fn main() {
+    m2::f();
+    m1::m2();
+}

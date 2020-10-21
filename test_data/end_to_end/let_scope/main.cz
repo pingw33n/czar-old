@@ -53,6 +53,12 @@ fn f5() {
     }
 }
 
+fn f6() {
+    let s = 42;
+    let s = s;
+    print_i32(s); println();
+}
+
 fn main() {
     f1();
 
@@ -67,4 +73,7 @@ fn main() {
 
     println();
     f5();
+
+    println();
+    f6();
 }

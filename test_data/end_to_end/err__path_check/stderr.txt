@@ -38,7 +38,7 @@ error: expected type expression, found function `f`
 46 |     let x: f;
                 ~
 
-error: expected type expression, found variable `x`
+error: could not find `x` in current scope
   --> main.cz:50:12
 50 |     let x: x;
                 ~
@@ -61,4 +61,9 @@ error: invalid function reference, must include function's signature: `f12::()`
 error: invalid function reference, must include function's signature
   --> main.cz:70:13
 70 |     let x = f;
+                 ~
+
+error: could not find `z` in current scope
+  --> main.cz:74:13
+74 |     let z = z;
                  ~

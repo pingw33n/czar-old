@@ -70,5 +70,9 @@ fn f13() {
     let x = f;
 }
 
+fn f14() {
+    let z = z;
+}
+
 fn main() {
 }

@@ -1,0 +1,10 @@
+fn var_vs_fn() {
+    fn f() { prints("f"); println(); }
+    f();
+    let f = 42;
+    print_i32(f); println();
+}
+
+fn main() {
+    var_vs_fn();
+}

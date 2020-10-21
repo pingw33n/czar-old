@@ -1445,21 +1445,17 @@ impl Impl<'_> {
                 }
             } else {
                 if reso_ctx == ResoCtx::Import {
-                    let node = reso.nodes().exactly_one().map(|(_, n)| n);
-                    if let Some(node) = node {
-                        let kind = self.hir(node.0).node_kind(node.1).value;
-                        if !can_import(kind) {
+                    let cant_import: Vec<_> = reso.nodes()
+                        .map(|(_, n)| n)
+                        .filter(|n| !can_import(self.hir(n.0).node_kind(n.1).value))
+                        .collect();
+                    if cant_import.len() == reso.len() {
+                        for node in cant_import {
                             let node = self.describe_named(node);
                             self.error_span(ctx.node, span, format!(
                                 "{} can't be imported", node));
-                            return Err(());
                         }
-                    } else {
-                        if cfg!(debug_assertions) {
-                            for (_, n) in reso.nodes() {
-                                assert_eq!(self.hir(n.0).node_kind(n.1).value, NodeKind::FnDef);
-                            }
-                        }
+                        return Err(());
                     }
                     self.primitive_type(PrimitiveType::Unit);
                     return Ok(None);
