@@ -539,6 +539,7 @@ impl Impl<'_> {
     }
 
     fn insert_failed_typing(&mut self, node: NodeId) {
+        assert!(!self.diag.borrow().reports().is_empty());
         assert!(self.failed_typings.insert(node, ()).is_none());
     }
 
@@ -816,25 +817,29 @@ impl Impl<'_> {
             }
             NodeKind::Path => {
                 let segment = ctx.hir.path(ctx.node).segment;
-                if let Some(target) = self.check_data.try_target_of(segment) {
+                if self.failed_typings.contains_key(&segment) {
+                    return Err(())
+                } else if let Some(target) = self.check_data.try_target_of(segment) {
                     if self.check_data(target.0).is_lvalue(target.1) {
                         self.check_data.set_lvalue(ctx.node);
                     }
                     self.check_data.insert_path_to_target(ctx.node, target);
                     self.typing(segment)?
                 } else {
-                    return Err(());
+                    return Ok(None);
                 }
             }
             NodeKind::PathEndIdent => return self.type_path_end_ident(&ctx),
             NodeKind::PathSegment => {
                 let suffix = &ctx.hir.path_segment(ctx.node).suffix;
                 if suffix.len() == 1 {
-                    if let Some(target) = self.check_data.try_target_of(suffix[0]) {
+                    if self.failed_typings.contains_key(&suffix[0]) {
+                        return Err(())
+                    } else if let Some(target) = self.check_data.try_target_of(suffix[0]) {
                         self.check_data.insert_path_to_target(ctx.node, target);
                         self.typing(suffix[0])?
                     } else {
-                        return Err(());
+                        return Ok(None);
                     }
                 } else {
                     return Ok(None);
