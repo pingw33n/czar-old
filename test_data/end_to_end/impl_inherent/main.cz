@@ -1,0 +1,30 @@
+struct S {
+    x: i32,
+    s: String,
+}
+
+impl S {
+    fn with(self, x: i32) -> Self {
+        self.x = x;
+        self
+    }
+
+    fn with(self, s: String) -> Self {
+        self.s = s;
+        self
+    }
+
+    fn print(self) {
+        prints("x: "); print_i32(self.x); prints(", s: "); prints(self.s); println();
+    }
+}
+
+fn main() {
+    let s = S { x: 42, s: "test" };
+    print_usize("test".len()); println();
+    print_usize(s.s.len() + 1); println();
+    s.print();
+    s.with(x: 4242).print();
+    s.with(s: "test2").print();
+    s.with(x: 12345).with(s: "test3").print();
+}

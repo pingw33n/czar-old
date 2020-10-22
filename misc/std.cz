@@ -62,6 +62,12 @@ pub module string {
         ptr: usize,
         len: usize,
     }
+
+    impl String {
+        pub fn len(self) -> usize {
+            self.len
+        }
+    }
 }
 
 // Placeholder for HIR node.

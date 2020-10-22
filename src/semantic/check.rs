@@ -3,7 +3,7 @@ use enum_map::EnumMap;
 use enum_map_derive::Enum;
 use slab::Slab;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map, HashMap, HashSet};
 
 use crate::diag::DiagRef;
 use crate::hir::{self, *};
@@ -233,6 +233,11 @@ impl Std {
 }
 
 #[derive(Default)]
+struct ImplGroup {
+    fns: HashMap<(Ident, FnSignature), NodeId>, // FnDef
+}
+
+#[derive(Default)]
 pub struct CheckData {
     types: Slab<Type>,
     typings: NodeMap<TypeId>,
@@ -244,6 +249,8 @@ pub struct CheckData {
     /// Unnamed tuple and record structs defined in this package.
     unnamed_structs: HashMap<UnnamedStructKey, LocalTypeId>,
     lvalues: NodeMap<()>,
+    /// Impls defined in this package.
+    impls: HashMap<TypeId, Vec<ImplGroup>>,
 }
 
 impl CheckData {
@@ -350,7 +357,18 @@ impl<'a> Check<'a> {
         if self.package_id.is_std() {
             imp.build_lang_types();
         }
+        let _ = imp.pre_check_impls();
         self.hir.traverse(imp);
+        if !imp.failed_typings.is_empty() {
+            let diag_empty = self.diag.borrow().reports().is_empty();
+            if diag_empty {
+                dbg!(self.package_id);
+                for node in &imp.failed_typings {
+                    dbg!(self.hir.node_kind(*node.0));
+                }
+            }
+            assert!(!diag_empty, "{:?}", self.package_id);
+        }
         if let Some(entry_point) = self.resolve_data.entry_point() {
             imp.check_entry_point(entry_point).map_err(|_| CheckError(()))?;
         }
@@ -668,6 +686,74 @@ impl Impl<'_> {
                     unsafe_: unsafe_.is_some(),
                 }));
             }
+            NodeKind::Impl => {
+                self.finish_typing(ctx.node, Ok(self.primitive_type(PrimitiveType::Unit)));
+
+                let hir::Impl {
+                    ty_params,
+                    trait_,
+                    for_,
+                    items,
+                } = ctx.hir.impl_(ctx.node);
+                if !ty_params.is_empty() || trait_.is_some() {
+                    todo!();
+                }
+
+                self.reso_ctxs.push(ResoCtx::Type);
+                let struct_ty = self.ensure_typing(*for_);
+                assert_eq!(self.reso_ctxs.pop().unwrap(), ResoCtx::Type);
+                let struct_ty = struct_ty?;
+
+                if struct_ty.0 != self.package_id {
+                    self.error(*for_, "cannot define inherent `impl` for a type from outside of this package".into());
+                    return Err(());
+                }
+
+                {
+                    let struct_ty = self.type_(struct_ty);
+                    match struct_ty.data() {
+                        | TypeData::Primitive(_)
+                        | TypeData::Struct(_)
+                        => {}
+                        TypeData::Fn(_) => {
+                            self.error(*for_, format!(
+                                "can't define inherent `impl` on {}",
+                                self.describe_named(struct_ty.node())));
+                            return Err(());
+                        }
+                        | TypeData::Type(_)
+                        | TypeData::UnknownNumber(_)
+                        => unreachable!(),
+                    }
+                }
+
+                let mut dup_errs = Vec::new();
+                let impl_group = &mut self.check_data.impls.entry(struct_ty)
+                    .or_insert_with(|| vec![Default::default()])
+                    [0];
+                for &item in items {
+                    match self.hir.node_kind(item).value {
+                        NodeKind::FnDef => {
+                            let name = &self.hir.fn_def(item).name;
+                            let sign = self.discover_data.fn_def_signature(item);
+                            match impl_group.fns.entry((name.value.clone(), sign.clone())) {
+                                hash_map::Entry::Occupied(_) => dup_errs.push(item),
+                                hash_map::Entry::Vacant(e) => {
+                                    e.insert(item);
+                                }
+                            };
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                for node in dup_errs {
+                    let name = &self.hir.fn_def(node).name;
+                    let sign = self.discover_data.fn_def_signature(node);
+                    self.error_span(node, name.span, format!(
+                        "function `{}::{}` is defined multiple times within inherent `impl`",
+                        name.value, sign));
+                }
+            }
             | NodeKind::Struct
             | NodeKind::TypeAlias
             => {
@@ -678,7 +764,6 @@ impl Impl<'_> {
             | NodeKind::FnCall
             | NodeKind::FnDefParam
             | NodeKind::IfExpr
-            | NodeKind::Impl
             | NodeKind::Let
             | NodeKind::LetDef
             | NodeKind::Literal
@@ -790,6 +875,7 @@ impl Impl<'_> {
                 }
                 if_true_ty
             }
+            NodeKind::Impl => unreachable!(),
             NodeKind::Let => {
                 self.primitive_type(PrimitiveType::Bool)
             }
@@ -880,7 +966,13 @@ impl Impl<'_> {
                     return Ok(None);
                 }
             }
-            NodeKind::PathEndIdent => return self.type_path_end_ident(&ctx),
+            NodeKind::PathEndIdent => {
+                return if self.discover_data.find_method_call(ctx.node, ctx.hir).is_none() {
+                    self.type_path_end_ident(&ctx)
+                } else {
+                    Ok(None)
+                };
+            },
             NodeKind::PathSegment => {
                 let suffix = &ctx.hir.path_segment(ctx.node).suffix;
                 if suffix.len() == 1 {
@@ -1415,21 +1507,25 @@ impl Impl<'_> {
             kind,
             params: actual_params,
             .. } = ctx.hir.fn_call(ctx.node);
-        let (fn_def_node, res) = {
-            let callee_ty = self.type_(self.typing(*callee)?);
-            if *kind != FnCallKind::Free {
-                unimplemented!();
+        let (fn_def_node, res_ty) = match *kind {
+            FnCallKind::Free => {
+                let callee_ty = self.type_(self.typing(*callee)?);
+                let ty = if let Some(v) = callee_ty.data().as_fn() {
+                    v.result
+                } else {
+                    self.error(*callee, format!(
+                        "invalid callee type: expected function, found `{}`",
+                        self.display_type(callee_ty.id())));
+                    return Err(());
+                };
+                let fn_def_node = callee_ty.node();
+                (fn_def_node, ty)
             }
-            let res = if let Some(v) = callee_ty.data().as_fn() {
-                v.result
-            } else {
-                self.error(*callee, format!(
-                    "invalid callee type: expected function, found `{}`",
-                    self.display_type(callee_ty.id())));
-                return Err(());
-            };
-            let fn_def_node = callee_ty.node();
-            (fn_def_node, res)
+            FnCallKind::Method => {
+                let (fn_def, fn_ty) = self.resolve_method_call(ctx.node)?;
+                let res_ty = self.type_(fn_ty).data().as_fn().unwrap().result;
+                (fn_def, res_ty)
+            }
         };
 
         let expected_params = self.hir(fn_def_node.0).fn_def(fn_def_node.1).params.clone();
@@ -1456,7 +1552,7 @@ impl Impl<'_> {
             }
         }
 
-        Ok(res)
+        Ok(res_ty)
     }
 
     fn describe_named(&self, node: GlobalNodeId) -> String {
@@ -1468,7 +1564,7 @@ impl Impl<'_> {
             NodeKind::LetDef => format!("variable `{}`", hir.let_def(node.1).name.value),
             NodeKind::Module => format!("module `{}`", hir.module(node.1).name.as_ref().unwrap().name.value),
             NodeKind::Struct => {
-                let prim = if node.0.is_std() {
+                let prim = if node.0.is_std() && !self.package_id.is_std() {
                     let cd = &self.packages[PackageId::std()].check_data;
                     let ty = cd.typing(node.1);
                     assert!(ty.0.is_std());
@@ -1619,6 +1715,87 @@ impl Impl<'_> {
         }))
     }
 
+    fn resolve_method_call(&mut self, fn_call: NodeId)
+        -> Result<(GlobalNodeId, TypeId), ()>
+    {
+        let FnCall {
+            callee,
+            kind,
+            params,
+        } = self.hir.fn_call(fn_call);
+        assert_eq!(*kind, FnCallKind::Method);
+
+        let path = self.hir.path_end_ident(
+            self.hir.path_segment(self.hir.path(*callee).segment).suffix[0]);
+        let name = &path.item.ident;
+        if !path.item.ty_params.is_empty() {
+            todo!();
+        }
+
+        let receiver = params[0].value;
+        let receiver_ty = self.ensure_typing(receiver)?;
+
+        match self.type_(receiver_ty).data() {
+            | TypeData::Struct(_)
+            | TypeData::Primitive(_)
+            | TypeData::Fn(_)
+            => {}
+            TypeData::Type(_) => unreachable!(),
+            TypeData::UnknownNumber(_) => {
+                self.error(receiver, "can't infer type".into());
+                return Err(());
+            }
+        }
+
+        let key = (name.value.clone(), FnSignature::from_call(fn_call, self.hir));
+        if let Some(fn_def) = self.resolve_impl_fn(receiver_ty, &key) {
+            self.check_data.insert_path_to_target(*callee, fn_def);
+            let fn_ty = if fn_def.0 == self.package_id {
+                self.ensure_typing(fn_def.1)?
+            } else {
+                self.check_data(fn_def.0).typing(fn_def.1)
+            };
+            return Ok((fn_def, fn_ty));
+        }
+        self.error(*callee, format!(
+            "method `{}::{}` not found on type `{}`",
+            key.0, key.1,
+            self.display_type(receiver_ty)));
+
+        Err(())
+    }
+
+    fn resolve_impl_fn(&self, ty: TypeId, key: &(Ident, FnSignature)) -> Option<GlobalNodeId> {
+        fn f(package_id: PackageId,
+             check_data: &CheckData,
+             ty: TypeId,
+             key: &(Ident, FnSignature),
+        ) -> Option<GlobalNodeId> {
+            if let Some(impl_groups) = check_data.impls.get(&ty) {
+                assert!(!impl_groups.is_empty());
+                if impl_groups.len() > 1 {
+                    todo!();
+                }
+                if let Some(&fn_def) = impl_groups[0].fns.get(&key) {
+                    return Some((package_id, fn_def));
+                }
+            }
+            None
+        }
+
+        let r = f(self.package_id, self.check_data, ty, key);
+        if r.is_some() {
+            return r;
+        }
+        for package in self.packages.iter() {
+            let r = f(package.id, &package.check_data, ty, key);
+            if r.is_some() {
+                return r;
+            }
+        }
+        None
+    }
+
     fn check_entry_point(&self, node: NodeId) -> Result<(), ()> {
         let ty = self.typing(node)?;
         match self.type_(ty).data() {
@@ -1637,6 +1814,13 @@ impl Impl<'_> {
                 }
             }
             _ => unreachable!(),
+        }
+        Ok(())
+    }
+
+    fn pre_check_impls(&mut self) -> Result<(), ()> {
+        for &impl_ in self.discover_data.impls() {
+            let _ = self.ensure_typing(impl_);
         }
         Ok(())
     }
@@ -1690,7 +1874,9 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | Fn(FnLink::TypeParam)
         | Fn(FnLink::RetType)
         | FnDefParamType
+        | Impl(ImplLink::For)
         | Impl(ImplLink::TypeParam)
+        | Impl(ImplLink::Trait)
         | Let(LetLink::Type)
         | Path(PathLink::EndIdentTyParams)
         | Path(PathLink::SegmentItemTyParams)

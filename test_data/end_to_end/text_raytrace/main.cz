@@ -14,28 +14,30 @@ module vec3 {
         Vec3 { x: x, y: y, z: z }
     }
 
-    fn scale(_ v: Vec3, _ s: f32) -> Vec3 {
-        Vec3 { x: v.x * s, y: v.y * s, z: v.z * s }
-    }
+    impl Vec3 {
+        fn scale(self, _ s: f32) -> Self {
+            Self { x: self.x * s, y: self.y * s, z: self.z * s }
+        }
 
-    fn add(_ a: Vec3, _ b: Vec3) -> Vec3 {
-        Vec3 { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }
-    }
+        fn add(self, _ v: Self) -> Self {
+            Self { x: self.x + v.x, y: self.y + v.y, z: self.z + v.z }
+        }
 
-    fn sub(_ a: Vec3, _ b: Vec3) -> Vec3 {
-        Vec3 { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }
-    }
+        fn sub(self, _ v: Self) -> Self {
+            Self { x: self.x - v.x, y: self.y - v.y, z: self.z - v.z }
+        }
 
-    fn dot(_ a: Vec3, _ b: Vec3) -> f32 {
-        a.x * b.x + a.y * b.y + a.z * b.z
-    }
+        fn dot(self, _ v: Self) -> f32 {
+            self.x * v.x + self.y * v.y + self.z * v.z
+        }
 
-    fn mag(_ v: Vec3) -> f32 {
-        super::sqrtf(dot(v, v))
-    }
+        fn mag(self) -> f32 {
+            super::sqrtf(self.dot(self))
+        }
 
-    fn norm(_ v: Vec3) -> Vec3 {
-        scale(v, 1.0 / mag(v))
+        fn norm(self) -> Self {
+            self.scale(1.0 / self.mag())
+        }
     }
 }
 
@@ -50,12 +52,14 @@ module color {
         Color {r: r, g: g, b: b}
     }
 
-    fn scale(_ v: Color, _ s: f32) -> Color {
-        Color { r: v.r * s, g: v.g * s, b: v.b * s }
-    }
+    impl Color {
+        fn scale(self, _ s: f32) -> Self {
+            Self { r: self.r * s, g: self.g * s, b: self.b * s }
+        }
 
-    fn add(_ a: Color, _ b: Color) -> Color {
-        Color { r: a.r + b.r, g: a.g + b.g, b: a.b + b.b }
+        fn add(self, _ v: Color) -> Self {
+            Self { r: self.r + v.r, g: self.g + v.g, b: self.b + v.b }
+        }
     }
 }
 
@@ -73,8 +77,10 @@ module sphere {
         Sphere { center: center, radius: radius, color: color }
     }
 
-    fn normal(_ v: Sphere, _ pt: Vec3) -> Vec3 {
-        vec3::norm(vec3::sub(pt, v.center))
+    impl Sphere {
+        fn normal(self, _ pt: Vec3) -> Vec3 {
+            pt.sub(self.center).norm()
+        }
     }
 }
 
@@ -89,10 +95,10 @@ struct Ray {
 }
 
 fn intersect_sphere(ray: Ray, center: vec3::Vec3, radius: f32) -> {hit: bool, tval: f32} {
-    let l = vec3::sub(center, ray.orig);
-    let tca = vec3::dot(l, ray.dir);
+    let l = center.sub(ray.orig);
+    let tca = l.dot(ray.dir);
     if tca >= 0.0 {
-        let d2 = vec3::dot(l, l) - tca * tca;
+        let d2 = l.dot(l) - tca * tca;
         let r2 = radius * radius;
         if d2 <= r2 {
             let thc = sqrtf(r2 - d2);
@@ -118,7 +124,7 @@ fn shade_pixel(ray: Ray, obj: sphere::Sphere, tval: f32) -> f32 {
         color: WHITE
     };
 
-    let pi = vec3::add(ray.orig, vec3::scale(ray.dir, tval));
+    let pi = ray.orig.add(ray.dir.scale(tval));
     let color = diffuse_shading(pi: pi, obj: obj, light: LIGHT1);
     let col = (color.r + color.g + color.b) / 3.0;
     col
@@ -131,10 +137,10 @@ fn clamp(_ v: f32, min: f32, max: f32) -> f32 {
 }
 
 fn diffuse_shading(pi: vec3::Vec3, obj: sphere::Sphere, light: Light) -> color::Color {
-    let n = sphere::normal(obj, pi);
-    let lam1 = vec3::dot(vec3::norm(vec3::sub(light.pos, pi)), n);
+    let n = obj.normal(pi);
+    let lam1 = light.pos.sub(pi).norm().dot(n);
     let lam2 = clamp(lam1, min: 0.0, max: 1.0);
-    color::add(color::scale(light.color, lam2 * 0.5), color::scale(obj.color, 0.3))
+    light.color.scale(lam2 * 0.5).add(obj.color.scale(0.3))
 }
 
 fn main() {
@@ -155,7 +161,7 @@ fn main() {
         while x < W {
             let ray = Ray {
                 orig: vec3::new(x: 0.0, y: 0.0, z: 0.0),
-                dir: vec3::norm(vec3::new(x: (x - W / 2.0) / W, y: (y - H / 2.0) / H, z: 1.0)),
+                dir: vec3::new(x: (x - W / 2.0) / W, y: (y - H / 2.0) / H, z: 1.0).norm(),
             };
 
             let hit: {obj: sphere::Sphere, tval: f32};

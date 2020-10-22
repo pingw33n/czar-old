@@ -93,22 +93,27 @@ impl HirVisitor for Build<'_> {
     fn before_node(&mut self, ctx: HirVisitorCtx) {
         match ctx.kind {
             NodeKind::PathEndIdent | NodeKind::PathEndStar => {
-                let target = Resolver {
-                    discover_data: self.discover_data,
-                    resolve_data: self.resolve_data,
-                    hir: ctx.hir,
-                    package_id: self.package_id,
-                    packages: self.packages,
-                    diag: self.diag.clone(),
-                }.resolve_node(ctx.node);
-                if let Ok(target) = target {
-                    if ctx.kind == NodeKind::PathEndStar && !target.nodes()
-                        .all(|(_, (pkg, _))| pkg == self.package_id)
-                    {
-                        self.diag.borrow_mut().error(ctx.hir, self.discover_data, ctx.node,
-                            "only symbols from current package can be imported by wildcard import".into());
+                let needs_resolve =
+                    // Method resolution happens in check pass.
+                    self.discover_data.find_method_call(ctx.node, ctx.hir).is_none();
+                if needs_resolve {
+                    let target = Resolver {
+                        discover_data: self.discover_data,
+                        resolve_data: self.resolve_data,
+                        hir: ctx.hir,
+                        package_id: self.package_id,
+                        packages: self.packages,
+                        diag: self.diag.clone(),
+                    }.resolve_node(ctx.node);
+                    if let Ok(target) = target {
+                        if ctx.kind == NodeKind::PathEndStar && !target.nodes()
+                            .all(|(_, (pkg, _))| pkg == self.package_id)
+                        {
+                            self.diag.borrow_mut().error(ctx.hir, self.discover_data, ctx.node,
+                                "only symbols from current package can be imported by wildcard import".into());
+                        }
+                        self.resolve_data.insert(ctx.node, target);
                     }
-                    self.resolve_data.insert(ctx.node, target);
                 }
             }
             _ => {}

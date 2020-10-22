@@ -169,6 +169,7 @@ pub struct DiscoverData {
     child_to_parent: NodeMap<NodeId>,
     node_to_module: NodeMap<NodeId>,
     fn_def_signatures: NodeMap<FnSignature>,
+    impls: Vec<NodeId>,
 }
 
 impl DiscoverData {
@@ -284,6 +285,33 @@ impl DiscoverData {
         }
     }
 
+    pub fn path_head(&self, mut node: NodeId, hir: &Hir) -> Option<NodeId> {
+        let mut first = true;
+        loop {
+            match hir.node_kind(node).value {
+                NodeKind::Path => break Some(node),
+                | NodeKind::PathEndEmpty
+                | NodeKind::PathEndIdent
+                | NodeKind::PathEndStar
+                | NodeKind::PathSegment
+                => node = self.parent_of(node),
+                _ => {
+                    assert!(first);
+                    break None;
+                }
+            }
+            first = false;
+        }
+    }
+
+    pub fn find_method_call(&self, path: NodeId, hir: &Hir) -> Option<NodeId> {
+        let path_head = self.path_head(path, hir)?;
+        let path_owner = self.parent_of(path_head);
+        hir.try_fn_call(path_owner)
+            .filter(|f| f.callee == path_head && f.kind == FnCallKind::Method)
+            .map(|_| path_owner)
+    }
+
     pub fn print_scopes(&self, hir: &Hir) {
         struct Visitor<'a> {
             data: &'a DiscoverData,
@@ -370,6 +398,10 @@ impl DiscoverData {
             data: self,
             indent: 0,
         });
+    }
+
+    pub fn impls(&self) -> &[NodeId] {
+        &self.impls
     }
 }
 
@@ -485,7 +517,9 @@ impl HirVisitor for Build<'_> {
                 let name = ctx.hir.fn_def(ctx.node).name.clone();
                 let sign = FnSignature::from_def(ctx.node, ctx.hir);
                 assert!(self.data.fn_def_signatures.insert(ctx.node, sign).is_none());
-                self.insert_name(ScopeItemKind::Forward, NsKind::Value, name, ctx.node);
+                if !matches!(ctx.link, NodeLink::Impl(_)) {
+                    self.insert_name(ScopeItemKind::Forward, NsKind::Value, name, ctx.node);
+                }
             },
             NodeKind::Module => {
                 self.module_stack.push(ctx.node);
@@ -543,17 +577,24 @@ impl HirVisitor for Build<'_> {
                     self.insert_name(ScopeItemKind::Forward, NsKind::Value, priv_name.clone(), param);
                 }
             }
+            NodeKind::Impl => {
+                let for_ = ctx.hir.impl_(ctx.node).for_;
+                let span = ctx.hir.node_kind(for_).span;
+                self.insert_name(ScopeItemKind::Forward, NsKind::Type, span.spanned(Ident::self_upper()), for_);
+                self.data.impls.push(ctx.node);
+            }
             _ => {}
         }
     }
 
     fn after_node(&mut self, ctx: HirVisitorCtx) {
-        if creates_scope(ctx.kind) {
-            assert_eq!(self.scope_stack.pop().unwrap(), ctx.node);
-        }
         self.node_stack.pop().unwrap();
         if *self.module_stack.last().unwrap() == ctx.node {
             self.module_stack.pop().unwrap();
+        }
+
+        if creates_scope(ctx.kind) {
+            assert_eq!(self.scope_stack.pop().unwrap(), ctx.node);
         }
         match ctx.kind {
             NodeKind::LetDef => {

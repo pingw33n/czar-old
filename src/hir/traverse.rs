@@ -70,6 +70,8 @@ pub enum IfExprLink {
 
 #[derive(Clone, Copy, Debug)]
 pub enum ImplLink {
+    Trait,
+    For,
     TypeParam,
     Item,
 }
@@ -243,10 +245,14 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 }
             },
             NodeKind::Impl => {
-                let Impl { ty_params, items, .. } = self.hir.impl_(node);
+                let Impl { ty_params, trait_, for_, items } = self.hir.impl_(node);
                 for &ty_param in ty_params {
                     self.traverse0(ty_param, NodeLink::Impl(ImplLink::TypeParam));
                 }
+                if let &Some(trait_) = trait_ {
+                    self.traverse0(trait_, NodeLink::Impl(ImplLink::Trait));
+                }
+                self.traverse0(*for_, NodeLink::Impl(ImplLink::For));
                 for &item in items {
                     self.traverse0(item, NodeLink::Impl(ImplLink::Item));
                 }

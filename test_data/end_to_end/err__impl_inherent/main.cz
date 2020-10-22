@@ -1,0 +1,92 @@
+fn no_impls() {
+    let a = {};
+    a.missing1(x: "test");
+
+    struct T {}
+    let a = T {};
+    a.missing2();
+
+    42.missing3();
+    let x = 42.42;
+    x.missing4();
+
+    fn f() -> String { "test" }
+    f().missing5();
+}
+
+fn mismatch() {
+    struct T {}
+    impl T {
+        fn foo(self) {}
+    }
+
+    let a = T {};
+    a.foo(42);
+    a.foo(x: 42);
+    a.foo();
+}
+
+struct Foo {}
+
+impl Foo {
+    fn foo() {}
+    fn foo(self) {}
+    fn foo(self, s: String) {}
+    fn foo(self, _ s: String) {}
+}
+
+fn dup() {
+    impl Foo {
+        fn foo(x: i32) {}
+
+        fn foo() {}
+        fn foo(self) {}
+        fn foo(self, s: String) {}
+        fn foo(self, _ s: String) {}
+    }
+
+    module m1 {
+        module m2 {
+            module m3 {
+                impl package::Foo {
+                    fn foo(s: String) {}
+                    fn foo(self, str: String) {}
+
+                    fn foo() {}
+                    fn foo(self) {}
+                    fn foo(self, s: String) {}
+                    fn foo(self, _ s: String) {}
+                }
+            }
+        }
+    }
+}
+
+fn foreign_type() {
+    impl u32 {}
+    impl String {}
+}
+
+fn main() {
+    module m1 {
+        use super::*;
+
+        impl Foo {
+            fn foo() {}
+            fn foo(self) {}
+            fn foo(self, s: String) {}
+            fn foo(self, _ s: String) {}
+        }
+    }
+}
+
+module m1 {
+    use super::Foo;
+
+    impl Foo {
+        fn foo() {}
+        fn foo(self) {}
+        fn foo(self, s: String) {}
+        fn foo(self, _ s: String) {}
+    }
+}

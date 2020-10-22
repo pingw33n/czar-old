@@ -587,6 +587,14 @@ pub struct FnDef {
     pub body: Option<NodeId>,
 }
 
+impl FnDef {
+    pub fn is_method(&self, hir: &Hir) -> bool {
+        self.params.first()
+            .map(|&p| hir.fn_def_param(p).priv_name.value.is_self_lower())
+            .unwrap_or(false)
+    }
+}
+
 #[derive(Debug)]
 pub struct FnDefParam {
     pub pub_name: S<Option<Ident>>,
@@ -612,6 +620,8 @@ pub enum FnCallKind {
 
 #[derive(Debug)]
 pub struct FnCall {
+    /// If `kind` is `Free` this is expr of function type.
+    /// If `kind` is `Method` this is single-item `Path`.
     pub callee: NodeId,
     pub kind: FnCallKind,
     pub params: Vec<FnCallParam>,

@@ -171,10 +171,7 @@ impl<'a> Codegen<'a> {
                     self.llvm.int_type(32).const_int(idx as u128)]).into()
             }
             NodeKind::FnCall => {
-                let FnCall { callee, kind, params } = ctx.package.hir.fn_call(node);
-                if *kind != FnCallKind::Free {
-                    todo!();
-                }
+                let FnCall { callee, kind: _, params } = ctx.package.hir.fn_call(node);
                 let callee = self.expr(*callee, ctx).to_direct(self.bodyb);
                 let args_ll = &mut Vec::new();
                 for &FnCallParam { value, .. } in params {

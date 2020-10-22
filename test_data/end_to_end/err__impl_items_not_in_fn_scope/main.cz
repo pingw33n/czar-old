@@ -1,0 +1,20 @@
+struct S { x: i32 }
+
+impl S {
+    fn f() {
+        x;
+        f;
+        f();
+        // Self::f()
+    }
+
+    fn f(self) {
+        x;
+        f;
+        f(self);
+        self.f();
+    }
+}
+
+fn main() {
+}

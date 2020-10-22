@@ -1,0 +1,29 @@
+error: could not find `x` in current scope
+  --> main.cz:5:9
+5 |         x;
+            ~
+
+error: could not find `f` in current scope
+  --> main.cz:6:9
+6 |         f;
+            ~
+
+error: could not find `f` in current scope
+  --> main.cz:7:9
+7 |         f();
+            ~
+
+error: could not find `x` in current scope
+  --> main.cz:12:9
+12 |         x;
+             ~
+
+error: could not find `f` in current scope
+  --> main.cz:13:9
+13 |         f;
+             ~
+
+error: could not find `f` in current scope
+  --> main.cz:14:9
+14 |         f(self);
+             ~
