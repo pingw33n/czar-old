@@ -419,22 +419,22 @@ impl Impl<'_> {
         let map = Box::new(EnumMap::from(|ty| {
             use PrimitiveType::*;
             let path = match ty {
-                Bool => &["bool", "bool"][..],
-                Char => &["char", "char"][..],
-                F32 => &["f32", "f32"][..],
-                F64 => &["f64", "f64"][..],
-                I8 => &["i8", "i8"][..],
-                U8 => &["u8", "u8"][..],
-                I16 => &["i16", "i16"][..],
-                U16 => &["u16", "u16"][..],
-                I32 => &["i32", "i32"][..],
-                U32 => &["u32", "u32"][..],
-                I64 => &["i64", "i64"][..],
-                U64 => &["u64", "u64"][..],
-                I128 => &["i128", "i128"][..],
-                U128 => &["u128", "u128"][..],
-                ISize => &["isize", "isize"][..],
-                USize => &["usize", "usize"][..],
+                Bool => &["bool"][..],
+                Char => &["char"][..],
+                F32 => &["f32"][..],
+                F64 => &["f64"][..],
+                I8 => &["i8"][..],
+                U8 => &["u8"][..],
+                I16 => &["i16"][..],
+                U16 => &["u16"][..],
+                I32 => &["i32"][..],
+                U32 => &["u32"][..],
+                I64 => &["i64"][..],
+                U64 => &["u64"][..],
+                I128 => &["i128"][..],
+                U128 => &["u128"][..],
+                ISize => &["isize"][..],
+                USize => &["usize"][..],
                 String => &["string", "String"][..],
                 Unit => &["Unit"][..],
             };
@@ -1260,6 +1260,7 @@ impl Impl<'_> {
     }
 
     fn display_type1(&self, ty: &Type, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let hir = self.hir(ty.node().0);
         match &ty.data {
             Some(v) => {
                 match v {
@@ -1283,12 +1284,12 @@ impl Impl<'_> {
                     }
                     &TypeData::Primitive(v) => write!(f, "{}", v),
                     TypeData::Struct(StructType { fields: ty_fields }) => {
-                        if let Some(Struct { name , ty_params, .. }) = self.hir.try_struct(self.discover_data.parent_of(ty.node)) {
+                        if let Some(Struct { name , ty_params, .. }) = hir.try_struct(self.discover_data(ty.node().0).parent_of(ty.node().1)) {
                             write!(f, "{}", name.value)?;
                             if !ty_params.is_empty() {
                                 todo!();
                             }
-                        } else if let Some(hir::StructType { fields: def_fields }) = self.hir.try_struct_type(ty.node) {
+                        } else if let Some(hir::StructType { fields: def_fields }) = hir.try_struct_type(ty.node().1) {
                             assert_eq!(def_fields.len(), ty_fields.len());
                             let mut fields: Vec<_> = ty_fields.iter()
                                 .map(|ty_field| {
@@ -1315,13 +1316,13 @@ impl Impl<'_> {
                             }
                             write!(f, "}}")?;
                         } else {
-                            let def_fields = &self.hir.struct_value(ty.node).fields;
+                            let def_fields = &hir.struct_value(ty.node().1).fields;
                             // TODO can this be deduped with hir::StructType code above?
                             assert_eq!(def_fields.len(), ty_fields.len());
                             let mut fields: Vec<_> = ty_fields.iter()
                                 .map(|ty_field| {
                                     let def_field = def_fields[ty_field.def_idx as usize];
-                                    let name = self.hir.struct_value_field(def_field).name.as_ref().map(|v| v.value.clone());
+                                    let name = hir.struct_value_field(def_field).name.as_ref().map(|v| v.value.clone());
                                     (name, ty_field.ty)
                                 })
                                 .collect();

@@ -1,20 +1,20 @@
 pub module prelude {
-    pub use package::bool::bool;
-    pub use package::char::char;
-    pub use package::i8::i8;
-    pub use package::u8::u8;
-    pub use package::i16::i16;
-    pub use package::u16::u16;
-    pub use package::i32::i32;
-    pub use package::u32::u32;
-    pub use package::i64::i64;
-    pub use package::u64::u64;
-    pub use package::i128::i128;
-    pub use package::u128::u128;
-    pub use package::isize::isize;
-    pub use package::usize::usize;
-    pub use package::f32::f32;
-    pub use package::f64::f64;
+    pub use package::bool;
+    pub use package::char;
+    pub use package::i8;
+    pub use package::u8;
+    pub use package::i16;
+    pub use package::u16;
+    pub use package::i32;
+    pub use package::u32;
+    pub use package::i64;
+    pub use package::u64;
+    pub use package::i128;
+    pub use package::u128;
+    pub use package::isize;
+    pub use package::usize;
+    pub use package::f32;
+    pub use package::f64;
     pub use package::string::String;
 
     // FIXME these are temporary, for testing
@@ -40,73 +40,27 @@ pub module prelude {
     pub unsafe fn prints(_ s: String);
 }
 
-pub module f32 {
-    pub struct f32 {}
-}
-
-pub module f64 {
-    pub struct f64 {}
-}
-
-pub module i8 {
-    pub struct i8 {}
-}
-
-pub module u8 {
-    pub struct u8 {}
-}
-
-pub module i16 {
-    pub struct i16 {}
-}
-
-pub module u16 {
-    pub struct u16 {}
-}
-
-pub module i32 {
-    pub struct i32 {}
-}
-
-pub module u32 {
-    pub struct u32 {}
-}
-
-pub module i64 {
-    pub struct i64 {}
-}
-
-pub module u64 {
-    pub struct u64 {}
-}
-
-pub module i128 {
-    pub struct i128 {}
-}
-
-pub module u128 {
-    pub struct u128 {}
-}
-
-pub module isize {
-    pub struct isize {}
-}
-
-pub module usize {
-    pub struct usize {}
-}
-
-pub module bool {
-    pub struct bool {}
-}
-
-pub module char {
-    pub struct char {}
-}
+pub struct f32 {{}}
+pub struct f64 {{}}
+pub struct i8 {{}}
+pub struct u8 {{}}
+pub struct i16 {{}}
+pub struct u16 {{}}
+pub struct i32 {{}}
+pub struct u32 {{}}
+pub struct i64 {{}}
+pub struct u64 {{}}
+pub struct i128 {{}}
+pub struct u128 {{}}
+pub struct isize {{}}
+pub struct usize {{}}
+pub struct bool {{}}
+pub struct char {{}}
 
 pub module string {
     pub /*FIXME ref */struct String {
     }
 }
 
+// Placeholder for HIR node.
 struct Unit {}
