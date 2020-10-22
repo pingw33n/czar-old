@@ -11,7 +11,7 @@ fn main() {
         s: String,
     }
 
-    struct Tuple1 { String, }
+    struct Tuple1 { String }
 
     struct Tuple2 { String, i32 }
 

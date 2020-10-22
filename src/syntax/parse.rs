@@ -505,7 +505,7 @@ impl<'a> ParserImpl<'a> {
                 (end, data)
             }
             Token::BlockOpen(lex::Block::Brace) => {
-                let struct_ = self.struct_type(false)?;
+                let struct_ = self.struct_type(false, false)?;
                 (self.hir.node_kind(struct_).span.end, TyData::Struct(struct_))
             }
             _ => {
@@ -1512,7 +1512,7 @@ impl<'a> ParserImpl<'a> {
 
         let name = self.ident()?;
         let ty_params = self.maybe_formal_ty_params()?;
-        let ty = self.struct_type(true)?;
+        let ty = self.struct_type(true, true)?;
 
         let start = vis.as_ref().map(|v| v.span.start)
             .unwrap_or(name.span.start);
@@ -1584,7 +1584,7 @@ impl<'a> ParserImpl<'a> {
         })))
     }
 
-    fn struct_type(&mut self, field_vis: bool) -> PResult<NodeId> {
+    fn struct_type(&mut self, named: bool, field_vis: bool) -> PResult<NodeId> {
         let start = self.expect(Token::BlockOpen(lex::Block::Brace))?.span.start;
         let mut fields = Vec::new();
         let mut delimited = true;
@@ -1618,7 +1618,7 @@ impl<'a> ParserImpl<'a> {
         }
         let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span;
 
-        if !named_fields && !delimited && fields.len() == 1 {
+        if !named_fields && !named && !delimited && fields.len() == 1 {
             return self.error(end, "expected `,`".into());
         }
 

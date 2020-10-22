@@ -8,6 +8,9 @@ struct Tuple {
 struct Foo {
   f: {},
 }
+struct Zero {
+  {},
+}
 pub struct Foo<T, U, V> {
   field1: i32,
   field2: {u32, &str},
