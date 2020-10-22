@@ -59,6 +59,8 @@ pub struct char {{}}
 
 pub module string {
     pub /*FIXME ref */struct String {
+        ptr: usize,
+        len: usize,
     }
 }
 

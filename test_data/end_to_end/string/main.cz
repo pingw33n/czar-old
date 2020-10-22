@@ -1,0 +1,5 @@
+fn main() {
+    let s = "123456";
+    print_usize(s.len); println();
+    // TODO print_usize("asdasd".len);
+}

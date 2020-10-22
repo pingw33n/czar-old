@@ -13,7 +13,7 @@ error: expected expression, found primitive type `bool`
 11 |     bool
          ~~~~
 
-error: expected expression, found primitive type `String`
+error: expected expression, found struct type `String`
   --> main.cz:15:5
 15 |     String
          ~~~~~~

@@ -468,7 +468,8 @@ impl<'a> Codegen<'a> {
         let g = self.llvm.add_global_const(self.llvm.const_string(v));
         let ptr = self.llvm.const_pointer_cast(g, self.llvm.pointer_type(self.llvm.int_type(8)));
         let len = self.prim_type(PrimitiveType::USize).const_int(v.len() as u128);
-        self.prim_type(PrimitiveType::String).const_struct(&mut [ptr, len])
+        let ty = self.type_((PackageId::std(), self.packages.std().check_data.std().lang(LangType::String)));
+        ty.const_struct(&mut [ptr, len])
     }
 
     fn unit_literal(&self) -> llvm::DValueRef {
@@ -503,33 +504,44 @@ impl<'a> Codegen<'a> {
             assert!(self.types.insert(ty, v).is_none());
             return v;
         }
-        let package = &self.packages[unaliased.0];
-        let ty_ll = match package.check_data.type_(unaliased.1).data() {
-            TypeData::Fn(FnType { params, result, .. }) => {
-                let param_tys = &mut Vec::with_capacity(params.len());
-                for &param in params {
-                    param_tys.push(self.type_(param));
+        let ty_ll = if unaliased.0.is_std() &&
+            self.packages.std().check_data.std().lang_of(unaliased.1) == Some(LangType::String)
+        {
+            // FIXME this won't be needed once there's a reference type in frontend.
+            self.llvm.named_struct_type("String", &mut [
+                self.llvm.pointer_type(self.llvm.int_type(8)),
+                self.llvm.int_type(self.llvm.pointer_size_bits()),
+            ])
+        } else {
+            let package = &self.packages[unaliased.0];
+            match package.check_data.type_(unaliased.1).data() {
+                TypeData::Fn(FnType { params, result, .. }) => {
+                    let param_tys = &mut Vec::with_capacity(params.len());
+                    for &param in params {
+                        param_tys.push(self.type_(param));
+                    }
+                    let res_ty = self.type_(*result);
+                    TypeRef::function(res_ty, param_tys)
                 }
-                let res_ty = self.type_(*result);
-                TypeRef::function(res_ty, param_tys)
-            }
-            &TypeData::Primitive(prim) => {
-                self.make_prim_type(prim)
-            }
-            TypeData::UnknownNumber(_) => unreachable!(),
-            TypeData::Struct(check::StructType { fields }) => {
-                let package = &self.packages[unaliased.0];
-                let node = package.check_data.type_(unaliased.1).node().1;
-                let tys = &mut Vec::new();
-                for &check::StructTypeField { ty, ..} in fields {
-                    tys.push(self.type_(ty));
+                &TypeData::Primitive(prim) => {
+                    self.make_prim_type(prim)
                 }
-                let name = package.hir.try_struct(package.discover_data.parent_of(node))
-                    .map(|v| v.name.value.as_str())
-                    .unwrap_or("__Unnamed");
-                self.llvm.named_struct_type(name, tys)
+                TypeData::Struct(check::StructType { fields }) => {
+                    let package = &self.packages[unaliased.0];
+                    let node = package.check_data.type_(unaliased.1).node().1;
+                    let tys = &mut Vec::new();
+                    for &check::StructTypeField { ty, ..} in fields {
+                        tys.push(self.type_(ty));
+                    }
+                    let name = package.hir.try_struct(package.discover_data.parent_of(node))
+                        .map(|v| v.name.value.as_str())
+                        .unwrap_or("__Unnamed");
+                    self.llvm.named_struct_type(name, tys)
+                }
+                | TypeData::Type(_)
+                | TypeData::UnknownNumber(_)
+                => unreachable!(),
             }
-            _ => todo!(),
         };
 
         assert!(self.types.insert(ty, ty_ll).is_none());
@@ -553,17 +565,11 @@ impl<'a> Codegen<'a> {
             I128 | U128 => self.llvm.int_type(128),
             ISize | USize => self.llvm.int_type(self.llvm.pointer_size_bits()),
             Unit => self.llvm.struct_type(&mut []),
-            String => {
-                self.llvm.named_struct_type("String", &mut [
-                    self.llvm.pointer_type(self.llvm.int_type(8)),
-                    self.llvm.int_type(self.llvm.pointer_size_bits()),
-                ])
-            },
         }
     }
 
     fn prim_type(&mut self, ty: PrimitiveType) -> TypeRef {
-        self.type_((PackageId::std(), self.packages[PackageId::std()].check_data.primitive(ty)))
+        self.type_((PackageId::std(), self.packages.std().check_data.std().primitive(ty)))
     }
 
     fn alloca(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> IValueRef {

@@ -78,6 +78,10 @@ impl Packages {
     pub fn iter(&self) -> impl Iterator<Item = &Package> {
         self.by_id.values().map(|v| &**v)
     }
+
+    pub fn std(&self) -> &Package {
+        &self[PackageId::std()]
+    }
 }
 
 impl Index<PackageId> for Packages {

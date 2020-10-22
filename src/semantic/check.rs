@@ -46,7 +46,6 @@ pub enum PrimitiveType {
     USize,
     Unit,
     Char,
-    String,
 }
 
 impl PrimitiveType {
@@ -73,7 +72,6 @@ impl PrimitiveType {
 
             | Bool
             | Char
-            | String
             | Unit
             => None,
         }
@@ -102,7 +100,6 @@ impl PrimitiveType {
             | Char
             | F32
             | F64
-            | String
             | Unit
             => None,
         }
@@ -130,10 +127,14 @@ impl std::fmt::Display for PrimitiveType {
             USize => "usize",
             Unit => "{}",
             Char => "char",
-            String => "String",
         };
         write!(f, "{}", s)
     }
+}
+
+#[derive(Clone, Copy, Debug, Enum, Eq, Hash, PartialEq)]
+pub enum LangType {
+    String,
 }
 
 #[derive(Debug)]
@@ -203,11 +204,39 @@ pub type LocalTypeId = usize;
 
 pub type TypeId = (PackageId, LocalTypeId);
 
+pub struct Std {
+    primitive_types: EnumMap<PrimitiveType, LocalTypeId>,
+    lang_type_to_id: HashMap<LangType, LocalTypeId>,
+    type_id_to_lang: HashMap<LocalTypeId, LangType>,
+}
+
+impl Std {
+    fn new(primitive_types: EnumMap<PrimitiveType, LocalTypeId>) -> Self {
+        Self {
+            primitive_types,
+            lang_type_to_id: HashMap::new(),
+            type_id_to_lang: HashMap::new(),
+        }
+    }
+
+    pub fn primitive(&self, ty: PrimitiveType) -> LocalTypeId {
+        self.primitive_types[ty]
+    }
+
+    pub fn lang(&self, ty: LangType) -> LocalTypeId {
+        self.lang_type_to_id[&ty]
+    }
+
+    pub fn lang_of(&self, ty: LocalTypeId) -> Option<LangType> {
+        self.type_id_to_lang.get(&ty).copied()
+    }
+}
+
 #[derive(Default)]
 pub struct CheckData {
     types: Slab<Type>,
     typings: NodeMap<TypeId>,
-    primitive_types: Option<Box<EnumMap<PrimitiveType, LocalTypeId>>>,
+    std: Option<Box<Std>>,
     path_to_target: NodeMap<GlobalNodeId>,
     /// Maps `FieldAccess` and `StructValueField` nodes to the field index on a struct type.
     /// Note the index may not correspond to index of HIR field, use `StructTypeField::def_idx`.
@@ -250,8 +279,8 @@ impl CheckData {
         assert!(self.typings.insert(node, ty).is_none());
     }
 
-    pub fn primitive(&self, ty: PrimitiveType) -> LocalTypeId {
-        self.primitive_types.as_ref().unwrap()[ty]
+    pub fn std(&self) -> &Std {
+        &*self.std.as_ref().unwrap()
     }
 
     pub fn target_of(&self, path: NodeId) -> GlobalNodeId {
@@ -319,7 +348,7 @@ impl<'a> Check<'a> {
             failed_typings: Default::default(),
         };
         if self.package_id.is_std() {
-            imp.build_primitive_types();
+            imp.build_lang_types();
         }
         self.hir.traverse(imp);
         if let Some(entry_point) = self.resolve_data.entry_point() {
@@ -406,7 +435,7 @@ struct Impl<'a> {
 }
 
 impl Impl<'_> {
-    pub fn build_primitive_types(&mut self) {
+    pub fn build_lang_types(&mut self) {
         assert!(self.package_id.is_std());
         let resolver = Resolver {
             discover_data: self.discover_data,
@@ -416,7 +445,7 @@ impl Impl<'_> {
             packages: &Packages::default(),
             diag: self.diag.clone(),
         };
-        let map = Box::new(EnumMap::from(|ty| {
+        let prim_map = EnumMap::from(|ty| {
             use PrimitiveType::*;
             let path = match ty {
                 Bool => &["bool"][..],
@@ -435,7 +464,6 @@ impl Impl<'_> {
                 U128 => &["u128"][..],
                 ISize => &["isize"][..],
                 USize => &["usize"][..],
-                String => &["string", "String"][..],
                 Unit => &["Unit"][..],
             };
             let (pkg, node) = resolver.resolve_in_package(path)
@@ -447,8 +475,27 @@ impl Impl<'_> {
             let (pkg, ty) = self.insert_typing(node, TypeData::Primitive(ty));
             assert!(pkg.is_std());
             ty
-        }));
-        assert!(self.check_data.primitive_types.replace(map).is_none());
+        });
+
+        let mut std = Std::new(prim_map);
+
+        use LangType::*;
+        for &(lang_ty, path) in &[
+            (String, &["string", "String"][..]),
+        ] {
+            let (pkg, node) = resolver.resolve_in_package(path)
+                .unwrap()
+                .nodes_of_kind(NsKind::Type)
+                .exactly_one()
+                .unwrap();
+            assert!(pkg.is_std());
+            let ty = self.ensure_typing(node).unwrap();
+            assert!(ty.0.is_std());
+            assert!(std.type_id_to_lang.insert(ty.1, lang_ty).is_none());
+            assert!(std.lang_type_to_id.insert(lang_ty, ty.1).is_none());
+        }
+
+        assert!(self.check_data.std.replace(Box::new(std)).is_none());
     }
 
     fn ensure_opt_typing(&mut self, node: NodeId) -> Result<Option<TypeId>, ()> {
@@ -520,7 +567,11 @@ impl Impl<'_> {
     }
 
     fn primitive_type(&self, ty: PrimitiveType) -> TypeId {
-        (PackageId::std(), self.check_data(PackageId::std()).primitive(ty))
+        (PackageId::std(), self.check_data(PackageId::std()).std().primitive(ty))
+    }
+
+    fn lang_type(&self, ty: LangType) -> TypeId {
+        (PackageId::std(), self.check_data(PackageId::std()).std().lang(ty))
     }
 
     fn typing(&self, node: NodeId) -> Result<TypeId, ()> {
@@ -800,7 +851,7 @@ impl Impl<'_> {
                         }
                     }
                     Literal::Unit => self.primitive_type(PrimitiveType::Unit),
-                    Literal::String(_) => self.primitive_type(PrimitiveType::String),
+                    Literal::String(_) => self.lang_type(LangType::String),
                     Literal::Char(_) => self.primitive_type(PrimitiveType::Char),
                 }
             }
