@@ -2,17 +2,28 @@ use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
+fn parse_str(s: String) -> crate::hir::Hir {
+    let diag = &mut Default::default();
+    match crate::syntax::parse::parse_str(s, diag) {
+        Ok(hir) => hir,
+        Err(err) => {
+            panic!("{}", diag.print("", &err.sources));
+        }
+    }
+}
+
 #[test]
 fn test() {
     let data: &[(&str, &str, Option<&str>)] = include!("test/__autogen__input.rs");
 
     for &(name, inp, exp) in data {
         eprintln!("test: {}", name);
-        let hir = crate::syntax::parse::parse_str(inp.into(), &mut Default::default()).unwrap();
+
+        let hir = parse_str(inp.into());
         assert_eq!(hir.display().to_string(), exp.unwrap_or(inp), "{}", name);
 
         if let Some(exp) = exp {
-            let hir = crate::syntax::parse::parse_str(exp.into(), &mut Default::default()).unwrap();
+            let hir = parse_str(exp.into());
             assert_eq!(hir.display().to_string(), exp, "expected output doesn't parse into itself: {}", name);
         }
     }

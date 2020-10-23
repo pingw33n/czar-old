@@ -1,12 +1,12 @@
 fn f() {
   // Tests are taken from https://github.com/ahrvoje/numerics/blob/master/strtod/strtod_tests.toml
-  0.;
-  0000.;
+  0.0;
+  0000.0;
   72.42;
   0072.42;
   3.14159;
   12.34E-56;
-  -456.;
+  -456.0;
   nan; // path
   NaN; // path
   NAN; // path
@@ -18,7 +18,8 @@ fn f() {
   //err +INF;
   1.0;
   1e2;
-  7.e22; // field access
+  7.e22;
+  7.E22;
   7.0e22;
   7.0e+22;
   7.0e-22;
@@ -34,7 +35,7 @@ fn f() {
   0.00000001e+8;
   -infinity; // path
   //err 123.e-45;
-  678.;
+  678.0;
   0.000e+00;
   1e-400;
   2.4703282292062326e-324;

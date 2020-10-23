@@ -783,12 +783,13 @@ impl<'a> Lexer<'a> {
                 '.' => {
                     if float_part == FloatPart::None {
                         let next = self.nth_char(1);
-                        if is_ident_start(next) || next == '.' {
+                        if next.is_ascii_digit() {
+                            float_part = FloatPart::Frac;
+                        } else {
                             // 0.abs
                             // 0..10
                             break;
                         }
-                        float_part = FloatPart::Frac;
                     } else {
                         // 0.1.0
                         // 0.1.abs
@@ -876,6 +877,7 @@ impl TryFrom<char> for Radix {
     fn try_from(c: char) -> Result<Self, Self::Error> {
         Ok(match c {
             'b' | 'B' => Radix::Bin,
+            'o' | 'O' => Radix::Bin,
             'x' | 'X' => Radix::Hex,
             _ => return Err(()),
         })
@@ -1313,7 +1315,7 @@ mod test {
             (q("test перевірка 单元测试"), "test перевірка 单元测试"),
             (q("\r\n\r\n\n"), "\n\n\n"),
             (q("foo\\\n  bar \\\r\nbaz"), "foo  bar baz"),
-            (q(r"\u{0}\u{10FFFF}"), "\u{0}\u{10FFFF}")
+            (q(r"\u{0}\u{10FFFF}"), "\u{0}\u{10FFFF}"),
         ] {
             assert_eq!(string_literal(&inp).unwrap(), exp.to_string());
         }
