@@ -3,90 +3,11 @@ use std::collections::HashSet;
 
 use crate::diag::DiagRef;
 use crate::hir::*;
-use crate::hir::traverse::*;
 use crate::package::{GlobalNodeId, PackageId, Packages};
 use crate::util::enums::EnumExt;
 use crate::util::iter::IteratorExt;
 
 use super::discover::{DiscoverData, NsKind, ScopeVid};
-
-#[derive(Debug, Default)]
-pub struct ResolveData {
-    path_to_resolution: NodeMap<Resolution>,
-}
-
-impl ResolveData {
-    pub fn build(
-        discover_data: &DiscoverData,
-        hir: &Hir,
-        package_id: PackageId,
-        packages: &Packages,
-        diag: DiagRef,
-    ) -> Self {
-        let mut resolve_data = ResolveData::default();
-        hir.traverse(&mut Build {
-            discover_data,
-            resolve_data: &mut resolve_data,
-            package_id,
-            packages,
-            diag: diag.clone(),
-        });
-
-        resolve_data
-    }
-
-    fn insert(&mut self, node: NodeId, resolution: Resolution) {
-        assert!(self.path_to_resolution.insert(node, resolution).is_none());
-    }
-
-    pub fn resolution_of(&self, path: NodeId) -> &Resolution {
-        &self.path_to_resolution[&path]
-    }
-
-    pub fn try_resolution_of(&self, path: NodeId) -> Option<&Resolution> {
-        self.path_to_resolution.get(&path)
-    }
-}
-
-struct Build<'a> {
-    discover_data: &'a DiscoverData,
-    resolve_data: &'a mut ResolveData,
-    package_id: PackageId,
-    packages: &'a Packages,
-    diag: DiagRef,
-}
-
-impl HirVisitor for Build<'_> {
-    fn before_node(&mut self, ctx: HirVisitorCtx) {
-        match ctx.kind {
-            NodeKind::PathEndIdent | NodeKind::PathEndStar => {
-                let needs_resolve =
-                    // Method resolution happens in check pass.
-                    self.discover_data.find_method_call(ctx.node, ctx.hir).is_none();
-                if needs_resolve {
-                    let target = Resolver {
-                        discover_data: self.discover_data,
-                        resolve_data: self.resolve_data,
-                        hir: ctx.hir,
-                        package_id: self.package_id,
-                        packages: self.packages,
-                        diag: self.diag.clone(),
-                    }.resolve_node(ctx.node);
-                    if let Ok(target) = target {
-                        if ctx.kind == NodeKind::PathEndStar && !target.nodes()
-                            .all(|(_, (pkg, _))| pkg == self.package_id)
-                        {
-                            self.diag.borrow_mut().error(ctx.hir, self.discover_data, ctx.node,
-                                "only symbols from current package can be imported by wildcard import".into());
-                        }
-                        self.resolve_data.insert(ctx.node, target);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
 
 #[derive(Clone, Debug, Default)] // FIXME remove Clone
 pub struct Resolution {
@@ -154,7 +75,6 @@ pub type Result<T> = std::result::Result<T, ResolveError>;
 #[derive(Clone)]
 pub struct Resolver<'a> {
     pub discover_data: &'a DiscoverData,
-    pub resolve_data: &'a ResolveData,
     pub hir: &'a Hir,
     pub package_id: PackageId,
     pub packages: &'a Packages,
@@ -189,7 +109,6 @@ impl<'a> Resolver<'a> {
             let package = &self.packages[package_id];
             Self {
                 discover_data: &package.discover_data,
-                resolve_data: &package.resolve_data,
                 hir: &package.hir,
                 package_id,
                 packages: self.packages,
@@ -210,10 +129,6 @@ impl<'a> Resolver<'a> {
         path: NodeId,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<Resolution> {
-        if let Some(r) = self.resolve_data.try_resolution_of(path) {
-            return Ok(r.clone());
-        }
-
         assert!(paths.insert((self.package_id, path)));
 
         let mut path_idents = Vec::new();
@@ -302,7 +217,7 @@ impl<'a> Resolver<'a> {
 
         assert!(!reso.is_empty());
 
-        // TODO cache result.
+        // TODO cache result for `use` paths.
 
         Ok(reso)
     }

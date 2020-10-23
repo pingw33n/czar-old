@@ -5,7 +5,6 @@ use crate::hir::Ident;
 use crate::package::*;
 use crate::semantic::check::Check;
 use crate::semantic::discover::DiscoverData;
-use crate::semantic::resolve::ResolveData;
 use crate::syntax;
 use crate::syntax::parse::ErrorKind;
 
@@ -55,21 +54,12 @@ pub fn compile(
     let discover_data = DiscoverData::build(&hir, diag.clone());
     // discover_data.print_scopes(&hir);
 
-    let resolve_data = ResolveData::build(
-        &discover_data,
-        &hir,
-        id,
-        packages,
-        diag.clone(),
-    );
-
     let check_data = Check {
         package_id: id,
         package_name: &name,
         package_kind: kind,
         hir: &hir,
         discover_data: &discover_data,
-        resolve_data: &resolve_data,
         packages,
         diag: diag.clone(),
     }.run();
@@ -84,7 +74,6 @@ pub fn compile(
             name,
             hir,
             discover_data,
-            resolve_data,
             check_data,
         })
     } else {

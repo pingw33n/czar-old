@@ -6,7 +6,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use crate::hir::{Hir, Ident, NodeId};
 use crate::semantic::check::CheckData;
 use crate::semantic::discover::DiscoverData;
-use crate::semantic::resolve::ResolveData;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PackageKind {
@@ -55,7 +54,6 @@ pub struct Package {
     pub name: Ident,
     pub hir: Hir,
     pub discover_data: DiscoverData,
-    pub resolve_data: ResolveData,
     pub check_data: CheckData,
 }
 

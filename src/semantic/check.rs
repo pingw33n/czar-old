@@ -12,8 +12,8 @@ use crate::package::{GlobalNodeId, PackageId, Packages, PackageKind};
 use crate::util::iter::IteratorExt;
 
 use super::*;
-use resolve::{ResolveData, Resolver};
 use discover::{DiscoverData, NsKind};
+use resolve::Resolver;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NumberType {
@@ -329,7 +329,6 @@ pub struct Check<'a> {
     pub package_kind: PackageKind,
     pub hir: &'a Hir,
     pub discover_data: &'a DiscoverData,
-    pub resolve_data: &'a ResolveData,
     pub packages: &'a Packages,
     pub diag: DiagRef,
 }
@@ -348,7 +347,6 @@ impl<'a> Check<'a> {
 
         let imp = &mut Impl {
             discover_data: self.discover_data,
-            resolve_data: self.resolve_data,
             check_data: &mut check_data,
             unknown_num_types: Default::default(),
             package_id: self.package_id,
@@ -444,7 +442,6 @@ impl UnnamedStructKey {
 
 struct Impl<'a> {
     discover_data: &'a DiscoverData,
-    resolve_data: &'a ResolveData,
     check_data: &'a mut CheckData,
     unknown_num_types: HashSet<LocalTypeId>,
     package_id: PackageId,
@@ -466,7 +463,6 @@ impl Impl<'_> {
         assert!(self.package_id.is_std());
         let resolver = Resolver {
             discover_data: self.discover_data,
-            resolve_data: &Default::default(),
             hir: self.hir,
             package_id: PackageId::std(),
             packages: &Packages::default(),
@@ -975,9 +971,9 @@ impl Impl<'_> {
                     return Ok(None);
                 }
             }
-            NodeKind::PathEndIdent => {
+            NodeKind::PathEndIdent | NodeKind::PathEndStar => {
                 return if self.discover_data.find_method_call(ctx.node, ctx.hir).is_none() {
-                    self.type_path_end_ident(&ctx)
+                    self.resolve_path(&ctx)
                 } else {
                     Ok(None)
                 };
@@ -1126,7 +1122,6 @@ impl Impl<'_> {
                 self.typing(*ty)?
             }
             | NodeKind::PathEndEmpty
-            | NodeKind::PathEndStar
             | NodeKind::Use
             => {
                 self.primitive_type(PrimitiveType::Unit)
@@ -1592,9 +1587,26 @@ impl Impl<'_> {
         }
     }
 
-    fn type_path_end_ident(&mut self, ctx: &HirVisitorCtx) -> Result<Option<TypeId>, ()> {
+    fn resolve_path(&mut self, ctx: &HirVisitorCtx) -> Result<Option<TypeId>, ()> {
+        let reso = Resolver {
+            discover_data: self.discover_data,
+            hir: ctx.hir,
+            package_id: self.package_id,
+            packages: self.packages,
+            diag: self.diag.clone(),
+        }.resolve_node(ctx.node).map_err(|_| {})?;
+
+        if ctx.kind == NodeKind::PathEndStar {
+            if !reso.nodes()
+                .all(|(_, (pkg, _))| pkg == self.package_id)
+            {
+                self.error(ctx.node,
+                    "only symbols from current package can be imported by wildcard import".into());
+            }
+            return Ok(None);
+        }
+
         let span = ctx.hir.path_end_ident(ctx.node).item.ident.span;
-        let reso = self.resolve_data.try_resolution_of(ctx.node).ok_or({})?;
         assert!(!reso.is_empty());
         let reso_ctx = self.reso_ctx();
         let (pkg, node) = {
@@ -1811,7 +1823,6 @@ impl Impl<'_> {
         }
         let resolver = Resolver {
             discover_data: self.discover_data,
-            resolve_data: self.resolve_data,
             hir: self.hir,
             package_id: self.package_id,
             packages: self.packages,
