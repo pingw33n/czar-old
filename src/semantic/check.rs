@@ -1,5 +1,4 @@
 use enum_as_inner::EnumAsInner;
-use enum_map::EnumMap;
 use enum_map_derive::Enum;
 use slab::Slab;
 use std::cell::RefCell;
@@ -14,7 +13,7 @@ use crate::util::iter::IteratorExt;
 use super::*;
 use discover::{DiscoverData, NsKind};
 use resolve::Resolver;
-use crate::semantic::resolve::ResolutionKind;
+use crate::semantic::resolve::{ResolutionKind, ResolveCache};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NumberType {
@@ -28,7 +27,7 @@ pub enum Sign {
     Unsigned,
 }
 
-#[derive(Clone, Copy, Debug, Enum, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum PrimitiveType {
     Bool,
     F32,
@@ -205,23 +204,16 @@ pub type LocalTypeId = usize;
 
 pub type TypeId = (PackageId, LocalTypeId);
 
+#[derive(Default)]
 pub struct Std {
-    primitive_types: EnumMap<PrimitiveType, LocalTypeId>,
+    primitive_types: HashMap<PrimitiveType, LocalTypeId>,
     lang_type_to_id: HashMap<LangType, LocalTypeId>,
     type_id_to_lang: HashMap<LocalTypeId, LangType>,
 }
 
 impl Std {
-    fn new(primitive_types: EnumMap<PrimitiveType, LocalTypeId>) -> Self {
-        Self {
-            primitive_types,
-            lang_type_to_id: HashMap::new(),
-            type_id_to_lang: HashMap::new(),
-        }
-    }
-
     pub fn primitive(&self, ty: PrimitiveType) -> LocalTypeId {
-        self.primitive_types[ty]
+        self.primitive_types[&ty]
     }
 
     pub fn lang(&self, ty: LangType) -> LocalTypeId {
@@ -244,6 +236,7 @@ pub struct CheckData {
     typings: NodeMap<TypeId>,
     std: Option<Box<Std>>,
     path_to_target: NodeMap<GlobalNodeId>,
+    resolve_cache: ResolveCache,
     /// Maps `FieldAccess` and `StructValueField` nodes to the field index on a struct type.
     /// Note the index may not correspond to index of HIR field, use `StructTypeField::def_idx`.
     struct_fields: NodeMap<u32>,
@@ -318,6 +311,10 @@ impl CheckData {
 
     pub fn entry_point(&self) -> Option<NodeId> {
         self.entry_point
+    }
+
+    pub fn resolve_cache(&self) -> &ResolveCache {
+        &self.resolve_cache
     }
 }
 
@@ -462,61 +459,60 @@ struct Impl<'a> {
 impl Impl<'_> {
     pub fn build_lang_types(&mut self) {
         assert!(self.package_id.is_std());
-        let resolver = Resolver {
-            discover_data: self.discover_data,
-            hir: self.hir,
-            package_id: PackageId::std(),
-            packages: &Packages::default(),
-            diag: self.diag.clone(),
-        };
-        let prim_map = EnumMap::from(|ty| {
+
+        let mut std = Std::default();
+
+        {
             use PrimitiveType::*;
-            let path = match ty {
-                Bool => &["bool"][..],
-                Char => &["char"][..],
-                F32 => &["f32"][..],
-                F64 => &["f64"][..],
-                I8 => &["i8"][..],
-                U8 => &["u8"][..],
-                I16 => &["i16"][..],
-                U16 => &["u16"][..],
-                I32 => &["i32"][..],
-                U32 => &["u32"][..],
-                I64 => &["i64"][..],
-                U64 => &["u64"][..],
-                I128 => &["i128"][..],
-                U128 => &["u128"][..],
-                ISize => &["isize"][..],
-                USize => &["usize"][..],
-                Unit => &["Unit"][..],
-            };
-            let (pkg, node) = resolver.resolve_in_package(path)
-                .unwrap()
-                .nodes_of_kind(NsKind::Type)
-                .exactly_one()
-                .unwrap();
-            assert!(pkg.is_std());
-            let (pkg, ty) = self.insert_typing(node, TypeData::Primitive(ty));
-            assert!(pkg.is_std());
-            ty
-        });
+            for &(prim_ty, path) in &[
+                (Bool, &["bool"][..]),
+                (Char, &["char"][..]),
+                (F32, &["f32"][..]),
+                (F64, &["f64"][..]),
+                (I8, &["i8"][..]),
+                (U8, &["u8"][..]),
+                (I16, &["i16"][..]),
+                (U16, &["u16"][..]),
+                (I32, &["i32"][..]),
+                (U32, &["u32"][..]),
+                (I64, &["i64"][..]),
+                (U64, &["u64"][..]),
+                (I128, &["i128"][..]),
+                (U128, &["u128"][..]),
+                (ISize, &["isize"][..]),
+                (USize, &["usize"][..]),
+                (Unit, &["Unit"][..]),
+            ] {
+                let (pkg, node) = self.resolver()
+                    .resolve_in_package(path)
+                    .unwrap()
+                    .nodes_of_kind(NsKind::Type)
+                    .exactly_one()
+                    .unwrap();
+                assert!(pkg.is_std());
+                let (pkg, ty) = self.insert_typing(node, TypeData::Primitive(prim_ty));
+                assert!(pkg.is_std());
+                assert!(std.primitive_types.insert(prim_ty, ty).is_none());
+            }
+        }
 
-        let mut std = Std::new(prim_map);
-
-        use LangType::*;
-        for &(lang_ty, path) in &[
-            (String, &["string", "String"][..]),
-        ] {
-            let (pkg, node) = resolver.resolve_in_package(path)
-                .unwrap()
-                .nodes_of_kind(NsKind::Type)
-                .exactly_one()
-                .unwrap();
-            assert!(pkg.is_std());
-            let ty = self.ensure_typing(node).unwrap();
-            assert!(ty.0.is_std());
-            assert!(std.type_id_to_lang.insert(ty.1, lang_ty).is_none());
-            assert!(std.lang_type_to_id.insert(lang_ty, ty.1).is_none());
+        {
+            use LangType::*;
+            for &(lang_ty, path) in &[
+                (String, &["string", "String"][..]),
+            ] {
+                let (pkg, node) = self.resolver()
+                    .resolve_in_package(path)
+                    .unwrap()
+                    .nodes_of_kind(NsKind::Type)
+                    .exactly_one()
+                    .unwrap();
+                assert!(pkg.is_std());
+                let ty = self.ensure_typing(node).unwrap();
+                assert!(ty.0.is_std());
+                assert!(std.type_id_to_lang.insert(ty.1, lang_ty).is_none());
+                assert!(std.lang_type_to_id.insert(lang_ty, ty.1).is_none());
+            }
         }
 
         assert!(self.check_data.std.replace(Box::new(std)).is_none());
@@ -1588,13 +1584,7 @@ impl Impl<'_> {
     }
 
     fn resolve_path(&mut self, ctx: &HirVisitorCtx) -> Result<Option<TypeId>, ()> {
-        let reso = Resolver {
-            discover_data: self.discover_data,
-            hir: ctx.hir,
-            package_id: self.package_id,
-            packages: self.packages,
-            diag: self.diag.clone(),
-        }.resolve_node(ctx.node).map_err(|_| {})?;
+        let reso = self.resolver().resolve_node(ctx.node)?;
 
         match reso.kind() {
             ResolutionKind::Exact => {}
@@ -1826,14 +1816,7 @@ impl Impl<'_> {
         if self.package_kind != PackageKind::Exe {
             return Ok(());
         }
-        let resolver = Resolver {
-            discover_data: self.discover_data,
-            hir: self.hir,
-            package_id: self.package_id,
-            packages: self.packages,
-            diag: self.diag.clone(),
-        };
-        let node = if let Ok(reso) = resolver.resolve_in_package(&["main"]) {
+        let node = if let Ok(reso) = self.resolver().resolve_in_package(&["main"]) {
             let node = reso.nodes_of_kind(NsKind::Value)
                 .filter(|n| n.0 == self.package_id)
                 .filter(|n| self.discover_data.fn_def_signature(n.1) == &FnSignature::empty())
@@ -1877,6 +1860,17 @@ impl Impl<'_> {
             let _ = self.ensure_typing(impl_);
         }
         Ok(())
+    }
+
+    fn resolver(&self) -> Resolver {
+        Resolver {
+            discover_data: self.discover_data,
+            hir: self.hir,
+            package_id: self.package_id,
+            packages: self.packages,
+            diag: self.diag.clone(),
+            cache: &self.check_data.resolve_cache,
+        }
     }
 }
 

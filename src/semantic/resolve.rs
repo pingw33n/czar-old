@@ -1,5 +1,6 @@
+use atomic_refcell::AtomicRefCell;
 use if_chain::if_chain;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::diag::DiagRef;
 use crate::hir::*;
@@ -8,6 +9,11 @@ use crate::util::enums::EnumExt;
 use crate::util::iter::IteratorExt;
 
 use super::discover::{DiscoverData, NsKind, ScopeVid};
+
+#[derive(Default)]
+pub struct ResolveCache {
+    cache: AtomicRefCell<HashMap<NodeId, Result<Resolution>>>,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResolutionKind {
@@ -26,7 +32,7 @@ pub enum ResolutionKind {
     Type,
 }
 
-#[derive(Clone, Debug)] // FIXME remove Clone
+#[derive(Clone, Debug, Eq, PartialEq)] // FIXME remove Clone
 pub struct Resolution {
     kind: ResolutionKind,
     package_id: Option<PackageId>,
@@ -110,10 +116,7 @@ impl Resolution {
     }
 }
 
-#[derive(Debug)]
-pub struct ResolveError(());
-
-pub type Result<T> = std::result::Result<T, ResolveError>;
+pub type Result<T> = std::result::Result<T, ()>;
 
 #[derive(Clone)]
 pub struct Resolver<'a> {
@@ -122,6 +125,7 @@ pub struct Resolver<'a> {
     pub package_id: PackageId,
     pub packages: &'a Packages,
     pub diag: DiagRef,
+    pub cache: &'a ResolveCache,
 }
 
 impl<'a> Resolver<'a> {
@@ -157,6 +161,7 @@ impl<'a> Resolver<'a> {
                 package_id,
                 packages: self.packages,
                 diag: self.diag.clone(),
+                cache: package.check_data.resolve_cache(),
             }
         }
     }
@@ -173,15 +178,34 @@ impl<'a> Resolver<'a> {
         path: NodeId,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<Resolution> {
+        if let Some(r) = self.cache.cache.borrow().get(&path) {
+            return r.clone();
+        }
         assert!(paths.insert((self.package_id, path)));
 
+        let (path_idents, anchor, use_) = self.prepare_path(path);
+        let r = self.resolve0(path, anchor, path_idents, paths);
+
+        if use_ {
+            let existing = self.cache.cache.borrow_mut().insert(path, r.clone());
+            if let Some(e) = existing {
+                dbg!();
+                assert_eq!(e, r);
+            }
+        }
+
+        r
+    }
+
+    fn prepare_path(&self, path: NodeId) -> (Vec<S<Option<Ident>>>, Option<S<PathAnchor>>, bool) {
         let mut path_idents = Vec::new();
         let mut n = path;
-        let anchor = loop {
+        let (anchor, use_) = loop {
             let nk = self.hir.node_kind(n);
             match nk.value {
                 NodeKind::Path => {
-                    break self.hir.path(n).anchor;
+                    break (self.hir.path(n).anchor,
+                        self.hir.node_kind(self.discover_data.parent_of(n)).value == NodeKind::Use);
                 }
                 NodeKind::PathEndIdent => {
                     let PathEndIdent { item, renamed_as: _ } = self.hir.path_end_ident(n);
@@ -201,6 +225,15 @@ impl<'a> Resolver<'a> {
 
         path_idents.reverse();
 
+        (path_idents, anchor, use_)
+    }
+
+    fn resolve0(&self,
+        path: NodeId,
+        anchor: Option<S<PathAnchor>>,
+        path_idents: Vec<S<Option<Ident>>>,
+        paths: &mut HashSet<GlobalNodeId>,
+    ) -> Result<Resolution> {
         let kind = match self.hir.node_kind(path).value {
             NodeKind::PathEndIdent => ResolutionKind::Exact,
             NodeKind::PathEndStar => ResolutionKind::Wildcard,
@@ -219,8 +252,9 @@ impl<'a> Resolver<'a> {
                         scope = if let Some(scope) = self.discover_data.try_module_of(scope) {
                             scope
                         } else {
-                            return self.error(path, anchor.span,
+                            self.error(path, anchor.span,
                                 "can't resolve path: too many leading `super` keywords".into());
+                            return Err(());
                         };
                     }
                     (self.package_id, scope)
@@ -250,8 +284,9 @@ impl<'a> Resolver<'a> {
                     then {
                         reso
                     } else {
-                        return self.error(path, first.span, format!(
+                        self.error(path, first.span, format!(
                             "could not find `{}` in current scope", first.value));
+                        return Err(());
                     }
                 }
             }
@@ -270,8 +305,6 @@ impl<'a> Resolver<'a> {
         assert!(!reso.is_empty());
         assert!(reso.kind == kind ||
             reso.kind == ResolutionKind::Type && kind == ResolutionKind::Exact);
-
-        // TODO cache `use` results.
 
         Ok(reso)
     }
@@ -295,7 +328,8 @@ impl<'a> Resolver<'a> {
             if (matches!(reso.kind, ResolutionKind::Wildcard | ResolutionKind::Empty) || !type_reso)
                 && scope_kind != NodeKind::Module
             {
-                return self.error(node, idents[i - 1].span, "expected module".into());
+                self.error(node, idents[i - 1].span, "expected module".into());
+                return Err(());
             }
 
             let ident = if let Some(v) = ident.value.clone() {
@@ -340,8 +374,9 @@ impl<'a> Resolver<'a> {
                 } else {
                     format!("`{}`", idents[i - 1].value.as_ref().unwrap())
                 };
-                return self.error(node, ident.span, format!(
+                self.error(node, ident.span, format!(
                     "could not find `{}` in {}", ident.value, s));
+                return Err(());
             }
         }
         assert!(!reso.is_empty());
@@ -418,15 +453,17 @@ impl<'a> Resolver<'a> {
             match found_in_wc_imports.len() {
                 0 => {}
                 1 => return Ok(found_in_wc_imports[0].clone()),
-                _ => return self.error(node, name.span, format!(
-                    "`{}` found in multiple wildcard imports", name.value)),
+                _ => {
+                    self.error(node, name.span, format!(
+                        "`{}` found in multiple wildcard imports", name.value));
+                    return Err(());
+                },
             }
         }
         Ok(Resolution::new(kind))
     }
 
-    fn error<T>(&self, node: NodeId, span: Span, text: String) -> Result<T> {
+    fn error(&self, node: NodeId, span: Span, text: String) {
         self.diag.borrow_mut().error_span(self.hir, self.discover_data, node, span, text);
-        return Err(ResolveError(()));
     }
 }
