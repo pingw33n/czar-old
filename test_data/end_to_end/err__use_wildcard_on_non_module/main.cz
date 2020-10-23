@@ -1,0 +1,11 @@
+module m1 {
+    struct S {}
+}
+
+struct S {}
+
+use S::*; // FIXME must error
+use m1::S::*; // FIXME must error
+
+fn main() {
+}

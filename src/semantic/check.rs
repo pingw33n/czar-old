@@ -971,7 +971,10 @@ impl Impl<'_> {
                     return Ok(None);
                 }
             }
-            NodeKind::PathEndIdent | NodeKind::PathEndStar => {
+            | NodeKind::PathEndEmpty
+            | NodeKind::PathEndStar
+            => return self.resolve_path(&ctx),
+            NodeKind::PathEndIdent => {
                 return if self.discover_data.find_method_call(ctx.node, ctx.hir).is_none() {
                     self.resolve_path(&ctx)
                 } else {
@@ -1121,11 +1124,7 @@ impl Impl<'_> {
                 }
                 self.typing(*ty)?
             }
-            | NodeKind::PathEndEmpty
-            | NodeKind::Use
-            => {
-                self.primitive_type(PrimitiveType::Unit)
-            }
+            NodeKind::Use => self.primitive_type(PrimitiveType::Unit),
             NodeKind::While
             => {
                 let cond = ctx.hir.while_(ctx.node).cond;
@@ -1596,14 +1595,19 @@ impl Impl<'_> {
             diag: self.diag.clone(),
         }.resolve_node(ctx.node).map_err(|_| {})?;
 
-        if ctx.kind == NodeKind::PathEndStar {
-            if !reso.nodes()
-                .all(|(_, (pkg, _))| pkg == self.package_id)
-            {
-                self.error(ctx.node,
-                    "only symbols from current package can be imported by wildcard import".into());
+        match ctx.kind {
+            NodeKind::PathEndIdent => {}
+            NodeKind::PathEndEmpty => return Ok(None),
+            NodeKind::PathEndStar => {
+                if !reso.nodes()
+                    .all(|(_, (pkg, _))| pkg == self.package_id)
+                {
+                    self.error(ctx.node,
+                        "only symbols from current package can be imported by wildcard import".into());
+                }
+                return Ok(None);
             }
-            return Ok(None);
+            _ => unreachable!(),
         }
 
         let span = ctx.hir.path_end_ident(ctx.node).item.ident.span;

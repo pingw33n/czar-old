@@ -1,0 +1,24 @@
+error: could not find `m` in current scope
+  --> main.cz:12:5
+12 | use m::{};
+         ~
+
+error: could not find `foo` in `m1`
+  --> main.cz:13:9
+13 | use m1::foo::{};
+             ~~~
+
+error: could not find `foo` in `m2`
+  --> main.cz:14:13
+14 | use m1::m2::foo::{};
+                 ~~~
+
+error: could not find `foo` in current scope
+  --> main.cz:15:5
+15 | use foo::bar::{};
+         ~~~
+
+error: could not find `foo` in `m1`
+  --> main.cz:16:9
+16 | use m1::foo::bar::{};
+             ~~~
