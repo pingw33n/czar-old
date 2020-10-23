@@ -156,8 +156,12 @@ pub enum NsKind {
     Value,
 }
 
+/// Unversioned scope id. Maps to HIR node that created that scope.
 pub type ScopeUid = NodeId;
+
 pub type ScopeVersion = u32;
+
+/// Versioned scope id.
 pub type ScopeVid = (ScopeUid, ScopeVersion);
 
 #[derive(Default)]

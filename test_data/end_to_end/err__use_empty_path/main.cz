@@ -15,8 +15,8 @@ use m1::m2::foo::{};
 use foo::bar::{};
 use m1::foo::bar::{};
 
-use S::{}; // FIXME must error
-use m1::S::{}; // FIXME must error
+use S::{};
+use m1::S::{};
 
 fn main() {
 }

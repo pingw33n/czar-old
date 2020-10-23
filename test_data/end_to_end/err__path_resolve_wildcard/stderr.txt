@@ -1,7 +1,7 @@
 error: only symbols from current package can be imported by wildcard import
-  --> main.cz:15:16
-15 | use std::char::*;
-                    ~
+  --> main.cz:15:10
+15 | use std::*;
+              ~
 
 error: `S` found in multiple wildcard imports
   --> main.cz:18:13

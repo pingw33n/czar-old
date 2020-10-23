@@ -9,18 +9,57 @@ use crate::util::iter::IteratorExt;
 
 use super::discover::{DiscoverData, NsKind, ScopeVid};
 
-#[derive(Clone, Debug, Default)] // FIXME remove Clone
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResolutionKind {
+    Exact,
+
+    /// Nodes consist of module node to which the empty path points.
+    /// Trailing path is empty.
+    Empty,
+
+    /// Nodes consist of module node to which the wildcard path points.
+    /// Trailing path is empty.
+    Wildcard,
+
+    /// Nodes consist of type node starting from which type-based resolution is required.
+    /// Trailing path is the path starting at the type node.
+    Type,
+}
+
+#[derive(Clone, Debug)] // FIXME remove Clone
 pub struct Resolution {
+    kind: ResolutionKind,
     package_id: Option<PackageId>,
     nodes: HashSet<(NsKind, NodeId)>,
+    /// See `ResolutionKind` for details.
+    trailing_path: Vec<S<Ident>>,
 }
 
 impl Resolution {
-    pub fn single(kind: NsKind, target: GlobalNodeId) -> Self {
-        let mut r = Self::default();
+    fn new(kind: ResolutionKind) -> Self {
+        Self {
+            kind,
+            package_id: None,
+            nodes: Default::default(),
+            trailing_path: Default::default(),
+        }
+    }
+
+    fn single(kind: ResolutionKind, ns: NsKind, target: GlobalNodeId) -> Self {
+        let mut r = Self::new(kind);
         r.package_id = Some(target.0);
-        r.nodes.insert((kind, target.1));
+        r.nodes.insert((ns, target.1));
         r
+    }
+
+    fn single_type(trailing_path: Vec<S<Ident>>, target: GlobalNodeId) -> Self {
+        let mut r = Self::single(ResolutionKind::Type, NsKind::Type, target);
+        r.trailing_path = trailing_path;
+        r
+    }
+
+    pub fn kind(&self) -> ResolutionKind {
+        self.kind
     }
 
     pub fn package_id(&self) -> Option<PackageId> {
@@ -40,7 +79,7 @@ impl Resolution {
             .map(|(_, n)| n)
     }
 
-    pub fn insert_node(&mut self, kind: NsKind, node: GlobalNodeId) {
+    fn insert_node(&mut self, kind: NsKind, node: GlobalNodeId) {
         assert_eq!(self.package_id.replace(node.0).unwrap_or(node.0), node.0);
         self.nodes.insert((kind, node.1));
     }
@@ -58,12 +97,16 @@ impl Resolution {
         self.package_id.is_none()
     }
 
-    pub fn into_non_empty(self) -> Option<Self> {
+    fn into_non_empty(self) -> Option<Self> {
         if self.is_empty() {
             None
         } else {
             Some(self)
         }
+    }
+
+    pub fn trailing_path(&self) -> &[S<Ident>] {
+        &self.trailing_path
     }
 }
 
@@ -91,13 +134,14 @@ impl<'a> Resolver<'a> {
     ) -> Result<Resolution> {
         let path_idents: Vec<_> = path
             .iter()
-            .map(|&s| Span::empty().spanned(Ident::from(s)))
+            .map(|&s| Span::empty().spanned(Some(Ident::from(s))))
             .collect();
         self.clone().resolve_path_idents(
+            Resolution::new(ResolutionKind::Exact),
             self.hir.root,
             (self.hir.root, 0),
             Some(PathAnchor::Package),
-            &path_idents,
+            path_idents,
             &mut HashSet::new(),
         )
     }
@@ -134,19 +178,20 @@ impl<'a> Resolver<'a> {
         let mut path_idents = Vec::new();
         let mut n = path;
         let anchor = loop {
-            match self.hir.node_kind(n).value {
+            let nk = self.hir.node_kind(n);
+            match nk.value {
                 NodeKind::Path => {
                     break self.hir.path(n).anchor;
                 }
                 NodeKind::PathEndIdent => {
                     let PathEndIdent { item, renamed_as: _ } = self.hir.path_end_ident(n);
-                    path_idents.push(item.ident.clone());
+                    path_idents.push(item.ident.clone().map(Some));
                 }
-                NodeKind::PathEndStar | NodeKind::PathEndEmpty => {}
+                NodeKind::PathEndStar | NodeKind::PathEndEmpty => path_idents.push(nk.span.spanned(None)),
                 NodeKind::PathSegment => {
                     let PathSegment { prefix, suffix: _ } = self.hir.path_segment(n);
                     for PathItem { ident, ty_params: _ } in prefix.iter().rev() {
-                        path_idents.push(ident.clone());
+                        path_idents.push(ident.clone().map(Some));
                     }
                 }
                 _ => unreachable!(),
@@ -156,8 +201,15 @@ impl<'a> Resolver<'a> {
 
         path_idents.reverse();
 
+        let kind = match self.hir.node_kind(path).value {
+            NodeKind::PathEndIdent => ResolutionKind::Exact,
+            NodeKind::PathEndStar => ResolutionKind::Wildcard,
+            NodeKind::PathEndEmpty => ResolutionKind::Empty,
+            _ => unreachable!(),
+        };
+
         let reso = if let Some(anchor) = anchor {
-            Resolution::single(NsKind::Type, match anchor.value {
+            Resolution::single(kind, NsKind::Type, match anchor.value {
                 PathAnchor::Package => (self.package_id, self.hir.root),
                 PathAnchor::Root => unimplemented!(),
                 PathAnchor::Super { count } => {
@@ -176,13 +228,13 @@ impl<'a> Resolver<'a> {
             })
         } else {
             let scope = self.discover_data.def_scope_of(path);
-            let first = path_idents.first().unwrap();
+            let first = path_idents.first().unwrap().clone().map(|v| v.unwrap());
             let first = first.as_ref().map(|v| v.as_str());
-            let reso = self.resolve_in_scopes(path, scope, first, paths)?;
+            let reso = self.resolve_in_scopes(kind, path, scope, first, paths)?;
             if !reso.is_empty() {
                 reso
             } else if let Some(package) = self.packages.try_by_name(&first.value) {
-                Resolution::single(NsKind::Type, (package.id, package.hir.root))
+                Resolution::single(kind, NsKind::Type, (package.id, package.hir.root))
             } else {
                 let std_resolver = self.with_package(PackageId::std());
                 // TODO cache this
@@ -193,7 +245,7 @@ impl<'a> Resolver<'a> {
                     .unwrap();
                 if_chain! {
                     if !paths.contains(&std_prelude);
-                    let reso = std_resolver.resolve_in_scope(path, (std_prelude.1, 0), first, paths)?;
+                    let reso = std_resolver.resolve_in_scope(kind, path, (std_prelude.1, 0), first, paths)?;
                     if !reso.is_empty();
                     then {
                         reso
@@ -210,40 +262,72 @@ impl<'a> Resolver<'a> {
         let reso = if more {
             let (pkg, scope) = reso.type_or_value().unwrap();
             self.with_package(pkg)
-                .resolve_path_idents(path, (scope, 0), anchor, &path_idents, paths)?
+                .resolve_path_idents(reso, path, (scope, 0), anchor, path_idents, paths)?
         } else {
             reso
         };
 
         assert!(!reso.is_empty());
+        assert!(reso.kind == kind ||
+            reso.kind == ResolutionKind::Type && kind == ResolutionKind::Exact);
 
-        // TODO cache result for `use` paths.
+        // TODO cache `use` results.
 
         Ok(reso)
     }
 
     fn resolve_path_idents(mut self,
+        mut reso: Resolution,
         node: NodeId, // For error reporting
         mut scope: ScopeVid,
         anchor: Option<PathAnchor>,
-        path_idents: &[S<Ident>],
+        idents: Vec<S<Option<Ident>>>,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<Resolution> {
-        let mut r = Resolution::default();
         let start = if anchor.is_some() { 0 } else { 1 };
-        for (i, ident) in path_idents.iter().enumerate().skip(start) {
-            r = if ident.value.is_self_lower() {
-                assert_eq!(i, path_idents.len() - 1);
-                Resolution::single(NsKind::Type, (self.package_id, scope.0))
+        for (i, ident) in idents.iter().enumerate().skip(start) {
+            let scope_kind = self.hir.node_kind(scope.0).value;
+            let type_reso = matches!(scope_kind, NodeKind::Struct | NodeKind::TypeAlias);
+
+            // The scope must be a module if at least one is true:
+            // 1. We are resolving wildcard or empty path.
+            // 2. We didn't detect a type resolution condition.
+            if (matches!(reso.kind, ResolutionKind::Wildcard | ResolutionKind::Empty) || !type_reso)
+                && scope_kind != NodeKind::Module
+            {
+                return self.error(node, idents[i - 1].span, "expected module".into());
+            }
+
+            let ident = if let Some(v) = ident.value.clone() {
+                ident.span.spanned(v)
             } else {
-                self.resolve_in_scope(
-                    node,
-                    scope,
-                    ident.as_ref().map(|v| v.as_str()),
-                    paths,
-                )?
+                assert_eq!(i, idents.len() - 1);
+                assert!(matches!(reso.kind, ResolutionKind::Wildcard | ResolutionKind::Empty));
+                break;
             };
-            if let Some((pkg, sc)) = r.type_or_value() {
+
+            if type_reso {
+                reso = Resolution::single_type(idents
+                    .into_iter()
+                    .skip(i - 1)
+                    .map(|v| v.map(|v| v.unwrap()))
+                    .collect(),
+                    (self.package_id, scope.0));
+                break;
+            } else if ident.value.is_self_lower() {
+                assert_eq!(i, idents.len() - 1);
+                reso = Resolution::single(reso.kind, NsKind::Type, (self.package_id, scope.0));
+                break;
+            }
+            reso = self.resolve_in_scope(
+                reso.kind,
+                node,
+                scope,
+                ident.as_ref().map(|v| v.as_str()),
+                paths,
+            )?;
+
+            if let Some((pkg, sc)) = reso.type_or_value() {
                 self = self.with_package(pkg);
                 scope = (sc, 0);
             } else {
@@ -254,44 +338,46 @@ impl<'a> Resolver<'a> {
                         PathAnchor::Super { .. } => "parent module",
                     }.into()
                 } else {
-                    format!("`{}`", path_idents[i - 1].value.as_str())
+                    format!("`{}`", idents[i - 1].value.as_ref().unwrap())
                 };
                 return self.error(node, ident.span, format!(
                     "could not find `{}` in {}", ident.value, s));
             }
         }
-        assert!(!r.is_empty());
-        Ok(r)
+        assert!(!reso.is_empty());
+        Ok(reso)
     }
 
     fn resolve_in_scopes(&self,
+        kind: ResolutionKind,
         node: NodeId, // for error reporting
         mut scope: ScopeVid,
         name: S<&str>,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<Resolution> {
         loop {
-            if let Some(r) = self.resolve_in_scope(node, scope, name, paths)?.into_non_empty() {
+            if let Some(r) = self.resolve_in_scope(kind, node, scope, name, paths)?.into_non_empty() {
                 break Ok(r);
             }
             if self.hir.node_kind(scope.0).value == NodeKind::Module {
-                break Ok(Resolution::default());
+                break Ok(Resolution::new(kind));
             }
             scope = if let Some(v) = self.discover_data.try_parent_scope_of(scope.0) {
                 v
             } else {
-                break Ok(Resolution::default());
+                break Ok(Resolution::new(kind));
             };
         }
     }
 
     fn resolve_in_scope(&self,
+        kind: ResolutionKind,
         node: NodeId, // for error reporting
         scope: ScopeVid,
         name: S<&str>,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<Resolution> {
-        let mut r = Resolution::default();
+        let mut r = Resolution::new(kind);
         for ns_kind in NsKind::iter() {
             if let Some(scope_) = self.discover_data.try_scope(scope.0, ns_kind) {
                 let mut nodes = scope_.get(name.value, scope.1).enumerate();
@@ -323,7 +409,7 @@ impl<'a> Resolver<'a> {
                 }
                 if let Some((pkg, scope)) = self.resolve(path, paths)?.type_or_value() {
                     let r = self.with_package(pkg)
-                        .resolve_in_scope(node, (scope, 0), name, paths)?;
+                        .resolve_in_scope(kind, node, (scope, 0), name, paths)?;
                     if !r.is_empty() {
                         found_in_wc_imports.push(r);
                     }
@@ -336,7 +422,7 @@ impl<'a> Resolver<'a> {
                     "`{}` found in multiple wildcard imports", name.value)),
             }
         }
-        Ok(Resolution::default())
+        Ok(Resolution::new(kind))
     }
 
     fn error<T>(&self, node: NodeId, span: Span, text: String) -> Result<T> {

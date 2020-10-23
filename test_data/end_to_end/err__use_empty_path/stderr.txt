@@ -22,3 +22,13 @@ error: could not find `foo` in `m1`
   --> main.cz:16:9
 16 | use m1::foo::bar::{};
              ~~~
+
+error: expected module
+  --> main.cz:18:5
+18 | use S::{};
+         ~
+
+error: expected module
+  --> main.cz:19:9
+19 | use m1::S::{};
+             ~

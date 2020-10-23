@@ -708,7 +708,7 @@ pub struct PathSegment {
     /// ```
     pub prefix: Vec<PathItem>,
 
-    /// Either `PathSegment`, `PathEndIdent`, or `NodeKind::PathEndStar`
+    /// Either `PathSegment`, `PathEndIdent`, `PathEndEmpty`, or `NodeKind::PathEndStar`
     /// ```
     /// path::to::{self, io, another::path:to::*}
     ///            ^^^^  ^^  ^                 ^

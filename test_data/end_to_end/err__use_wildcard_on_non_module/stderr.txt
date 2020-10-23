@@ -1,0 +1,24 @@
+error: expected module
+  --> main.cz:7:5
+7 | use S::*;
+        ~
+
+error: expected module
+  --> main.cz:7:5
+7 | use S::*;
+        ~
+
+error: expected module
+  --> main.cz:7:5
+7 | use S::*;
+        ~
+
+error: expected module
+  --> main.cz:7:5
+7 | use S::*;
+        ~
+
+error: expected module
+  --> main.cz:8:9
+8 | use m1::S::*;
+            ~

@@ -14,6 +14,7 @@ use crate::util::iter::IteratorExt;
 use super::*;
 use discover::{DiscoverData, NsKind};
 use resolve::Resolver;
+use crate::semantic::resolve::ResolutionKind;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NumberType {
@@ -1595,10 +1596,10 @@ impl Impl<'_> {
             diag: self.diag.clone(),
         }.resolve_node(ctx.node).map_err(|_| {})?;
 
-        match ctx.kind {
-            NodeKind::PathEndIdent => {}
-            NodeKind::PathEndEmpty => return Ok(None),
-            NodeKind::PathEndStar => {
+        match reso.kind() {
+            ResolutionKind::Exact => {}
+            ResolutionKind::Empty => return Ok(None),
+            ResolutionKind::Wildcard => {
                 if !reso.nodes()
                     .all(|(_, (pkg, _))| pkg == self.package_id)
                 {
@@ -1607,7 +1608,7 @@ impl Impl<'_> {
                 }
                 return Ok(None);
             }
-            _ => unreachable!(),
+            ResolutionKind::Type => todo!("{:?}", reso.trailing_path()),
         }
 
         let span = ctx.hir.path_end_ident(ctx.node).item.ident.span;

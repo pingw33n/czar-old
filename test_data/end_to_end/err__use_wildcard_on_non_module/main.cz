@@ -4,8 +4,11 @@ module m1 {
 
 struct S {}
 
-use S::*; // FIXME must error
-use m1::S::*; // FIXME must error
+use S::*;
+use m1::S::*;
 
 fn main() {
+    A;
+    B;
+    C;
 }
