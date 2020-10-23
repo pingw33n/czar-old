@@ -8,7 +8,7 @@ use std::collections::{hash_map, HashMap, HashSet};
 use crate::diag::DiagRef;
 use crate::hir::{self, *};
 use crate::hir::traverse::*;
-use crate::package::{GlobalNodeId, PackageId, Packages};
+use crate::package::{GlobalNodeId, PackageId, Packages, PackageKind};
 use crate::util::iter::IteratorExt;
 
 use super::*;
@@ -251,6 +251,7 @@ pub struct CheckData {
     lvalues: NodeMap<()>,
     /// Impls defined in this package.
     impls: HashMap<TypeId, Vec<ImplGroup>>,
+    entry_point: Option<NodeId>,
 }
 
 impl CheckData {
@@ -313,6 +314,10 @@ impl CheckData {
     fn is_lvalue(&self, node: NodeId) -> bool {
         self.lvalues.contains_key(&node)
     }
+
+    pub fn entry_point(&self) -> Option<NodeId> {
+        self.entry_point
+    }
 }
 
 #[derive(Debug)]
@@ -320,6 +325,8 @@ pub struct CheckError(());
 
 pub struct Check<'a> {
     pub package_id: PackageId,
+    pub package_name: &'a Ident,
+    pub package_kind: PackageKind,
     pub hir: &'a Hir,
     pub discover_data: &'a DiscoverData,
     pub resolve_data: &'a ResolveData,
@@ -345,6 +352,8 @@ impl<'a> Check<'a> {
             check_data: &mut check_data,
             unknown_num_types: Default::default(),
             package_id: self.package_id,
+            package_name: self.package_name,
+            package_kind: self.package_kind,
             packages: self.packages,
             reso_ctxs: Default::default(),
             #[cfg(debug_assertions)]
@@ -369,9 +378,7 @@ impl<'a> Check<'a> {
             }
             assert!(!diag_empty, "{:?}", self.package_id);
         }
-        if let Some(entry_point) = self.resolve_data.entry_point() {
-            imp.check_entry_point(entry_point).map_err(|_| CheckError(()))?;
-        }
+        imp.resolve_entry_point().map_err(|_| CheckError(()))?;
         if self.diag.borrow().error_count() > 0 {
             return Err(CheckError(()));
         }
@@ -441,6 +448,8 @@ struct Impl<'a> {
     check_data: &'a mut CheckData,
     unknown_num_types: HashSet<LocalTypeId>,
     package_id: PackageId,
+    package_name: &'a Ident,
+    package_kind: PackageKind,
     packages: &'a Packages,
     reso_ctxs: Vec<ResoCtx>,
     #[cfg(debug_assertions)]
@@ -1796,7 +1805,36 @@ impl Impl<'_> {
         None
     }
 
-    fn check_entry_point(&self, node: NodeId) -> Result<(), ()> {
+    fn resolve_entry_point(&mut self) -> Result<(), ()> {
+        if self.package_kind != PackageKind::Exe {
+            return Ok(());
+        }
+        let resolver = Resolver {
+            discover_data: self.discover_data,
+            resolve_data: self.resolve_data,
+            hir: self.hir,
+            package_id: self.package_id,
+            packages: self.packages,
+            diag: self.diag.clone(),
+        };
+        let node = if let Ok(reso) = resolver.resolve_in_package(&["main"]) {
+            let node = reso.nodes_of_kind(NsKind::Value)
+                .filter(|n| n.0 == self.package_id)
+                .filter(|n| self.discover_data.fn_def_signature(n.1) == &FnSignature::empty())
+                .next()
+                .map(|n| n.1);
+            if let Some(node) = node {
+                node
+            } else {
+                self.error_span(self.hir.root, Span::empty(), format!(
+                    "`main::()` function not found in package `{}`", self.package_name));
+                return Err(());
+            }
+        } else {
+            return Err(());
+        };
+        self.check_data.entry_point = Some(node);
+
         let ty = self.typing(node)?;
         match self.type_(ty).data() {
             TypeData::Fn(FnType { params, result, unsafe_ }) => {

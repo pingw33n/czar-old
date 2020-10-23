@@ -59,14 +59,14 @@ pub fn compile(
         &discover_data,
         &hir,
         id,
-        &name,
-        kind,
         packages,
         diag.clone(),
     );
 
     let check_data = Check {
         package_id: id,
+        package_name: &name,
+        package_kind: kind,
         hir: &hir,
         discover_data: &discover_data,
         resolve_data: &resolve_data,

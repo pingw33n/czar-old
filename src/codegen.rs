@@ -78,7 +78,7 @@ impl<'a> Codegen<'a> {
     }
 
     pub fn lower(&mut self, package_id: PackageId) {
-        let entry_point = self.packages[package_id].resolve_data.entry_point().unwrap();
+        let entry_point = self.packages[package_id].check_data.entry_point().unwrap();
 
         self.fn_def((package_id, entry_point));
 
@@ -105,7 +105,7 @@ impl<'a> Codegen<'a> {
         let ty = self.typing(node);
 
         let package = &self.packages[node.0];
-        let name = if package.resolve_data.entry_point() == Some(node.1) {
+        let name = if package.check_data.entry_point() == Some(node.1) {
             "__main"
         } else {
             package.hir.fn_def(node.1).name.value.as_str()

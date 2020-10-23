@@ -4,17 +4,15 @@ use std::collections::HashSet;
 use crate::diag::DiagRef;
 use crate::hir::*;
 use crate::hir::traverse::*;
-use crate::package::{GlobalNodeId, PackageId, PackageKind, Packages};
+use crate::package::{GlobalNodeId, PackageId, Packages};
 use crate::util::enums::EnumExt;
 use crate::util::iter::IteratorExt;
 
-use super::*;
 use super::discover::{DiscoverData, NsKind, ScopeVid};
 
 #[derive(Debug, Default)]
 pub struct ResolveData {
     path_to_resolution: NodeMap<Resolution>,
-    entry_point: Option<NodeId>,
 }
 
 impl ResolveData {
@@ -22,8 +20,6 @@ impl ResolveData {
         discover_data: &DiscoverData,
         hir: &Hir,
         package_id: PackageId,
-        package_name: &Ident,
-        package_kind: PackageKind,
         packages: &Packages,
         diag: DiagRef,
     ) -> Self {
@@ -35,31 +31,6 @@ impl ResolveData {
             packages,
             diag: diag.clone(),
         });
-
-        // Resolve `main::()`, even if there are errors.
-        if package_kind == PackageKind::Exe {
-            let resolver = Resolver {
-                discover_data,
-                resolve_data: &resolve_data,
-                hir,
-                package_id,
-                packages,
-                diag: diag.clone(),
-            };
-            if let Ok(reso) = resolver.resolve_in_package(&["main"]) {
-                let node = reso.nodes_of_kind(NsKind::Value)
-                    .filter(|n| n.0 == package_id)
-                    .filter(|n| discover_data.fn_def_signature(n.1) == &FnSignature::empty())
-                    .next()
-                    .map(|n| n.1);
-                if let Some(node) = node {
-                    resolve_data.entry_point = Some(node);
-                } else {
-                    diag.borrow_mut().error_span(hir, discover_data, hir.root, Span::empty(), format!(
-                        "`main::()` function not found in package `{}`", package_name));
-                }
-            }
-        }
 
         resolve_data
     }
@@ -74,10 +45,6 @@ impl ResolveData {
 
     pub fn try_resolution_of(&self, path: NodeId) -> Option<&Resolution> {
         self.path_to_resolution.get(&path)
-    }
-
-    pub fn entry_point(&self) -> Option<NodeId> {
-        self.entry_point
     }
 }
 
