@@ -225,9 +225,14 @@ impl Std {
     }
 }
 
+enum ImplValueItem {
+    Single(NodeId),
+    Fns(Vec<NodeId>), // FnDef
+}
+
 #[derive(Default)]
-struct ImplGroup {
-    fns: HashMap<(Ident, FnSignature), NodeId>, // FnDef
+struct Impl {
+    values: HashMap<Ident, ImplValueItem>,
 }
 
 #[derive(Default)]
@@ -244,7 +249,7 @@ pub struct CheckData {
     unnamed_structs: HashMap<UnnamedStructKey, LocalTypeId>,
     lvalues: NodeMap<()>,
     /// Impls defined in this package.
-    impls: HashMap<TypeId, Vec<ImplGroup>>,
+    impls: HashMap<TypeId, Vec<Impl>>,
     entry_point: Option<NodeId>,
 }
 
@@ -343,7 +348,7 @@ impl<'a> Check<'a> {
             }
         }
 
-        let imp = &mut Impl {
+        let imp = &mut PassImpl {
             discover_data: self.discover_data,
             check_data: &mut check_data,
             unknown_num_types: Default::default(),
@@ -438,7 +443,7 @@ impl UnnamedStructKey {
     }
 }
 
-struct Impl<'a> {
+struct PassImpl<'a> {
     discover_data: &'a DiscoverData,
     check_data: &'a mut CheckData,
     unknown_num_types: HashSet<LocalTypeId>,
@@ -456,7 +461,7 @@ struct Impl<'a> {
     failed_typings: NodeMap<()>,
 }
 
-impl Impl<'_> {
+impl PassImpl<'_> {
     pub fn build_lang_types(&mut self) {
         assert!(self.package_id.is_std());
 
@@ -730,7 +735,7 @@ impl Impl<'_> {
                 }
 
                 let mut dup_errs = Vec::new();
-                let impl_group = &mut self.check_data.impls.entry(struct_ty)
+                let impl_ = &mut self.check_data.impls.entry(struct_ty)
                     .or_insert_with(|| vec![Default::default()])
                     [0];
                 for &item in items {
@@ -738,10 +743,25 @@ impl Impl<'_> {
                         NodeKind::FnDef => {
                             let name = &self.hir.fn_def(item).name;
                             let sign = self.discover_data.fn_def_signature(item);
-                            match impl_group.fns.entry((name.value.clone(), sign.clone())) {
-                                hash_map::Entry::Occupied(_) => dup_errs.push(item),
+                            match impl_.values.entry(name.value.clone()) {
+                                hash_map::Entry::Occupied(mut e) => {
+                                    match e.get_mut() {
+                                        ImplValueItem::Single(_) => {
+                                            dup_errs.push(item);
+                                        }
+                                        ImplValueItem::Fns(fns) => {
+                                            debug_assert!(!fns.iter().any(|&n| n == item));
+                                            let discover_data = self.discover_data;
+                                            if fns.iter().any(|&n| discover_data.fn_def_signature(n) == sign) {
+                                                dup_errs.push(item);
+                                            } else {
+                                                fns.push(item);
+                                            }
+                                        }
+                                    }
+                                }
                                 hash_map::Entry::Vacant(e) => {
-                                    e.insert(item);
+                                    e.insert(ImplValueItem::Fns(vec![item]));
                                 }
                             };
                         }
@@ -1384,7 +1404,7 @@ impl Impl<'_> {
 
     fn display_type<'a>(&'a self, ty: TypeId) -> impl std::fmt::Display + 'a {
         struct Display<'a> {
-            this: &'a Impl<'a>,
+            this: &'a PassImpl<'a>,
             ty: TypeId,
         }
         impl std::fmt::Display for Display<'_> {
@@ -1763,8 +1783,8 @@ impl Impl<'_> {
             }
         }
 
-        let key = (name.value.clone(), FnSignature::from_call(fn_call, self.hir));
-        if let Some(fn_def) = self.resolve_impl_fn(receiver_ty, &key) {
+        let sign = FnSignature::from_call(fn_call, self.hir);
+        if let Some(fn_def) = self.resolve_impl_fn(receiver_ty, &name.value, &sign) {
             self.check_data.insert_path_to_target(*callee, fn_def);
             let fn_ty = if fn_def.0 == self.package_id {
                 self.ensure_typing(fn_def.1)?
@@ -1775,38 +1795,46 @@ impl Impl<'_> {
         }
         self.error(*callee, format!(
             "method `{}::{}` not found on type `{}`",
-            key.0, key.1,
+            name.value, sign,
             self.display_type(receiver_ty)));
 
         Err(())
     }
 
-    fn resolve_impl_fn(&self, ty: TypeId, key: &(Ident, FnSignature)) -> Option<GlobalNodeId> {
-        fn f(package_id: PackageId,
-             check_data: &CheckData,
-             ty: TypeId,
-             key: &(Ident, FnSignature),
-        ) -> Option<GlobalNodeId> {
-            if let Some(impl_groups) = check_data.impls.get(&ty) {
-                assert!(!impl_groups.is_empty());
-                if impl_groups.len() > 1 {
+    fn resolve_impl_fn(&self, ty: TypeId, name: &Ident, sign: &FnSignature) -> Option<GlobalNodeId> {
+        let in_pkg = |
+            package_id: PackageId,
+            discover_data: &DiscoverData,
+            check_data: &CheckData,
+        | -> Result<Option<GlobalNodeId>, ()> {
+            if let Some(impls) = check_data.impls.get(&ty) {
+                assert!(!impls.is_empty());
+                if impls.len() > 1 {
                     todo!();
                 }
-                if let Some(&fn_def) = impl_groups[0].fns.get(&key) {
-                    return Some((package_id, fn_def));
+                if let Some(item) = impls[0].values.get(name) {
+                    match item {
+                        ImplValueItem::Single(_) => return Err(()),
+                        ImplValueItem::Fns(fns) => {
+                            if let Some(&fn_def) = fns.iter().find(|&&n| discover_data.fn_def_signature(n) == sign) {
+                                return Ok(Some((package_id, fn_def)));
+                            }
+                        }
+                    }
                 }
             }
-            None
-        }
-
-        let r = f(self.package_id, self.check_data, ty, key);
-        if r.is_some() {
-            return r;
+            Ok(None)
+        };
+        match in_pkg(self.package_id, self.discover_data, self.check_data) {
+            Ok(Some(v)) => return Some(v),
+            Ok(None) => {}
+            Err(()) => return None,
         }
         for package in self.packages.iter() {
-            let r = f(package.id, &package.check_data, ty, key);
-            if r.is_some() {
-                return r;
+            match in_pkg(package.id, &package.discover_data, &package.check_data) {
+                Ok(Some(v)) => return Some(v),
+                Ok(None) => {}
+                Err(()) => return None,
             }
         }
         None
@@ -1874,7 +1902,7 @@ impl Impl<'_> {
     }
 }
 
-impl HirVisitor for Impl<'_> {
+impl HirVisitor for PassImpl<'_> {
     fn before_node(&mut self, ctx: HirVisitorCtx) {
         if let Some(v) = reso_ctx(ctx.link) {
             self.reso_ctxs.push(v);
