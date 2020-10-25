@@ -49,13 +49,18 @@ fn main() {
     prints(s.str); println();
     print_i32(s.int); println();
 
-    let s = get2();
+    type MyTuple2 = MyTuple;
+    let s: MyTuple2 = get2();
     prints(s.1); println();
     print_i32(s.0); println();
 
-    let s = get3();
-    prints(s.str); println();
-    print_i32(s.int); println();
+    type MyUnnamedRecord2 = MyUnnamedRecord;
+    {
+        type MyUnnamedRecord3 = MyUnnamedRecord2;
+        let s: MyUnnamedRecord3 = get3();
+        prints(s.str); println();
+        print_i32(s.int); println();
+    }
 
     let s = get4();
     prints(s.1); println();

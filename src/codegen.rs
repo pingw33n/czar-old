@@ -415,7 +415,9 @@ impl<'a> Codegen<'a> {
             | NodeKind::FnDef
             | NodeKind::Module
             | NodeKind::Use
-            | NodeKind::Struct => {
+            | NodeKind::Struct
+            | NodeKind::TypeAlias
+            => {
                 self.unit_literal().into()
             }
             _ => todo!("{:?}", ctx.package.hir.node_kind(node))
