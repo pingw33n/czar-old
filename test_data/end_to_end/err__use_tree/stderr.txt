@@ -1,0 +1,14 @@
+error: could not find `m1` in current scope
+  --> main.cz:1:5
+1 | use m1::{S::{foo, bar}};
+        ~~
+
+error: could not find `qux` in `m2`
+  --> main.cz:8:10
+8 | use m2::{qux::{foo2, bar2}};
+             ~~~
+
+error: could not find `x` in `S`
+  --> main.cz:10:13
+10 | use m2::{S::x::{foo3, bar3}};
+                 ~

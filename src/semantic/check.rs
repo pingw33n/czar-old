@@ -1866,16 +1866,18 @@ impl PassImpl<'_> {
         match self.type_(ty).data() {
             TypeData::Fn(FnType { params, result, unsafe_ }) => {
                 assert_eq!(params.len(), 0);
+                let fn_def = self.hir.fn_def(node);
                 if !matches!(self.type_(*result).data(), TypeData::Primitive(PrimitiveType::Unit)) {
-                    let node = self.hir.fn_def(node).ret_ty.unwrap();
-                    self.error(node, "`main` function must have unit return type".into());
+                    self.error(fn_def.ret_ty.unwrap(),
+                        "`main` function must have unit return type".into());
                 }
                 if *unsafe_ {
-                    let span = self.hir.fn_def(node).unsafe_.unwrap().span;
-                    self.error_span(node, span, "`main` function must not be unsafe".into());
+                    self.error_span(node, fn_def.unsafe_.unwrap().span,
+                        "`main` function must not be unsafe".into());
                 }
-                if self.hir.fn_def(node).body.is_none() {
-                    self.error(node, "`main` function must not be external".into());
+                if fn_def.body.is_none() {
+                    self.error_span(node, fn_def.name.span,
+                        "`main` function must not be external".into());
                 }
             }
             _ => unreachable!(),

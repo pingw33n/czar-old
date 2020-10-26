@@ -709,6 +709,7 @@ impl<'a> ParserImpl<'a> {
             if self.lex.maybe(Token::Comma).is_none()
                 && self.lex.nth(0).value != Token::BlockClose(lex::Block::Brace)
             {
+                let tok = self.lex.nth(0);
                 return self.error(tok.span, format!("unexpected `{}`", tok.value));
             }
         };

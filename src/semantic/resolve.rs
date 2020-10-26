@@ -12,7 +12,16 @@ use super::discover::{DiscoverData, NsKind, ScopeVid};
 
 #[derive(Default)]
 pub struct ResolveCache {
-    cache: AtomicRefCell<HashMap<NodeId, Result<Resolution>>>,
+    inner: AtomicRefCell<ResolveCacheInner>,
+}
+
+#[derive(Default)]
+struct ResolveCacheInner {
+    by_node: HashMap<NodeId, Result<Resolution>>,
+
+    /// Dedups errors in tree paths.
+    /// This is needed because not all errors can be cached: e.g. items in `PathSegment`.
+    errors: HashSet<(SourceId, Span)>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -128,7 +137,7 @@ pub struct Resolver<'a> {
     pub cache: &'a ResolveCache,
 }
 
-impl<'a> Resolver<'a> {
+impl Resolver<'_> {
     pub fn resolve_node(&self, path: NodeId) -> Result<Resolution> {
         self.resolve(path, &mut HashSet::new())
     }
@@ -178,7 +187,7 @@ impl<'a> Resolver<'a> {
         path: NodeId,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<Resolution> {
-        if let Some(r) = self.cache.cache.borrow().get(&path) {
+        if let Some(r) = self.cache.inner.borrow().by_node.get(&path) {
             return r.clone();
         }
         assert!(paths.insert((self.package_id, path)));
@@ -187,7 +196,7 @@ impl<'a> Resolver<'a> {
         let r = self.resolve0(path, anchor, path_idents, paths);
 
         if use_ {
-            let existing = self.cache.cache.borrow_mut().insert(path, r.clone());
+            let existing = self.cache.inner.borrow_mut().by_node.insert(path, r.clone());
             if let Some(e) = existing {
                 dbg!();
                 assert_eq!(e, r);
@@ -464,6 +473,9 @@ impl<'a> Resolver<'a> {
     }
 
     fn error(&self, node: NodeId, span: Span, text: String) {
-        self.diag.borrow_mut().error_span(self.hir, self.discover_data, node, span, text);
+        let source_id = self.discover_data.source_of(node, self.hir);
+        if self.cache.inner.borrow_mut().errors.insert((source_id, span)) {
+            self.diag.borrow_mut().error_span(self.hir, self.discover_data, node, span, text);
+        }
     }
 }

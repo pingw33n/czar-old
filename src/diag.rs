@@ -199,7 +199,7 @@ impl HiLine {
                 if let Some(l) = r.as_mut() {
                     l.whole.end = i + if eof { 1 } else { 0 };
                     if l.col_len == 0 {
-                        l.col_len = (i - line_start) as u32 - l.col_start;
+                        l.col_len = (i - line_start) as u32 - l.col_start + if eof { 1 } else { 0 };
                     }
                     break;
                 }

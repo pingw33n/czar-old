@@ -1,0 +1,13 @@
+use m1::{S::{foo, bar}};
+
+module m2 {
+ module S{
+ }
+}
+
+use m2::{qux::{foo2, bar2}};
+
+use m2::{S::x::{foo3, bar3}};
+
+fn main() {
+}

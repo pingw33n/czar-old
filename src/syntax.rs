@@ -9,7 +9,7 @@ use lex::{Keyword, Lexer, Token};
 
 pub use lex::{FloatLiteral, FloatTypeSuffix, IntLiteral, IntTypeSuffix};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
