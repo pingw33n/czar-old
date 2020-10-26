@@ -1,9 +1,9 @@
-error: method `missing1::(_:x)` not found on type `{}`
+error: method `missing1::(self:x)` not found on type `{}`
   --> main.cz:3:7
 3 |     a.missing1(x: "test");
           ~~~~~~~~
 
-error: method `missing2::(_)` not found on type `T`
+error: method `missing2::(self)` not found on type `T`
   --> main.cz:7:7
 7 |     a.missing2();
           ~~~~~~~~
@@ -18,17 +18,17 @@ error: can't infer type
 11 |     x.missing4();
          ~
 
-error: method `missing5::(_)` not found on type `String`
+error: method `missing5::(self)` not found on type `String`
   --> main.cz:14:9
 14 |     f().missing5();
              ~~~~~~~~
 
-error: method `foo::(_:_)` not found on type `T`
+error: method `foo::(self:_)` not found on type `T`
   --> main.cz:24:7
 24 |     a.foo(42);
            ~~~
 
-error: method `foo::(_:x)` not found on type `T`
+error: method `foo::(self:x)` not found on type `T`
   --> main.cz:25:7
 25 |     a.foo(x: 42);
            ~~~
@@ -38,17 +38,17 @@ error: function `foo::()` is defined multiple times within inherent `impl`
 42 |         fn foo() {}
                 ~~~
 
-error: function `foo::(_)` is defined multiple times within inherent `impl`
+error: function `foo::(self)` is defined multiple times within inherent `impl`
   --> main.cz:43:12
 43 |         fn foo(self) {}
                 ~~~
 
-error: function `foo::(_:s)` is defined multiple times within inherent `impl`
+error: function `foo::(self:s)` is defined multiple times within inherent `impl`
   --> main.cz:44:12
 44 |         fn foo(self, s: String) {}
                 ~~~
 
-error: function `foo::(_:_)` is defined multiple times within inherent `impl`
+error: function `foo::(self:_)` is defined multiple times within inherent `impl`
   --> main.cz:45:12
 45 |         fn foo(self, _ s: String) {}
                 ~~~
@@ -58,17 +58,17 @@ error: function `foo::()` is defined multiple times within inherent `impl`
 55 |                     fn foo() {}
                             ~~~
 
-error: function `foo::(_)` is defined multiple times within inherent `impl`
+error: function `foo::(self)` is defined multiple times within inherent `impl`
   --> main.cz:56:24
 56 |                     fn foo(self) {}
                             ~~~
 
-error: function `foo::(_:s)` is defined multiple times within inherent `impl`
+error: function `foo::(self:s)` is defined multiple times within inherent `impl`
   --> main.cz:57:24
 57 |                     fn foo(self, s: String) {}
                             ~~~
 
-error: function `foo::(_:_)` is defined multiple times within inherent `impl`
+error: function `foo::(self:_)` is defined multiple times within inherent `impl`
   --> main.cz:58:24
 58 |                     fn foo(self, _ s: String) {}
                             ~~~
@@ -88,17 +88,17 @@ error: function `foo::()` is defined multiple times within inherent `impl`
 75 |             fn foo() {}
                     ~~~
 
-error: function `foo::(_)` is defined multiple times within inherent `impl`
+error: function `foo::(self)` is defined multiple times within inherent `impl`
   --> main.cz:76:16
 76 |             fn foo(self) {}
                     ~~~
 
-error: function `foo::(_:s)` is defined multiple times within inherent `impl`
+error: function `foo::(self:s)` is defined multiple times within inherent `impl`
   --> main.cz:77:16
 77 |             fn foo(self, s: String) {}
                     ~~~
 
-error: function `foo::(_:_)` is defined multiple times within inherent `impl`
+error: function `foo::(self:_)` is defined multiple times within inherent `impl`
   --> main.cz:78:16
 78 |             fn foo(self, _ s: String) {}
                     ~~~
@@ -108,17 +108,17 @@ error: function `foo::()` is defined multiple times within inherent `impl`
 87 |         fn foo() {}
                 ~~~
 
-error: function `foo::(_)` is defined multiple times within inherent `impl`
+error: function `foo::(self)` is defined multiple times within inherent `impl`
   --> main.cz:88:12
 88 |         fn foo(self) {}
                 ~~~
 
-error: function `foo::(_:s)` is defined multiple times within inherent `impl`
+error: function `foo::(self:s)` is defined multiple times within inherent `impl`
   --> main.cz:89:12
 89 |         fn foo(self, s: String) {}
                 ~~~
 
-error: function `foo::(_:_)` is defined multiple times within inherent `impl`
+error: function `foo::(self:_)` is defined multiple times within inherent `impl`
   --> main.cz:90:12
 90 |         fn foo(self, _ s: String) {}
                 ~~~

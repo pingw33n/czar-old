@@ -146,8 +146,7 @@ impl Display<'_> {
                 let FnCall { callee, kind, params } = self.hir.fn_call(node);
                 let mut params = params.iter();
                 if *kind == FnCallKind::Method {
-                    let FnCallParam { name, value } = params.next().unwrap();
-                    assert!(name.is_none());
+                    let FnCallParam { name: _, value } = params.next().unwrap();
                     self.expr(*value, p)?;
                     p.print('.')?;
                 }

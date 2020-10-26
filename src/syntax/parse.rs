@@ -352,9 +352,10 @@ impl<'a> ParserImpl<'a> {
                                     data: ref_.with_value(TyData::Ref(ty))
                                 }));
                         }
+                        let name = self_.with_value(Ident::self_lower());
                         Some(FnDefParam {
-                            pub_name: self_.with_value(None),
-                            priv_name: self_.with_value(Ident::self_lower()),
+                            pub_name: name.clone().map(Some),
+                            priv_name: name,
                             ty,
                         })
                     } else {
@@ -1383,7 +1384,7 @@ impl<'a> ParserImpl<'a> {
         let mut params = Vec::new();
         let kind = if let Some(receiver) = receiver {
             params.push(FnCallParam {
-                name: None,
+                name: Some(self.hir.node_kind(receiver).span.spanned(Ident::self_lower())),
                 value: receiver,
             });
             FnCallKind::Method
