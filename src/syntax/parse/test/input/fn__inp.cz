@@ -41,3 +41,15 @@ fn foo(
 ) {
   receiver.foo(0, arg1: 42, pub_name: 56, 78);
 }
+
+fn f2() {
+  path::to::Foo::bar(self: 42);
+  path::to::Foo::bar<T>(
+    self: r#self,
+    r#self: self,
+    break: r#_,
+    r#break: "",
+    package: r#Self,
+    r#package: Self,
+    continue: r#foobar);
+}

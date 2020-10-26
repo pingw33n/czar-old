@@ -1232,9 +1232,22 @@ pub fn string_literal(s: &str) -> Result<String, StringLiteralError> {
     Ok(r)
 }
 
-pub fn ident(s: &str) -> String {
+#[derive(Clone, Copy)]
+pub enum IdentContext {
+    ParamPubName,
+    Other,
+}
+
+pub fn ident(s: &str, ctx: IdentContext) -> String {
     if s.starts_with("r#") {
-        &s[2..]
+        let ident = &s[2..];
+        match ident {
+            "_" | "self" | "Self" => match ctx {
+                IdentContext::ParamPubName => ident,
+                IdentContext::Other => s,
+            },
+            _ => ident,
+        }
     } else {
         s
     }.into()

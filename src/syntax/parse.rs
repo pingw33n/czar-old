@@ -428,27 +428,23 @@ impl<'a> ParserImpl<'a> {
 
     fn ident(&mut self) -> PResult<S<Ident>> {
         let tok = self.expect(Token::Ident)?;
-        self.make_ident(tok.span)
+        self.make_ident(tok.span, lex::IdentContext::Other)
     }
 
     fn maybe_ident(&mut self) -> PResult<Option<S<Ident>>> {
         Ok(if let Some(tok) = self.lex.maybe(Token::Ident) {
-            Some(self.make_ident(tok.span)?)
+            Some(self.make_ident(tok.span, lex::IdentContext::Other)?)
         } else {
             None
         })
     }
 
-    fn make_ident(&mut self, span: Span) -> PResult<S<Ident>> {
+    fn make_ident(&mut self, span: Span, ctx: lex::IdentContext) -> PResult<S<Ident>> {
         let s = &self.s[span.range()];
-        let value = lex::ident(s);
+        let value = lex::ident(s, ctx);
         if value.is_empty() {
             self.error(span, "missing raw identifier or raw string".into())
         } else {
-            match value.as_str() {
-                "_" | "self" | "Self" => return self.error(span, "invalid raw identifier".into()),
-                _ => {}
-            }
             Ok(span.spanned(value.into()))
         }
     }
@@ -1395,10 +1391,11 @@ impl<'a> ParserImpl<'a> {
             FnCallKind::Free
         };
         let end = loop {
-            let name = if self.lex.nth(0).value == Token::Ident
+            let name = if matches!(self.lex.nth(0).value, Token::Ident | Token::Keyword(_))
                 && self.lex.nth(1).value == Token::Colon
             {
-                let name = self.ident().unwrap();
+                let tok = self.lex.next();
+                let name = self.make_ident(tok.span, lex::IdentContext::ParamPubName)?;
                 self.expect(Token::Colon).unwrap();
                 Some(name)
             } else {
