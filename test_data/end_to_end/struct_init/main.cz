@@ -105,10 +105,20 @@ fn number_type_inference() {
     let x = Foo {42,};
 }
 
+fn return_field_access() {
+    print_i32(new_foo(f: 42, s: "", s2: "").f); println();
+    prints(new_foo(f: 0, s: "", s2: "s2").s2); println();
+
+    fn f(i: i32, s: String) -> {i32, String} { {i, s} }
+    print_i32(f(i: 4242, s: "").0); println();
+    prints(f(i:0, s: "testtest").1); println();
+}
+
 fn main() {
     named();
     unnamed_tuple();
     record();
     in_no_arg_no_ret_fn();
     number_type_inference();
+    return_field_access();
 }

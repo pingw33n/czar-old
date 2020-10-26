@@ -646,6 +646,12 @@ impl BuilderRef {
                 indexes.as_mut_ptr() as *mut _, indexes.len() as u32, empty_cstr())
         }).unwrap().into()
     }
+
+    pub fn struct_gep(&self, ptr: IValueRef, idx: u32) -> IValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildStructGEP(self.as_ptr(), ptr.as_ptr(), idx, empty_cstr())
+        }).unwrap().into()
+    }
 }
 
 fn cstring(s: &str) -> CString {

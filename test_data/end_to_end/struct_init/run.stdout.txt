@@ -13,3 +13,7 @@ rec2: int=100 s1='200' s2='300'
 rec1: int=42 s1='first' s2='200'
 rec2: int=142 s1='200' s2='300'
 rec3: int=100 s1='200' s2='1000'
+42
+s2
+4242
+testtest
