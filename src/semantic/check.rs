@@ -493,7 +493,7 @@ impl PassImpl<'_> {
                 let (pkg, node) = self.resolver()
                     .resolve_in_package(path)
                     .unwrap()
-                    .nodes_of_kind(NsKind::Type)
+                    .ns_nodes(NsKind::Type)
                     .exactly_one()
                     .unwrap();
                 assert!(pkg.is_std());
@@ -511,7 +511,7 @@ impl PassImpl<'_> {
                 let (pkg, node) = self.resolver()
                     .resolve_in_package(path)
                     .unwrap()
-                    .nodes_of_kind(NsKind::Type)
+                    .ns_nodes(NsKind::Type)
                     .exactly_one()
                     .unwrap();
                 assert!(pkg.is_std());
@@ -1716,7 +1716,7 @@ impl PassImpl<'_> {
                 // Function (base) name if there's at least one found.
                 let mut name = None;
                 // TODO Make this O(1)
-                for node in reso.nodes_of_kind(NsKind::Value) {
+                for node in reso.ns_nodes(NsKind::Value) {
                     if let Some(sign) = self.discover_data(node.0)
                         .try_fn_def_signature(node.1)
                     {
@@ -1741,11 +1741,11 @@ impl PassImpl<'_> {
                             name, call_sign));
                         return Err(());
                     }
-                    if let Some(node) = reso.nodes_of_kind(NsKind::Value).next() {
+                    if let Some(node) = reso.ns_nodes(NsKind::Value).next() {
                         // Could be a variable.
                         node
                     } else {
-                        let node = reso.nodes_of_kind(NsKind::Type).next().unwrap();
+                        let node = reso.ns_nodes(NsKind::Type).next().unwrap();
                         self.error_span(ctx.node, span, format!(
                             "expected function but found {}",
                             self.describe_named(node)));
@@ -1765,12 +1765,26 @@ impl PassImpl<'_> {
                                 "{} can't be imported", node));
                         }
                         return Err(());
+                    } else {
+                        let name = self.discover_data.import_name(ctx.node, self.hir).unwrap();
+                        let scope = self.discover_data.def_scope_of(ctx.node);
+                        let scope = self.discover_data.scope(scope.0);
+                        let mut can_import_any = false;
+                        for (ns, _) in reso.nodes() {
+                            can_import_any |= scope.namespace(ns).get(&name.value, 0).next().is_none();
+                        }
+                        if !can_import_any {
+                            let name = self.discover_data.import_name(ctx.node, self.hir).unwrap();
+                            self.error_span(ctx.node, name.span, format!(
+                                "name `{}` is defined multiple times",
+                                name.value));
+                        }
                     }
                     self.primitive_type(PrimitiveType::Unit);
                     return Ok(None);
                 } else {
                     let ns_kind = reso_ctx.to_ns_kind().unwrap();
-                    let mut it = reso.nodes_of_kind(ns_kind);
+                    let mut it = reso.ns_nodes(ns_kind);
                     if let Some(node) = it.next() {
                         if let Some(FnDef { name, .. }) = self.hir(node.0).try_fn_def(node.1) {
                             let text = if it.next().is_none() {
@@ -1908,7 +1922,7 @@ impl PassImpl<'_> {
             return Ok(());
         }
         let node = if let Ok(reso) = self.resolver().resolve_in_package(&["main"]) {
-            let node = reso.nodes_of_kind(NsKind::Value)
+            let node = reso.ns_nodes(NsKind::Value)
                 .filter(|n| n.0 == self.package_id)
                 .filter(|n| self.discover_data.fn_def_signature(n.1) == &FnSignature::empty())
                 .next()

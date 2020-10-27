@@ -1,0 +1,4 @@
+error: could not find `S1` in current scope
+  --> main.cz:2:5
+2 | use S1 as S2;
+        ~~

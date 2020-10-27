@@ -6,12 +6,11 @@ use std::collections::hash_map::{Entry, HashMap};
 use crate::diag::DiagRef;
 use crate::hir::*;
 use crate::hir::traverse::*;
-use crate::util::enums::EnumExt;
 
 use super::FnSignature;
 
 #[derive(Clone, Copy, Debug)]
-enum ScopeItemKind {
+enum ItemKind {
     /// Item doesn't increment the version on insert, thus all forward items are available at version 0.
     /// Duplicate names is failure.
     Forward,
@@ -21,58 +20,54 @@ enum ScopeItemKind {
     Progressive,
 }
 
-enum ScopeItem {
+enum Item {
     // TODO optimize for no overloads case
     Fns(Vec<NodeId>), // FnDefs
     Single(NodeId),
 }
 
 #[derive(Default)]
-pub struct Scope {
-    items: HashMap<Ident, Vec<(ScopeVersion, ScopeItem)>>, // TODO optimize for single version case
-    wildcard_imports: Vec<NodeId>,
+pub struct Namespace {
+    items: HashMap<Ident, Vec<(ScopeVersion, Item)>>, // TODO optimize for single version case
 }
 
-impl Scope {
+impl Namespace {
     fn insert(&mut self,
-        kind: ScopeItemKind,
-        name: S<Ident>,
+        kind: ItemKind,
+        name: Ident,
         version: &mut ScopeVersion,
         node: NodeId,
         fn_def_signatures: &NodeMap<FnSignature>,
     ) -> Result<(), ()> {
         let new_item = || if fn_def_signatures.contains_key(&node) {
-                ScopeItem::Fns(vec![node])
+                Item::Fns(vec![node])
             } else {
-                ScopeItem::Single(node)
+                Item::Single(node)
             };
-        match self.items.entry(name.value.clone()) {
+        match self.items.entry(name.clone()) {
             Entry::Occupied(mut e) => {
                 assert!(e.get().len() > 0);
                 match kind {
-                    ScopeItemKind::Forward => {
+                    ItemKind::Forward => {
                         if e.get().len() == 1 {
-                            if let ScopeItem::Fns(fns) = &mut e.get_mut()[0].1 {
-                                // TODO: maybe optimize this linear search
-                                if_chain! {
-                                    if let Some(new_sign) = fn_def_signatures.get(&node);
-                                    if fns.iter().all(|n| &fn_def_signatures[n] != new_sign);
-                                    then {
-                                        fns.push(node);
-                                        Ok(())
-                                    } else {
-                                        Err(())
-                                    }
+                            // TODO: maybe optimize this linear search
+                            if_chain! {
+                                if let Item::Fns(fns) = &mut e.get_mut()[0].1;
+                                if let Some(new_sign) = fn_def_signatures.get(&node);
+                                if fns.iter().all(|n| &fn_def_signatures[n] != new_sign);
+                                then {
+                                    fns.push(node);
+                                    Ok(())
+                                } else {
+                                    Err(())
                                 }
-                            } else {
-                                Err(())
                             }
                         } else {
-                            debug_assert!(e.get().iter().all(|(_, i)| matches!(i, ScopeItem::Single(_))));
+                            debug_assert!(e.get().iter().all(|(_, i)| matches!(i, Item::Single(_))));
                             Err(())
                         }
                     }
-                    ScopeItemKind::Progressive => {
+                    ItemKind::Progressive => {
                         assert!(*version >= e.get().last().map(|&(v, _)| v).unwrap_or(0));
                         *version += 1;
                         let item = new_item();
@@ -84,8 +79,8 @@ impl Scope {
             Entry::Vacant(e) => {
                 let item = new_item();
                 let version = match kind {
-                    ScopeItemKind::Forward => 0,
-                    ScopeItemKind::Progressive => {
+                    ItemKind::Forward => 0,
+                    ItemKind::Progressive => {
                         *version += 1;
                         *version
                     }
@@ -109,44 +104,56 @@ impl Scope {
             };
             if let Some(i) = i {
                 match &items[i].1 {
-                    ScopeItem::Fns(nodes) => r.extend_from_slice(nodes),
-                    &ScopeItem::Single(node) => r.push(node),
+                    Item::Fns(nodes) => r.extend_from_slice(nodes),
+                    &Item::Single(node) => r.push(node),
                 }
             }
         }
         r.into_iter()
     }
+}
+
+#[derive(Default)]
+pub struct Scope {
+    /// Node that created this scope, aka `self` in paths.
+    node: NodeId,
+    version: ScopeVersion,
+    namespaces: EnumMap<NsKind, Namespace>,
+    imports: HashMap<Ident, NodeId>,
+    wildcard_imports: Vec<NodeId>,
+}
+
+impl Scope {
+    fn insert(&mut self,
+        kind: ItemKind,
+        ns: NsKind,
+        name: Ident,
+        node: NodeId,
+        fn_def_signatures: &NodeMap<FnSignature>,
+    ) -> Result<(), ()> {
+        self.namespaces[ns].insert(kind, name, &mut self.version, node, fn_def_signatures)
+    }
+
+    fn insert_import(&mut self, name: Ident, path: NodeId) {
+        self.imports.entry(name.clone())
+            .or_insert(path);
+    }
 
     fn insert_wildcard_import(&mut self, node: NodeId) {
+        debug_assert!(!self.wildcard_imports.iter().any(|&n| n == node));
         self.wildcard_imports.push(node);
+    }
+
+    pub fn namespace(&self, ns: NsKind) -> &Namespace {
+        &self.namespaces[ns]
+    }
+
+    pub fn try_import(&self, name: &str) -> Option<NodeId> {
+        self.imports.get(name).copied()
     }
 
     pub fn wildcard_imports(&self) -> &[NodeId] {
         &self.wildcard_imports
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.items.is_empty() && self.wildcard_imports.is_empty()
-    }
-}
-
-#[derive(Default)]
-struct NsScopes {
-    /// Node that created this scope, aka `self` in paths.
-    node: NodeId,
-    version: ScopeVersion,
-    scopes: EnumMap<NsKind, Scope>,
-}
-
-impl NsScopes {
-    fn insert(&mut self,
-        kind: ScopeItemKind,
-        ns: NsKind,
-        name: S<Ident>,
-        node: NodeId,
-        fn_def_signatures: &NodeMap<FnSignature>,
-    ) -> Result<(), ()> {
-        self.scopes[ns].insert(kind, name, &mut self.version, node, fn_def_signatures)
     }
 }
 
@@ -166,7 +173,7 @@ pub type ScopeVid = (ScopeUid, ScopeVersion);
 
 #[derive(Default)]
 pub struct DiscoverData {
-    scopes: HashMap<ScopeUid, NsScopes>,
+    scopes: HashMap<ScopeUid, Scope>,
     scope_to_parent: HashMap<ScopeUid, ScopeVid>,
     /// Node to scope where that node is defined.
     node_to_def_scope: NodeMap<ScopeVid>,
@@ -199,25 +206,32 @@ impl DiscoverData {
         self.scopes[&uid].node
     }
 
-    pub fn scope(&self, uid: ScopeUid, ns: NsKind) -> &Scope {
-        self.try_scope(uid, ns).unwrap()
+    pub fn scope(&self, uid: ScopeUid) -> &Scope {
+        self.try_scope(uid).unwrap()
     }
 
-    pub fn try_scope(&self, uid: ScopeUid, ns: NsKind) -> Option<&Scope> {
-        self.scopes.get(&uid).map(|s| &s.scopes[ns])
+    pub fn try_scope(&self, uid: ScopeUid) -> Option<&Scope> {
+        self.scopes.get(&uid)
     }
 
-    fn ensure_scope(&mut self, uid: ScopeUid, ns: NsKind) -> &mut Scope {
-        &mut self.scopes.entry(uid)
+    pub fn namespace(&self, uid: ScopeUid, ns: NsKind) -> &Namespace {
+        self.try_namespace(uid, ns).unwrap()
+    }
+
+    pub fn try_namespace(&self, uid: ScopeUid, ns: NsKind) -> Option<&Namespace> {
+        self.try_scope(uid).map(|s| &s.namespaces[ns])
+    }
+
+    fn ensure_scope(&mut self, uid: ScopeUid) -> &mut Scope {
+        self.scopes.entry(uid)
             .or_insert(Default::default())
-            .scopes[ns]
     }
 
     fn insert_name(&mut self,
-        kind: ScopeItemKind,
+        kind: ItemKind,
         ns: NsKind,
         scope: ScopeUid,
-        name: S<Ident>,
+        name: Ident,
         node: NodeId,
     ) -> Result<(), ()> {
         let scope = self.scopes.entry(scope)
@@ -344,20 +358,18 @@ impl DiscoverData {
                     println!("{:?} {:?} {}:{}",
                         node.value, ctx.node, node.span.start, node.span.end);
                 }
-                for kind in NsKind::iter() {
-                    if let Some(scope) = self.data.try_scope(ctx.node, kind) {
-                        if scope.is_empty() {
-                            continue;
-                        }
+                use crate::util::enums::EnumExt;
+                for ns_kind in NsKind::iter() {
+                    if let Some(ns) = self.data.try_namespace(ctx.node, ns_kind) {
                         self.print_indent();
-                        print!("| {:?}: ", kind);
-                        for (ident, items) in &scope.items {
+                        print!("| {:?}: ", ns_kind);
+                        for (ident, items) in &ns.items {
                             for (i, (ver, item)) in items.iter().enumerate() {
                                 if i > 0 {
                                     print!(", ");
                                 }
                                 match &item {
-                                    ScopeItem::Single(node) => {
+                                    Item::Single(node) => {
                                         let n = ctx.hir.node_kind(*node);
                                         print!("`{name}`#{ver} -> {node_kind:?} {node:?} {s}:{e}",
                                             name=ident,
@@ -367,7 +379,7 @@ impl DiscoverData {
                                             s=n.span.start,
                                             e=n.span.end);
                                     }
-                                    ScopeItem::Fns(fns) => {
+                                    Item::Fns(fns) => {
                                         for (i, &node) in fns.iter().enumerate() {
                                             let n = ctx.hir.node_kind(node);
                                             assert_eq!(n.value, NodeKind::FnDef);
@@ -407,6 +419,59 @@ impl DiscoverData {
     pub fn impls(&self) -> &[NodeId] {
         &self.impls
     }
+
+    pub fn import_name(&self, node: NodeId, hir: &Hir) -> Option<S<Ident>> {
+        Some(match hir.node_kind(node).value {
+            NodeKind::FnDef => hir.fn_def(node).name.clone(),
+            NodeKind::Module => hir.module(node).name.as_ref().map(|v| v.name.clone())?,
+            NodeKind::Struct => hir.struct_(node).name.clone(),
+            NodeKind::PathEndIdent => {
+                let maybe_use = self.parent_of(self.path_head(node, hir).unwrap());
+                if hir.node_kind(maybe_use).value != NodeKind::Use {
+                    return None;
+                }
+                let PathEndIdent {
+                    item: PathItem { ident, .. },
+                    renamed_as,
+                } = hir.path_end_ident(node);
+                if ident.value == Ident::self_lower() {
+                    let parent = self.parent_of(node);
+                    ident.span.spanned(
+                        hir.path_segment(parent).prefix.last().unwrap().ident.value.clone())
+                } else {
+                    renamed_as.as_ref().map(|v| v.clone()).unwrap_or_else(|| ident.clone())
+                }
+            }
+            NodeKind::TypeAlias => hir.type_alias(node).name.clone(),
+
+            | NodeKind::Block
+            | NodeKind::BlockFlowCtl
+            | NodeKind::Cast
+            | NodeKind::FieldAccess
+            | NodeKind::FnCall
+            | NodeKind::FnDefParam
+            | NodeKind::IfExpr
+            | NodeKind::Impl
+            | NodeKind::Let
+            | NodeKind::LetDef
+            | NodeKind::Literal
+            | NodeKind::Loop
+            | NodeKind::Op
+            | NodeKind::Path
+            | NodeKind::PathEndEmpty
+            | NodeKind::PathEndStar
+            | NodeKind::PathSegment
+            | NodeKind::Range
+            | NodeKind::StructType
+            | NodeKind::StructValue
+            | NodeKind::StructValueField
+            | NodeKind::TyExpr
+            | NodeKind::TypeParam
+            | NodeKind::Use
+            | NodeKind::While
+            => return None,
+        })
+    }
 }
 
 struct Build<'a> {
@@ -426,14 +491,14 @@ impl Build<'_> {
     }
 
     fn insert_name0(&mut self,
-        kind: ScopeItemKind,
+        kind: ItemKind,
         ns: NsKind,
         name: S<Ident>,
         node: NodeId,
         report_err: bool,
     ) -> Result<(), ()> {
         let scope = self.cur_scope();
-        if self.data.insert_name(kind, ns, scope, name.clone(), node).is_err() {
+        if self.data.insert_name(kind, ns, scope, name.value.clone(), node).is_err() {
             if report_err {
                 self.report_dup_name_error(scope, ns, &name, node);
             }
@@ -444,7 +509,7 @@ impl Build<'_> {
     }
 
     fn insert_name(&mut self,
-        kind: ScopeItemKind,
+        kind: ItemKind,
         ns: NsKind,
         name: S<Ident>,
         node: NodeId,
@@ -453,15 +518,15 @@ impl Build<'_> {
     }
 
     fn report_dup_name_error(&self, scope: ScopeUid, ns: NsKind, name: &S<Ident>, node: NodeId) {
-        let existing = &self.data.scope(scope, ns).items[&name.value].last().unwrap().1;
+        let existing = &self.data.namespace(scope, ns).items[&name.value].last().unwrap().1;
         if let Some(fn_sign) = self.data.try_fn_def_signature(node) {
             match existing {
-                ScopeItem::Fns(_) => {
+                Item::Fns(_) => {
                     self.diag.borrow_mut().error_span(self.hir, self.data, node, name.span,
                         format!("function `{}::{}` is defined multiple times",
                             name.value, fn_sign));
                 }
-                ScopeItem::Single(_) => {
+                Item::Single(_) => {
                     self.diag.borrow_mut().error_span(self.hir, self.data, node, name.span,
                         format!("function `{}::{}` clashes with other non-function names",
                             name.value, fn_sign));
@@ -469,12 +534,12 @@ impl Build<'_> {
             }
         } else {
             match existing {
-                ScopeItem::Fns(fns) => {
+                Item::Fns(fns) => {
                     self.diag.borrow_mut().error_span(self.hir, self.data, node, name.span,
                         format!("name `{}` clashes with identically named function{}",
                             name.value, if fns.len() > 1 { "s" } else { "" }));
                 }
-                ScopeItem::Single(_) => {
+                Item::Single(_) => {
                     self.diag.borrow_mut().error_span(self.hir, self.data, node, name.span,
                         format!("name `{}` is defined multiple times", name.value));
                 }
@@ -482,23 +547,14 @@ impl Build<'_> {
         }
     }
 
-    fn insert_name_all(&mut self,
-        kind: ScopeItemKind,
-        name: S<Ident>,
-        node: NodeId,
-    ) {
-        let mut ok = true;
-        for ns in NsKind::iter() {
-            ok &= self.insert_name0(kind, ns, name.clone(), node, ok).is_ok();
-        }
+    fn insert_import(&mut self, name: S<Ident>, node: NodeId) {
+        let scope = self.cur_scope();
+        self.data.ensure_scope(scope).insert_import(name.value.clone(), node);
     }
 
     fn insert_wildcard_import(&mut self, node: NodeId) {
         let scope = self.cur_scope();
-        for ns in NsKind::iter() {
-            self.data.ensure_scope(scope, ns)
-                .insert_wildcard_import(node);
-        }
+        self.data.ensure_scope(scope).insert_wildcard_import(node);
     }
 }
 
@@ -518,52 +574,43 @@ impl HirVisitor for Build<'_> {
 
         match ctx.kind {
             NodeKind::FnDef => {
-                let name = ctx.hir.fn_def(ctx.node).name.clone();
                 let sign = FnSignature::from_def(ctx.node, ctx.hir);
                 assert!(self.data.fn_def_signatures.insert(ctx.node, sign).is_none());
-                if !matches!(ctx.link, NodeLink::Impl(_)) {
-                    self.insert_name(ScopeItemKind::Forward, NsKind::Value, name, ctx.node);
-                }
-            },
+            }
             NodeKind::Module => {
                 self.module_stack.push(ctx.node);
-
-                let name = &ctx.hir.module(ctx.node).name;
-                if let Some(name) = name {
-                    self.insert_name(ScopeItemKind::Forward, NsKind::Type, name.name.clone(), ctx.node);
-                }
-            }
-            NodeKind::Struct => {
-                let name = ctx.hir.struct_(ctx.node).name.clone();
-                self.insert_name(ScopeItemKind::Forward, NsKind::Type, name, ctx.node);
-            }
-            NodeKind::PathEndIdent if self.in_use => {
-                let PathEndIdent {
-                    item: PathItem { ident, ty_params: _, .. },
-                    renamed_as,
-                } = ctx.hir.path_end_ident(ctx.node);
-                let name = if ident.value == Ident::self_lower() {
-                    let parent = self.data.parent_of(ctx.node);
-                    ident.span.spanned(
-                        ctx.hir.path_segment(parent).prefix.last().unwrap().ident.value.clone())
-                } else {
-                    renamed_as.as_ref().unwrap_or(ident).clone()
-                };
-                self.insert_name_all(ScopeItemKind::Forward, name, ctx.node);
             }
             NodeKind::PathEndStar => {
                 assert!(self.in_use);
                 self.insert_wildcard_import(ctx.node);
             }
-            NodeKind::TypeAlias => {
-                let name = ctx.hir.type_alias(ctx.node).name.clone();
-                self.insert_name(ScopeItemKind::Forward, NsKind::Type, name, ctx.node);
-            }
             NodeKind::Use => {
                 assert!(!self.in_use);
                 self.in_use = true;
             }
-            _ => {},
+            _ => {}
+        }
+        if let Some(name) = self.data.import_name(ctx.node, self.hir) {
+            match ctx.kind {
+                NodeKind::FnDef => {
+                    if !matches!(ctx.link, NodeLink::Impl(_)) {
+                        self.insert_name(ItemKind::Forward, NsKind::Value, name, ctx.node);
+                    }
+                }
+                NodeKind::Module => {
+                    self.insert_name(ItemKind::Forward, NsKind::Type, name, ctx.node);
+                }
+                NodeKind::Struct => {
+                    self.insert_name(ItemKind::Forward, NsKind::Type, name, ctx.node);
+                }
+                NodeKind::PathEndIdent if self.in_use => {
+                    self.insert_import(name, ctx.node);
+                }
+                NodeKind::TypeAlias => {
+                    self.insert_name(ItemKind::Forward, NsKind::Type, name, ctx.node);
+                }
+                _ => {},
+            }
         }
 
         if creates_scope(ctx.kind) {
@@ -578,13 +625,13 @@ impl HirVisitor for Build<'_> {
                 let params = &ctx.hir.fn_def(ctx.node).params;
                 for &param in params {
                     let priv_name = ctx.hir.fn_def_param(param).priv_name.clone();
-                    self.insert_name(ScopeItemKind::Forward, NsKind::Value, priv_name.clone(), param);
+                    self.insert_name(ItemKind::Forward, NsKind::Value, priv_name.clone(), param);
                 }
             }
             NodeKind::Impl => {
                 let for_ = ctx.hir.impl_(ctx.node).for_;
                 let span = ctx.hir.node_kind(for_).span;
-                self.insert_name(ScopeItemKind::Forward, NsKind::Type, span.spanned(Ident::self_upper()), for_);
+                self.insert_name(ItemKind::Forward, NsKind::Type, span.spanned(Ident::self_upper()), for_);
                 self.data.impls.push(ctx.node);
             }
             _ => {}
@@ -603,7 +650,7 @@ impl HirVisitor for Build<'_> {
         match ctx.kind {
             NodeKind::LetDef => {
                 let name = ctx.hir.let_def(ctx.node).name.clone();
-                self.insert_name(ScopeItemKind::Progressive, NsKind::Value, name, ctx.node);
+                self.insert_name(ItemKind::Progressive, NsKind::Value, name, ctx.node);
             },
             NodeKind::Use => {
                 assert!(self.in_use);

@@ -1,0 +1,46 @@
+fn f1() {
+    module m {
+        pub struct NAME {x: i32}
+    }
+
+    fn NAME() { prints("f1"); println(); }
+
+    use m::NAME;
+
+    NAME();
+    print_i32(NAME {x: 42}.x); println();
+}
+
+fn f2() {
+    module m {
+        pub fn NAME() { prints("f2"); println(); }
+    }
+
+    struct NAME {x:i32}
+
+    use m::NAME;
+
+    NAME();
+    print_i32(NAME {x: 4242}.x); println();
+}
+
+fn f3() {
+    module m {
+        pub fn NAME() { prints("f3"); println(); }
+        struct NAME {x:i32}
+    }
+
+    type NAME = m::NAME;
+
+    use m::NAME;
+
+    NAME();
+    print_i32(NAME {x: 424242}.x); println();
+}
+
+
+fn main() {
+    f1();
+    f2();
+    f3();
+}

@@ -1,0 +1,6 @@
+use S as S1;
+use S1 as S2;
+use S2 as S3;
+use S3 as S;
+
+fn main() {}
