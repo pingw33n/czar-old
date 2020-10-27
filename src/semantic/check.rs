@@ -1,5 +1,5 @@
 use enum_as_inner::EnumAsInner;
-use enum_map_derive::Enum;
+use if_chain::if_chain;
 use slab::Slab;
 use std::cell::RefCell;
 use std::collections::{hash_map, HashMap, HashSet};
@@ -132,7 +132,7 @@ impl std::fmt::Display for PrimitiveType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Enum, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LangType {
     String,
 }
@@ -225,12 +225,13 @@ impl Std {
     }
 }
 
+#[derive(Debug)]
 enum ImplValueItem {
     Single(NodeId),
     Fns(Vec<NodeId>), // FnDef
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Impl {
     values: HashMap<Ident, ImplValueItem>,
 }
@@ -546,6 +547,15 @@ impl PassImpl<'_> {
 
     fn ensure_typing(&mut self, node: NodeId) -> Result<TypeId, ()> {
         self.ensure_opt_typing(node).transpose().unwrap()
+    }
+
+    fn ensure_typing_global(&mut self, node: GlobalNodeId) -> Result<TypeId, ()> {
+        let r = if node.0 == self.package_id {
+            self.ensure_typing(node.1)?
+        } else {
+            self.packages[node.0].check_data.typing(node.1)
+        };
+        Ok(self.type_(r).id())
     }
 
     fn check_data(&self, package_id: PackageId) -> &CheckData {
@@ -1681,7 +1691,11 @@ impl PassImpl<'_> {
                 }
                 return Ok(None);
             }
-            ResolutionKind::Type => todo!("{:?}", reso.trailing_path()),
+            ResolutionKind::Type => {
+                let (k, type_) = reso.nodes().exactly_one().unwrap();
+                assert_eq!(k, NsKind::Type);
+                return self.resolve_path_in_type(ctx.node, type_, reso.trailing_path()).map(Some);
+            },
         }
 
         let span = ctx.hir.path_end_ident(ctx.node).item.ident.span;
@@ -1689,27 +1703,14 @@ impl PassImpl<'_> {
         let reso_ctx = self.reso_ctx();
         let (pkg, node) = {
             // Check if we're resolving FnCall's callee.
-            let fn_call = if reso_ctx == ResoCtx::Value {
-                let mut n = ctx.node;
-                loop {
-                    let prev = n;
-                    n = self.discover_data.parent_of(n);
-                    let kind = ctx.hir.node_kind(n);
-                    match kind.value {
-                        NodeKind::FnCall => {
-                            break if ctx.hir.fn_call(n).callee == prev {
-                                Some((FnSignature::from_call(n, ctx.hir), kind.span))
-                            } else {
-                                None
-                            };
-                        },
-                        kind => if !kind.is_path() {
-                            break None;
-                        }
-                    }
+            let fn_call = if_chain! {
+                if reso_ctx == ResoCtx::Value;
+                if let Some(fn_call) = self.discover_data.find_fn_call(ctx.node, self.hir);
+                then {
+                    Some((FnSignature::from_call(fn_call, ctx.hir), self.hir.node_kind(fn_call).span))
+                } else {
+                    None
                 }
-            } else {
-                None
             };
             if let Some((call_sign, call_span)) = fn_call {
                 let mut found = None;
@@ -1863,15 +1864,11 @@ impl PassImpl<'_> {
         let sign = FnSignature::from_call(fn_call, self.hir);
         if let Some(fn_def) = self.resolve_impl_fn(receiver_ty, &name.value, &sign) {
             self.check_data.insert_path_to_target(*callee, fn_def);
-            let fn_ty = if fn_def.0 == self.package_id {
-                self.ensure_typing(fn_def.1)?
-            } else {
-                self.check_data(fn_def.0).typing(fn_def.1)
-            };
+            let fn_ty = self.ensure_typing_global(fn_def)?;
             return Ok((fn_def, fn_ty));
         }
         self.error(*callee, format!(
-            "method `{}::{}` not found on type `{}`",
+            "method `{}::{}` not found for type `{}`",
             name.value, sign,
             self.display_type(receiver_ty)));
 
@@ -1892,8 +1889,8 @@ impl PassImpl<'_> {
                 if let Some(item) = impls[0].values.get(name) {
                     match item {
                         ImplValueItem::Single(_) => return Err(()),
-                        ImplValueItem::Fns(fns) => {
-                            if let Some(&fn_def) = fns.iter().find(|&&n| discover_data.fn_def_signature(n) == sign) {
+                        ImplValueItem::Fns(fn_defs) => {
+                            if let Some(&fn_def) = fn_defs.iter().find(|&&n| discover_data.fn_def_signature(n) == sign) {
                                 return Ok(Some((package_id, fn_def)));
                             }
                         }
@@ -1915,6 +1912,58 @@ impl PassImpl<'_> {
             }
         }
         None
+    }
+
+    /// Performs type-based path resolution.
+    fn resolve_path_in_type(&mut self,
+        full_path: NodeId,
+        type_: GlobalNodeId,
+        path: &[S<Ident>],
+    ) -> Result<TypeId, ()> {
+        assert!(path.len() > 0);
+
+        let ty = self.ensure_typing_global(type_)?;
+
+        if path.len() == 1 {
+            return Ok(ty);
+        }
+
+        match self.type_(ty).data() {
+            | TypeData::Struct(_)
+            | TypeData::Primitive(_)
+            | TypeData::Fn(_)
+            => {}
+            TypeData::Type(_) => unreachable!(),
+            TypeData::UnknownNumber(_) => {
+                self.error_span(full_path, path[0].span, "can't infer type".into());
+                return Err(());
+            }
+        }
+
+        let item_name = &path[1];
+
+        if_chain! {
+            if path.len() == 2;
+            if let Some(fn_call) = self.discover_data.find_fn_call(full_path, self.hir);
+            then {
+                let sign = FnSignature::from_call(fn_call, self.hir);
+                if let Some(fn_def) = self.resolve_impl_fn(ty, &item_name.value, &sign) {
+                    self.check_data.insert_path_to_target(full_path, fn_def);
+                    let fn_ty = self.ensure_typing_global(fn_def)?;
+                    return Ok(fn_ty);
+                }
+                self.error_span(full_path, item_name.span, format!(
+                    "associated function `{}::{}` not found for type `{}`",
+                    item_name.value, sign,
+                    self.display_type(ty)));
+                    return Err(());
+            } else {
+                self.error_span(full_path, item_name.span, format!(
+                    "associated item `{}` not found for type `{}`",
+                    item_name.value, self.display_type(ty)));
+                    return Err(());
+            }
+        }
     }
 
     fn resolve_entry_point(&mut self) -> Result<(), ()> {

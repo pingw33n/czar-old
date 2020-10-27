@@ -270,6 +270,21 @@ impl Hir {
         }))
     }
 
+    /// Given a `Path` node of a flat path, returns its `PathEndIdent` node.
+    /// Flat path is path of a single segment with a single suffix, terminated with `PathEndIdent`
+    /// node.
+    /// Panics if the `node` is not `Path` or not the path is not a flat path.
+    pub fn find_flat_path_end(&self, node: NodeId) -> NodeId {
+        let path = self.path(node);
+        let segment = self.path_segment(path.segment);
+        assert_eq!(segment.suffix.len(), 1);
+        if self.node_kind(segment.suffix[0]).value == NodeKind::PathEndIdent {
+            segment.suffix[0]
+        } else {
+            panic!("invalid flat path")
+        }
+    }
+
     node_ops! {
         insert_block, block, block_mut, try_block, try_block_mut, blocks, Block;
         insert_block_flow_ctl, block_flow_ctl, block_flow_ctl_mut, try_block_flow_ctl, try_block_flow_ctl_mut, block_flow_ctls, BlockFlowCtl;

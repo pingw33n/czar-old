@@ -5,6 +5,7 @@ fn no_impls() {
     struct T {}
     let a = T {};
     a.missing2();
+    T::missing2f();
 
     42.missing3();
     let x = 42.42;

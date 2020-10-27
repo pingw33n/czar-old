@@ -4,6 +4,13 @@ struct S {
 }
 
 impl S {
+    fn new(x: i32, s: String) -> Self {
+        Self {
+            x: x,
+            s: s,
+        }
+    }
+
     fn with(self, x: i32) -> Self {
         self.x = x;
         self
@@ -14,17 +21,35 @@ impl S {
         self
     }
 
+    fn with(self, x: i32, s: String) -> Self {
+        Self::new(x: x, s: s)
+    }
+
     fn print(self) {
         prints("x: "); print_i32(self.x); prints(", s: "); prints(self.s); println();
     }
 }
 
+module m1 {
+    impl super::S {
+        fn default() -> Self {
+            Self::new(x: 1029, s: "default")
+        }
+    }
+}
+
+type S1 = S;
+type S2 = S1;
+
 fn main() {
-    let s = S { x: 42, s: "test" };
+    let s = S2::new(x: 42, s: "test");
     print_usize("test".len()); println();
     print_usize(s.s.len() + 1); println();
     s.print();
     s.with(x: 4242).print();
     s.with(s: "test2").print();
     s.with(x: 12345).with(s: "test3").print();
+    s.with(x: 54321, s: "test4").print();
+    S::default().print();
+    S::print(self: S::with(self: s, x: 3543, s: "test5"));
 }

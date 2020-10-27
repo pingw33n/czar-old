@@ -1,0 +1,79 @@
+error: expected module
+  --> main.cz:7:5
+7 | use S::*;
+        ~
+
+error: expected module
+  --> main.cz:8:9
+8 | use m1::S::*;
+            ~
+
+error: expected module
+  --> main.cz:10:9
+10 | use m1::S::*;
+             ~
+
+error: expected module
+  --> main.cz:11:9
+11 | use m1::S::{};
+             ~
+
+error: associated item `x` not found for type `S`
+  --> main.cz:12:12
+12 | use m1::S::x;
+                ~
+
+error: associated item `foo` not found for type `S`
+  --> main.cz:13:14
+13 | use m1::{S::{foo, bar::x}};
+                  ~~~
+
+error: associated item `bar` not found for type `S`
+  --> main.cz:13:19
+13 | use m1::{S::{foo, bar::x}};
+                       ~~~
+
+error: associated item `foobar` not found for type `S`
+  --> main.cz:14:13
+14 | use m1::{S::foobar, S::barfoo};
+                 ~~~~~~
+
+error: associated item `barfoo` not found for type `S`
+  --> main.cz:14:24
+14 | use m1::{S::foobar, S::barfoo};
+                            ~~~~~~
+
+error: expected module
+  --> main.cz:28:22
+28 |     use std::string::String::*;
+                          ~~~~~~
+
+error: expected module
+  --> main.cz:38:22
+38 |     use std::string::String::*;
+                          ~~~~~~
+
+error: name `m3` is defined multiple times
+  --> main.cz:43:8
+43 | module m3 {
+            ~~
+
+error: expected module
+  --> main.cz:44:14
+44 |     use std::char::{};
+                  ~~~~
+
+error: associated item `charbar` not found for type `char`
+  --> main.cz:45:20
+45 |     use std::char::charbar;
+                        ~~~~~~~
+
+error: expected module
+  --> main.cz:46:22
+46 |     use std::string::String::{};
+                          ~~~~~~
+
+error: associated item `stringbar` not found for type `String`
+  --> main.cz:47:30
+47 |     use std::string::String::stringbar;
+                                  ~~~~~~~~~

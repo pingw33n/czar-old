@@ -303,7 +303,7 @@ impl DiscoverData {
         }
     }
 
-    pub fn path_head(&self, mut node: NodeId, hir: &Hir) -> Option<NodeId> {
+    pub fn find_path_start(&self, mut node: NodeId, hir: &Hir) -> Option<NodeId> {
         let mut first = true;
         loop {
             match hir.node_kind(node).value {
@@ -322,12 +322,17 @@ impl DiscoverData {
         }
     }
 
-    pub fn find_method_call(&self, path: NodeId, hir: &Hir) -> Option<NodeId> {
-        let path_head = self.path_head(path, hir)?;
+    pub fn find_fn_call(&self, callee_path: NodeId, hir: &Hir) -> Option<NodeId> {
+        let path_head = self.find_path_start(callee_path, hir)?;
         let path_owner = self.parent_of(path_head);
         hir.try_fn_call(path_owner)
-            .filter(|f| f.callee == path_head && f.kind == FnCallKind::Method)
+            .filter(|f| f.callee == path_head)
             .map(|_| path_owner)
+    }
+
+    pub fn find_method_call(&self, callee_path: NodeId, hir: &Hir) -> Option<NodeId> {
+        self.find_fn_call(callee_path, hir)
+            .filter(|&n| hir.fn_call(n).kind == FnCallKind::Method)
     }
 
     pub fn print_scopes(&self, hir: &Hir) {
@@ -426,7 +431,7 @@ impl DiscoverData {
             NodeKind::Module => hir.module(node).name.as_ref().map(|v| v.name.clone())?,
             NodeKind::Struct => hir.struct_(node).name.clone(),
             NodeKind::PathEndIdent => {
-                let maybe_use = self.parent_of(self.path_head(node, hir).unwrap());
+                let maybe_use = self.parent_of(self.find_path_start(node, hir).unwrap());
                 if hir.node_kind(maybe_use).value != NodeKind::Use {
                     return None;
                 }
@@ -630,8 +635,9 @@ impl HirVisitor for Build<'_> {
             }
             NodeKind::Impl => {
                 let for_ = ctx.hir.impl_(ctx.node).for_;
+                let for_path_end = ctx.hir.find_flat_path_end(for_);
                 let span = ctx.hir.node_kind(for_).span;
-                self.insert_name(ItemKind::Forward, NsKind::Type, span.spanned(Ident::self_upper()), for_);
+                self.insert_import(span.spanned(Ident::self_upper()), for_path_end);
                 self.data.impls.push(ctx.node);
             }
             _ => {}

@@ -52,6 +52,7 @@ pub fn compile(
     let diag = DiagRef::new(diag.into());
 
     let discover_data = DiscoverData::build(&hir, diag.clone());
+    // println!("package `{}` {:?}", name, id);
     // discover_data.print_scopes(&hir);
 
     let check_data = Check {

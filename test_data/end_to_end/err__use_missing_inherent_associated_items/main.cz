@@ -1,0 +1,51 @@
+module m1 {
+    struct S {}
+}
+
+struct S {}
+
+use S::*;
+use m1::S::*;
+
+use m1::S::*;
+use m1::S::{};
+use m1::S::x;
+use m1::{S::{foo, bar::x}};
+use m1::{S::foobar, S::barfoo};
+
+// FIXME all these should error
+use std::char::*;
+use std::char::{};
+use std::char::charbar;
+use std::string::String::*;
+use std::string::String::{};
+use std::string::String::stringbar;
+
+module m2 {
+    use std::char::*;
+    use std::char::{};
+    use std::char::charbar;
+    use std::string::String::*;
+    use std::string::String::{};
+    use std::string::String::stringbar;
+}
+
+module m3 {
+    use std::string::String::*;
+    use std::char::*;
+    use std::char::{};
+    use std::char::charbar;
+    use std::string::String::*;
+    use std::string::String::{};
+    use std::string::String::stringbar;
+}
+
+module m3 {
+    use std::char::{};
+    use std::char::charbar;
+    use std::string::String::{};
+    use std::string::String::stringbar;
+}
+
+fn main() {
+}

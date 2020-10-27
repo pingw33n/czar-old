@@ -7,6 +7,12 @@ struct S {}
 use S::*;
 use m1::S::*;
 
+use m1::S::*;
+use m1::S::{};
+use m1::S::x;
+use m1::{S::{foo, bar::x, self}};
+use m1::{S::foobar, self};
+
 fn main() {
     A;
     B;

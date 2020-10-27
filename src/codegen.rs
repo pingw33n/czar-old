@@ -422,10 +422,11 @@ impl<'a> Codegen<'a> {
             // FnDef here is only reachable directly.
             // Indirect case is handled within the Path case.
             | NodeKind::FnDef
+            | NodeKind::Impl
             | NodeKind::Module
-            | NodeKind::Use
             | NodeKind::Struct
             | NodeKind::TypeAlias
+            | NodeKind::Use
             => {
                 self.unit_literal().into()
             }
