@@ -431,7 +431,11 @@ impl Resolver<'_> {
                     if self.hir.node_kind(node).value == NodeKind::PathEndIdent {
                         assert_eq!(i, 0);
                         assert!(nodes.next().is_none());
-                        return self.resolve(node, paths);
+                        let indirect = self.resolve(node, paths)?;
+                        for node in indirect.nodes_of_kind(ns_kind) {
+                            r.insert_node(ns_kind, node);
+                        }
+                        break;
                     } else {
                         r.insert_node(ns_kind, (self.package_id, node));
                     }

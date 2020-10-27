@@ -1,0 +1,15 @@
+module m1 {
+    module S {
+        struct S {}
+    }
+}
+
+struct S {x: i32}
+
+use S::*;
+use m1::S;
+
+fn main() {
+    S{x:42};
+    S{}; // TODO this should error too
+}

@@ -1,0 +1,9 @@
+error: expected module
+  --> main.cz:9:5
+9 | use S::*;
+        ~
+
+error: name `S` is defined multiple times
+  --> main.cz:10:9
+10 | use m1::S;
+             ~
