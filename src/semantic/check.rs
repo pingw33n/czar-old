@@ -1775,7 +1775,6 @@ impl PassImpl<'_> {
                             can_import_any |= scope.namespace(ns).get(&name.value, 0).next().is_none();
                         }
                         if !can_import_any {
-                            let name = self.discover_data.import_name(ctx.node, self.hir).unwrap();
                             self.error_span(ctx.node, name.span, format!(
                                 "name `{}` is defined multiple times",
                                 name.value));

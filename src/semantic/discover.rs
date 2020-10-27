@@ -439,7 +439,7 @@ impl DiscoverData {
                     item: PathItem { ident, .. },
                     renamed_as,
                 } = hir.path_end_ident(node);
-                if ident.value == Ident::self_lower() {
+                if ident.value == Ident::self_lower() && renamed_as.is_none() {
                     let parent = self.parent_of(node);
                     ident.span.spanned(
                         hir.path_segment(parent).prefix.last().unwrap().ident.value.clone())

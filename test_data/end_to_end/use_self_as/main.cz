@@ -1,0 +1,12 @@
+module m {
+    struct S {x: i32}
+}
+
+use m::{self as x};
+use m::{self as y};
+
+fn main() {
+    print_i32(m::S {x: 42}.x); println();
+    print_i32(x::S {x: 4242}.x); println();
+    print_i32(y::S {x: 424242}.x); println();
+}
