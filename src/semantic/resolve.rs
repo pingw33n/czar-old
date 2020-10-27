@@ -198,8 +198,7 @@ impl Resolver<'_> {
         if use_ {
             let existing = self.cache.inner.borrow_mut().by_node.insert(path, r.clone());
             if let Some(e) = existing {
-                dbg!();
-                assert_eq!(e, r);
+                debug_assert_eq!(e, r);
             }
         }
 

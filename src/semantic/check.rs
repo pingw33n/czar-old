@@ -407,11 +407,12 @@ impl ResoCtx {
     }
 }
 
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Debug, Hash, PartialEq)]
 struct UnnamedStructKey(Vec<(Option<Ident>, TypeId)>);
 
 impl UnnamedStructKey {
     /// Also returns fields in normalized order. For tuples this is the same as the input order.
+    /// Allows for duplicate non-`None` names, preferring the first occurrence in the constructed key.
     fn new(fields: Vec<(Option<Ident>, TypeId)>) -> (Self, Vec<StructTypeField>) {
         #[derive(Clone)]
         struct Field {
@@ -429,15 +430,16 @@ impl UnnamedStructKey {
             })
             .collect();
         fields.sort_by(|a, b| a.name.cmp(&b.name));
+        let key_fields = fields.iter()
+            .map(|Field { name, ty, .. }| (name.clone(), *ty))
+            .collect();
+        fields.dedup_by(|a, b| a.name.is_some() && a.name == b.name);
         let ty_fields = fields.iter()
             .cloned()
             .map(|Field { def_idx, ty, .. }| StructTypeField {
                 def_idx,
                 ty,
             })
-            .collect();
-        let key_fields = fields.into_iter()
-            .map(|Field { name, ty, .. }| (name, ty))
             .collect();
         (Self(key_fields), ty_fields)
     }
@@ -1019,15 +1021,33 @@ impl PassImpl<'_> {
             NodeKind::StructType => {
                 let fields = &ctx.hir.struct_type(ctx.node).fields;
                 let named = ctx.hir.try_struct(self.discover_data.parent_of(ctx.node)).is_some();
+
+                let mut seen_fields = HashSet::new();
+                let mut dup_fields = HashSet::new();
+                for (i, f) in fields.iter().enumerate() {
+                    if let Some(name) = f.name.as_ref() {
+                        if !seen_fields.insert(&name.value) {
+                            if dup_fields.insert(i as u32) {
+                                self.error_span(ctx.node, name.span, format!(
+                                "field `{}` is defined multiple times",
+                                name.value));
+                            }
+                        }
+                    }
+                }
+
                 if named {
                     let mut field_tys = Vec::with_capacity(fields.len());
                     let mut err = false;
                     for (def_idx, f) in fields.iter().enumerate() {
+                        let def_idx = def_idx as u32;
                         if let Ok(ty) = self.typing(f.ty) {
-                            field_tys.push(StructTypeField {
-                                def_idx: def_idx as u32,
-                                ty,
-                            });
+                            if !dup_fields.contains(&def_idx) {
+                                field_tys.push(StructTypeField {
+                                    def_idx,
+                                    ty,
+                                });
+                            }
                         } else {
                             err = true;
                         }
@@ -1069,8 +1089,8 @@ impl PassImpl<'_> {
                     } else {
                         let mut field_tys = Vec::with_capacity(fields.len());
                         let mut err = false;
-                        for &f in fields {
-                            let f = ctx.hir.struct_value_field(f);
+                        for &field in fields {
+                            let f = ctx.hir.struct_value_field(field);
                             if let Ok(ty) = self.typing(f.value) {
                                 field_tys.push((f.name.clone().map(|v| v.value), ty));
                             } else {
@@ -1083,6 +1103,7 @@ impl PassImpl<'_> {
                         self.unnamed_struct(ctx.node, field_tys)
                     }
                 };
+                let mut seen_fields = HashSet::new();
                 for (i, &field_node) in fields.iter().enumerate() {
                     let field = ctx.hir.struct_value_field(field_node);
                     let f = if let Some(n) = &field.name {
@@ -1095,8 +1116,17 @@ impl PassImpl<'_> {
                     } else {
                         continue;
                     };
-                    // No point in checking types for unnamed struct since it's been defined by the
-                    // actual types.
+
+                    if !seen_fields.insert(self.check_data.struct_fields[&field_node]) {
+                        let name = field.name.as_ref().unwrap();
+                        self.error_span(field_node, name.span, format!(
+                            "field `{}` is initialized multiple times",
+                            name.value));
+                        continue;
+                    }
+
+                    // No point in checking field types for unnamed struct since it's been defined
+                    // by the actual types.
                     if name.is_none() {
                         continue;
                     }
@@ -1118,6 +1148,39 @@ impl PassImpl<'_> {
                         self.error(field.value, text);
                     }
                 }
+
+                let expected_field_count = match self.type_(ty).data() {
+                    TypeData::Primitive(PrimitiveType::Unit) => 0,
+                    TypeData::Struct(StructType { fields }) => fields.len(),
+                    _ => unreachable!(),
+                };
+                if seen_fields.len() != expected_field_count {
+                    // We got less fields than needed.
+                    assert!(seen_fields.len() < expected_field_count);
+                    let mut missing_fields = Vec::new();
+                    let ty = self.type_(ty);
+                    let struct_ty_def = self.hir.struct_type(ty.node);
+                    if struct_ty_def.fields[0].name.is_some() {
+                        for (i, f) in ty.data().as_struct().unwrap().fields.iter().enumerate() {
+                            if seen_fields.contains(&(i as u32)) {
+                                continue;
+                            }
+                            let name = struct_ty_def.fields[f.def_idx as usize].name.as_ref().unwrap();
+                            missing_fields.push(name.value.as_ref());
+                        }
+                        missing_fields.sort();
+                        self.error(ctx.node, format!(
+                            "missing fields {} in initializer of struct `{}`",
+                            missing_fields.into_iter().map(|s| format!("`{}`", s)).collect::<Vec<_>>().join(", "),
+                            self.display_type(ty.id())));
+                    } else {
+                        self.error(ctx.node, format!(
+                            "missing fields in initializer of tuple struct `{}`: expected {} field{}",
+                            self.display_type(ty.id()),
+                            expected_field_count, if expected_field_count > 1 { "s" } else { "" }));
+                    }
+                }
+
                 ty
             }
             NodeKind::TyExpr => {
@@ -1453,7 +1516,7 @@ impl PassImpl<'_> {
                                 todo!();
                             }
                         } else if let Some(hir::StructType { fields: def_fields }) = hir.try_struct_type(ty.node().1) {
-                            assert_eq!(def_fields.len(), ty_fields.len());
+                            assert!(def_fields.len() >= ty_fields.len());
                             let mut fields: Vec<_> = ty_fields.iter()
                                 .map(|ty_field| {
                                     let def_field = &def_fields[ty_field.def_idx as usize];

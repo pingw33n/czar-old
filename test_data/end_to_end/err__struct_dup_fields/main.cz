@@ -1,0 +1,25 @@
+fn main() {
+    struct S {x: i32, y: String, x: i32, a: i32, ab: u32, ab: bool}
+    struct S2 {}
+    struct S3 {i32, String, i32}
+    struct S4 {i32,}
+
+    type T = {x: i32, y: String, x: i32, a: i32, ab: u32, ab: bool};
+
+    S{x: 42, y: "", a: 42, ab: 42};
+    S{x: 42};
+    S{ab: 42, y: ""};
+    S{};
+
+    S{x: 42, x: 100, x: "test", a: 42, a: true};
+    {x: 42, x: 100, x: "test", a: 42, a: true};
+
+    S2{};
+    S2{x: 42, x: 100, x: "test", a: 42, a: true};
+
+    S3{};
+    S3{42, ""};
+    S3{42, "", "", true};
+
+    S4{};
+}
