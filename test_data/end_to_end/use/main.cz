@@ -33,7 +33,18 @@ fn f2() {
 
 use m1::{};
 
+fn f3() {
+    module mod1 {
+        struct S{s: String}
+        type S2 = S;
+    }
+    use mod1::S2;
+
+    prints(S2{s: "f3"}.s); println();
+}
+
 fn main() {
     f1();
     f2();
+    f3();
 }

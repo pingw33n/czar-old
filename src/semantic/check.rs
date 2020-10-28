@@ -2106,10 +2106,38 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
 fn can_import(kind: NodeKind) -> bool {
     use NodeKind::*;
     match kind {
-        | Struct
         | FnDef
+        | Struct
         | Module
+        | TypeAlias
         => true,
-        _ => false
+
+        | Block
+        | BlockFlowCtl
+        | Cast
+        | FieldAccess
+        | FnCall
+        | FnDefParam
+        | IfExpr
+        | Impl
+        | Let
+        | LetDef
+        | Literal
+        | Loop
+        | Op
+        | Path
+        | PathEndEmpty
+        | PathEndIdent
+        | PathEndStar
+        | PathSegment
+        | Range
+        | StructType
+        | StructValue
+        | StructValueField
+        | TyExpr
+        | TypeParam
+        | Use
+        | While
+        => false,
     }
 }
