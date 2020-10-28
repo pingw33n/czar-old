@@ -408,26 +408,23 @@ impl Resolver<'_> {
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<()> {
         if let Some(scope) = self.discover_data.try_scope(scope_vid.0) {
-            // 1. Look in namespaces of the scope.
+            // Look in namespaces of the scope for exact matches and for imports to resolve.
             for ns in NsKind::iter() {
                 for node in scope.namespace(ns).get(name.value, scope_vid.1) {
-                    reso.insert_node(ns, (self.package_id, node));
-                }
-            }
-
-            // 2. Look in non-wildcard imports.
-            if let Some(path) = scope.try_import(name.value) {
-                let target = self.resolve(path, paths)?;
-                let mut ns_ok = EnumMap::<NsKind, bool>::new();
-                for (ns, node) in target.nodes() {
-                    if ns_ok[ns] || reso.ns_nodes(ns).next().is_none() {
-                        ns_ok[ns] = true;
-                        reso.insert_node(ns, node);
+                    if self.hir.node_kind(node).value == NodeKind::PathEndIdent {
+                        if reso.ns_nodes(ns).next().is_none() {
+                            let target = self.resolve(node, paths)?;
+                            for node in target.ns_nodes(ns) {
+                                reso.insert_node(ns, node);
+                            }
+                        }
+                    } else {
+                        reso.insert_node(ns, (self.package_id, node));
                     }
                 }
             }
 
-            // 3. Look in wildcard imports if nothing found.
+            // If nothing found look in wildcard imports.
             if reso.is_empty() {
                 let mut found_in_wc_imports = Vec::new();
                 for &path in scope.wildcard_imports() {

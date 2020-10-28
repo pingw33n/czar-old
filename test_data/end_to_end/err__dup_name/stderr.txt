@@ -1,19 +1,19 @@
-error: function `f::()` is defined multiple times
+error: name `f` is defined multiple times
   --> main.cz:3:4
 3 | fn f() -> i32 {42}
        ~
 
-error: function `f::(_)` is defined multiple times
+error: name `f` is defined multiple times
   --> main.cz:4:4
 4 | fn f(_ x: i32) {}
        ~
 
-error: function `f::()` is defined multiple times
+error: name `f` is defined multiple times
   --> main.cz:5:4
 5 | fn f() {}
        ~
 
-error: function `f::(x)` is defined multiple times
+error: name `f` is defined multiple times
   --> main.cz:8:4
 8 | fn f(x: i32) {}
        ~

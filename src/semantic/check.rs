@@ -1772,9 +1772,12 @@ impl PassImpl<'_> {
                         let scope = self.discover_data.scope(scope.0);
                         let mut can_import_any = false;
                         for (ns, _) in reso.nodes() {
-                            can_import_any |= scope.namespace(ns).get(&name.value, 0).next().is_none();
+                            can_import_any |= scope.namespace(ns).get(&name.value, 0)
+                                .filter(|&n| self.hir.node_kind(n).value != NodeKind::PathEndIdent)
+                                .next()
+                                .is_none();
                         }
-                        if !can_import_any {
+                            if !can_import_any {
                             self.error_span(ctx.node, name.span, format!(
                                 "name `{}` is defined multiple times",
                                 name.value));

@@ -28,7 +28,7 @@ error: mismatching types in fn call of `foo::(_:b)`: expected `String`, found `?
 20 |     foo("test", b: 42);
                         ~~
 
-error: function `f::()` clashes with other non-function names
+error: name `f` is defined multiple times
   --> main.cz:25:8
 25 |     fn f() {}
             ~
