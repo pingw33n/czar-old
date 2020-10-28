@@ -1180,12 +1180,14 @@ impl PassImpl<'_> {
                         }
                         missing_fields.sort();
                         self.error(ctx.node, format!(
-                            "missing fields {} in initializer of struct `{}`",
+                            "missing field{} {} in initializer of struct `{}`",
+                            if missing_fields.len() > 1 { "s" } else { "" },
                             missing_fields.into_iter().map(|s| format!("`{}`", s)).collect::<Vec<_>>().join(", "),
                             self.display_type(ty.id())));
                     } else {
                         self.error(ctx.node, format!(
-                            "missing fields in initializer of tuple struct `{}`: expected {} field{}",
+                            "missing field{} in initializer of tuple struct `{}`: expected {} field{}",
+                            if expected_field_count > 1 { "s" } else { "" },
                             self.display_type(ty.id()),
                             expected_field_count, if expected_field_count > 1 { "s" } else { "" }));
                     }

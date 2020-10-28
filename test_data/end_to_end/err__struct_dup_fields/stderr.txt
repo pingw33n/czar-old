@@ -9,111 +9,116 @@ error: field `ab` is defined multiple times
                                                               ~~
 
 error: field `x` is defined multiple times
-  --> main.cz:7:34
-7 |     type T = {x: i32, y: String, x: i32, a: i32, ab: u32, ab: bool};
+  --> main.cz:8:34
+8 |     type T = {x: i32, y: String, x: i32, a: i32, ab: u32, ab: bool};
                                      ~
 
 error: field `ab` is defined multiple times
-  --> main.cz:7:59
-7 |     type T = {x: i32, y: String, x: i32, a: i32, ab: u32, ab: bool};
+  --> main.cz:8:59
+8 |     type T = {x: i32, y: String, x: i32, a: i32, ab: u32, ab: bool};
                                                               ~~
 
 error: missing fields `a`, `ab`, `y` in initializer of struct `S`
-  --> main.cz:10:5
-10 |     S{x: 42};
+  --> main.cz:11:5
+11 |     S{x: 42};
          ~~~~~~~~
 
 error: missing fields `a`, `x` in initializer of struct `S`
-  --> main.cz:11:5
-11 |     S{ab: 42, y: ""};
+  --> main.cz:12:5
+12 |     S{ab: 42, y: ""};
          ~~~~~~~~~~~~~~~~
 
 error: missing fields `a`, `ab`, `x`, `y` in initializer of struct `S`
-  --> main.cz:12:5
-12 |     S{};
+  --> main.cz:13:5
+13 |     S{};
          ~~~
 
 error: missing fields `ab`, `y` in initializer of struct `S`
-  --> main.cz:14:5
-14 |     S{x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:15:5
+15 |     S{x: 42, x: 100, x: "test", a: 42, a: true};
          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 error: field `x` is initialized multiple times
-  --> main.cz:14:14
-14 |     S{x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:15:14
+15 |     S{x: 42, x: 100, x: "test", a: 42, a: true};
                   ~
 
 error: field `x` is initialized multiple times
-  --> main.cz:14:22
-14 |     S{x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:15:22
+15 |     S{x: 42, x: 100, x: "test", a: 42, a: true};
                           ~
 
 error: field `a` is initialized multiple times
-  --> main.cz:14:40
-14 |     S{x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:15:40
+15 |     S{x: 42, x: 100, x: "test", a: 42, a: true};
                                             ~
 
 error: field `x` is initialized multiple times
-  --> main.cz:15:13
-15 |     {x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:16:13
+16 |     {x: 42, x: 100, x: "test", a: 42, a: true};
                  ~
 
 error: field `x` is initialized multiple times
-  --> main.cz:15:21
-15 |     {x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:16:21
+16 |     {x: 42, x: 100, x: "test", a: 42, a: true};
                          ~
 
 error: field `a` is initialized multiple times
-  --> main.cz:15:39
-15 |     {x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:16:39
+16 |     {x: 42, x: 100, x: "test", a: 42, a: true};
                                            ~
 
 error: unknown field `x` on type `S2`
-  --> main.cz:18:8
-18 |     S2{x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:19:8
+19 |     S2{x: 42, x: 100, x: "test", a: 42, a: true};
             ~
 
 error: unknown field `x` on type `S2`
-  --> main.cz:18:15
-18 |     S2{x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:19:15
+19 |     S2{x: 42, x: 100, x: "test", a: 42, a: true};
                    ~
 
 error: unknown field `x` on type `S2`
-  --> main.cz:18:23
-18 |     S2{x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:19:23
+19 |     S2{x: 42, x: 100, x: "test", a: 42, a: true};
                            ~
 
 error: unknown field `a` on type `S2`
-  --> main.cz:18:34
-18 |     S2{x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:19:34
+19 |     S2{x: 42, x: 100, x: "test", a: 42, a: true};
                                       ~
 
 error: unknown field `a` on type `S2`
-  --> main.cz:18:41
-18 |     S2{x: 42, x: 100, x: "test", a: 42, a: true};
+  --> main.cz:19:41
+19 |     S2{x: 42, x: 100, x: "test", a: 42, a: true};
                                              ~
 
 error: missing fields in initializer of tuple struct `S3`: expected 3 fields
-  --> main.cz:20:5
-20 |     S3{};
+  --> main.cz:21:5
+21 |     S3{};
          ~~~~
 
 error: missing fields in initializer of tuple struct `S3`: expected 3 fields
-  --> main.cz:21:5
-21 |     S3{42, ""};
+  --> main.cz:22:5
+22 |     S3{42, ""};
          ~~~~~~~~~~
 
 error: mismatching types in struct `S3` field `2`: expected `i32`, found `String`
-  --> main.cz:22:16
-22 |     S3{42, "", "", true};
+  --> main.cz:23:16
+23 |     S3{42, "", "", true};
                     ~~
 
 error: unknown field `3` on type `S3`
-  --> main.cz:22:20
-22 |     S3{42, "", "", true};
+  --> main.cz:23:20
+23 |     S3{42, "", "", true};
                         ~~~~
 
-error: missing fields in initializer of tuple struct `S4`: expected 1 field
-  --> main.cz:24:5
-24 |     S4{};
+error: missing field in initializer of tuple struct `S4`: expected 1 field
+  --> main.cz:25:5
+25 |     S4{};
+         ~~~~
+
+error: missing field `f` in initializer of struct `S5`
+  --> main.cz:26:5
+26 |     S5{};
          ~~~~
