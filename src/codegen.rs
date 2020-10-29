@@ -132,7 +132,7 @@ impl<'a> Codegen<'a> {
             };
 
             for (i, &param) in params.iter().enumerate() {
-                let name = &package.hir.fn_def_param(param).priv_name.value;
+                let name = &package.hir.fn_def_param(param).name.value;
                 let val = self.alloca(param, name, ctx);
                 let param = fn_.param(i as u32);
                 self.headerb.store(param, val);

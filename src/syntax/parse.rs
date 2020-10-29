@@ -354,8 +354,8 @@ impl<'a> ParserImpl<'a> {
                         }
                         let name = self_.with_value(Ident::self_lower());
                         Some(FnDefParam {
-                            pub_name: name.clone().map(Some),
-                            priv_name: name,
+                            label: name.clone().map(Some),
+                            name,
                             ty,
                         })
                     } else {
@@ -367,19 +367,19 @@ impl<'a> ParserImpl<'a> {
                 let param = if let Some(param) = param {
                     param
                 } else {
-                    let (pub_name, priv_name) = if let Some(underscore) = self.lex.maybe(Token::Keyword(Keyword::Underscore)) {
-                        let priv_name = self.ident()?;
-                        (underscore.with_value(None), priv_name)
+                    let (label, name) = if let Some(underscore) = self.lex.maybe(Token::Keyword(Keyword::Underscore)) {
+                        let name = self.ident()?;
+                        (underscore.with_value(None), name)
                     } else {
-                        let pub_name = self.ident()?;
-                        let priv_name = self.maybe_ident()?.unwrap_or_else(|| pub_name.clone());
-                        (pub_name.map(Some), priv_name)
+                        let label = self.ident()?;
+                        let name = self.maybe_ident()?.unwrap_or_else(|| label.clone());
+                        (label.map(Some), name)
                     };
                     self.expect(Token::Colon)?;
                     let ty = self.ty_expr()?;
-                    FnDefParam { pub_name, priv_name, ty }
+                    FnDefParam { label, name, ty }
                 };
-                let start = param.pub_name.span.start;
+                let start = param.label.span.start;
                 let end = self.hir.node_kind(param.ty).span.end;
                 params.push(self.hir.insert_fn_def_param(Span::new(start, end).spanned(param)));
             }

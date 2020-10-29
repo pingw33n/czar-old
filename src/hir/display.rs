@@ -100,24 +100,24 @@ impl Display<'_> {
 
                 p.print("(")?;
                 for (i, &param) in params.iter().enumerate() {
-                    let FnDefParam { pub_name, priv_name, ty } = self.hir.fn_def_param(param);
+                    let FnDefParam { label, name, ty } = self.hir.fn_def_param(param);
                     if i > 0 {
                         p.print(", ")?;
                     }
-                    if let Some(pub_name) = &pub_name.value {
-                        if pub_name != &priv_name.value {
-                            p.print(pub_name)?;
+                    if let Some(label) = &label.value {
+                        if label != &name.value {
+                            p.print(label)?;
                             p.print(' ')?;
                         }
                     } else if i > 0 {
                         p.print("_ ")?;
                     }
-                    if priv_name.value.is_self_lower() {
+                    if name.value.is_self_lower() {
                         let s = &mut String::new();
                         self.node(*ty, false, &mut Printer::new(s))?;
                         p.print(s.to_ascii_lowercase())?;
                     } else {
-                        p.print(&priv_name.value)?;
+                        p.print(&name.value)?;
                         p.print(": ")?;
                         self.node(*ty, false, p)?;
                     }

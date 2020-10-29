@@ -9,7 +9,7 @@ use crate::hir::traverse::*;
 use crate::package::GlobalNodeId;
 use crate::util::enums::EnumExt;
 
-use super::FnSignature;
+use super::FnParamsSignature;
 
 /// Item id inside Items::versions. Maps to the index.
 pub type ItemId = u32;
@@ -183,7 +183,7 @@ pub struct DiscoverData {
     node_to_def_scope: NodeMap<ScopeVid>,
     child_to_parent: NodeMap<NodeId>,
     node_to_module: NodeMap<NodeId>,
-    fn_def_signatures: NodeMap<FnSignature>,
+    fn_def_signatures: NodeMap<FnParamsSignature>,
     impls: Vec<NodeId>,
 }
 
@@ -282,11 +282,11 @@ impl DiscoverData {
         assert!(self.node_to_module.insert(node, module).is_none());
     }
 
-    pub fn fn_def_signature(&self, fn_def: NodeId) -> &FnSignature {
+    pub fn fn_def_signature(&self, fn_def: NodeId) -> &FnParamsSignature {
         &self.fn_def_signatures[&fn_def]
     }
 
-    pub fn try_fn_def_signature(&self, fn_def: NodeId) -> Option<&FnSignature> {
+    pub fn try_fn_def_signature(&self, fn_def: NodeId) -> Option<&FnParamsSignature> {
         self.fn_def_signatures.get(&fn_def)
     }
 
@@ -426,7 +426,7 @@ impl DiscoverData {
         // Must be in sync with Self::importable_name()
         Some(match hir.node_kind(node).value {
             NodeKind::FnDef => hir.fn_def(node).name.clone(),
-            NodeKind::FnDefParam => hir.fn_def_param(node).priv_name.clone(),
+            NodeKind::FnDefParam => hir.fn_def_param(node).name.clone(),
             NodeKind::LetDef => hir.let_def(node).name.clone(),
             NodeKind::Module => hir.module(node).name.as_ref().map(|v| v.name.clone())?,
             NodeKind::Struct => hir.struct_(node).name.clone(),
@@ -637,7 +637,7 @@ impl HirVisitor for Build<'_> {
 
         match ctx.kind {
             NodeKind::FnDef => {
-                let sign = FnSignature::from_def(ctx.node, ctx.hir);
+                let sign = FnParamsSignature::from_def(ctx.node, ctx.hir);
                 assert!(self.data.fn_def_signatures.insert(ctx.node, sign).is_none());
             }
             NodeKind::Module => {
@@ -687,8 +687,8 @@ impl HirVisitor for Build<'_> {
             NodeKind::FnDef => {
                 let params = &ctx.hir.fn_def(ctx.node).params;
                 for &param in params {
-                    let priv_name = ctx.hir.fn_def_param(param).priv_name.clone();
-                    self.insert_name(NsKind::Value, priv_name.clone(), param);
+                    let name = ctx.hir.fn_def_param(param).name.clone();
+                    self.insert_name(NsKind::Value, name.clone(), param);
                 }
             }
             NodeKind::Impl => {

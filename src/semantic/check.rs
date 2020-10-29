@@ -839,7 +839,7 @@ impl PassImpl<'_> {
                             .copied().unwrap_or(body);
                         self.error(node, format!(
                             "mismatching return types: function `{fname}::{fsign}` expects `{exp}`, found `{act}`",
-                            fname=name.value, fsign= FnSignature::from_def(ctx.node, ctx.hir),
+                            fname=name.value, fsign= FnParamsSignature::from_def(ctx.node, ctx.hir),
                             exp=self.display_type(expected_ret_ty),
                             act=self.display_type(actual_ret_ty)));
                     }
@@ -1639,7 +1639,7 @@ impl PassImpl<'_> {
                 let name = &hir.fn_def(fn_def_node.1).name.value;
                 self.error(actual.value, format!(
                     "mismatching types in fn call of `{fname}::{fsign}`: expected `{exp}`, found `{act}`",
-                    fname=name, fsign= FnSignature::from_def(fn_def_node.1, hir),
+                    fname=name, fsign= FnParamsSignature::from_def(fn_def_node.1, hir),
                     exp=self.display_type(expected_ty), act=self.display_type(actual_ty)));
             }
         }
@@ -1698,7 +1698,7 @@ impl PassImpl<'_> {
                 if reso_ctx == ResoCtx::Value;
                 if let Some(fn_call) = self.discover_data.find_fn_call(ctx.node, self.hir);
                 then {
-                    Some((FnSignature::from_call(fn_call, ctx.hir), self.hir.node_kind(fn_call).span))
+                    Some((FnParamsSignature::from_call(fn_call, ctx.hir), self.hir.node_kind(fn_call).span))
                 } else {
                     None
                 }
@@ -1826,7 +1826,7 @@ impl PassImpl<'_> {
             }
         }
 
-        let sign = FnSignature::from_call(fn_call, self.hir);
+        let sign = FnParamsSignature::from_call(fn_call, self.hir);
         if let Some(fn_def) = self.resolve_impl_fn(receiver_ty, &name.value, &sign) {
             self.check_data.insert_path_to_target(*callee, fn_def);
             let fn_ty = self.ensure_typing_global(fn_def)?;
@@ -1840,7 +1840,7 @@ impl PassImpl<'_> {
         Err(())
     }
 
-    fn resolve_impl_fn(&self, ty: TypeId, name: &Ident, sign: &FnSignature) -> Option<GlobalNodeId> {
+    fn resolve_impl_fn(&self, ty: TypeId, name: &Ident, sign: &FnParamsSignature) -> Option<GlobalNodeId> {
         let in_pkg = |
             package_id: PackageId,
             discover_data: &DiscoverData,
@@ -1911,7 +1911,7 @@ impl PassImpl<'_> {
             if path.len() == 2;
             if let Some(fn_call) = self.discover_data.find_fn_call(full_path, self.hir);
             then {
-                let sign = FnSignature::from_call(fn_call, self.hir);
+                let sign = FnParamsSignature::from_call(fn_call, self.hir);
                 if let Some(fn_def) = self.resolve_impl_fn(ty, &item_name.value, &sign) {
                     self.check_data.insert_path_to_target(full_path, fn_def);
                     let fn_ty = self.ensure_typing_global(fn_def)?;
@@ -1938,7 +1938,7 @@ impl PassImpl<'_> {
         let node = if let Ok(reso) = self.resolver().resolve_in_package(&["main"]) {
             let node = reso.ns_nodes(NsKind::Value)
                 .filter(|n| n.0 == self.package_id)
-                .filter(|n| self.discover_data.fn_def_signature(n.1) == &FnSignature::empty())
+                .filter(|n| self.discover_data.fn_def_signature(n.1) == &FnParamsSignature::empty())
                 .next()
                 .map(|n| n.1);
             if let Some(node) = node {

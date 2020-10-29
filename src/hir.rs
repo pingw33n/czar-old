@@ -605,24 +605,24 @@ pub struct FnDef {
 impl FnDef {
     pub fn is_method(&self, hir: &Hir) -> bool {
         self.params.first()
-            .map(|&p| hir.fn_def_param(p).priv_name.value.is_self_lower())
+            .map(|&p| hir.fn_def_param(p).name.value.is_self_lower())
             .unwrap_or(false)
     }
 }
 
 #[derive(Debug)]
 pub struct FnDefParam {
-    pub pub_name: S<Option<Ident>>,
-    pub priv_name: S<Ident>,
+    pub label: S<Option<Ident>>,
+    pub name: S<Ident>,
     pub ty: NodeId,
 }
 
 impl FnDefParam {
     pub fn name(&self) -> S<&Ident> {
-        if let Some(n) = self.pub_name.value.as_ref() {
-            self.pub_name.span.spanned(n)
+        if let Some(n) = self.label.value.as_ref() {
+            self.label.span.spanned(n)
         } else {
-            self.priv_name.span.spanned(&self.priv_name.value)
+            self.name.span.spanned(&self.name.value)
         }
     }
 }
