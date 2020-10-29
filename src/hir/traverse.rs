@@ -100,7 +100,7 @@ pub enum TyExprLink {
     Array(ArrayLink),
     Ptr,
     Ref,
-    SymPath,
+    Path,
     Struct,
     Slice,
 }
@@ -362,7 +362,7 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     },
                     &TyData::Ptr(n) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Ptr)),
                     &TyData::Ref(n) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Ref)),
-                    &TyData::Path(n) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::SymPath)),
+                    &TyData::Path(n) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Path)),
                     &TyData::Struct(n)  => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Struct)),
                     &TyData::Slice(Slice { ty: n, .. }) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Slice)),
                 }

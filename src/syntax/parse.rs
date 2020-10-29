@@ -506,7 +506,7 @@ impl<'a> ParserImpl<'a> {
                 (self.hir.node_kind(struct_).span.end, TyData::Struct(struct_))
             }
             _ => {
-                let path = self.sym_path(true)?;
+                let path = self.path(true)?;
                 (self.hir.node_kind(path).span.end, TyData::Path(path))
             }
         };
@@ -555,8 +555,8 @@ impl<'a> ParserImpl<'a> {
         Ok(Some(r))
     }
 
-    fn sym_path(&mut self, in_type_pos: bool) -> PResult<NodeId> {
-        if let Some(v) = self.maybe_sym_path(in_type_pos)? {
+    fn path(&mut self, in_type_pos: bool) -> PResult<NodeId> {
+        if let Some(v) = self.maybe_path(in_type_pos)? {
             Ok(v)
         } else {
             let tok = self.lex.nth(0);
@@ -564,7 +564,7 @@ impl<'a> ParserImpl<'a> {
         }
     }
 
-    fn maybe_sym_path(&mut self, in_type_pos: bool) -> PResult<Option<NodeId>> {
+    fn maybe_path(&mut self, in_type_pos: bool) -> PResult<Option<NodeId>> {
         let anchor = self.maybe_path_anchor()?;
 
         let mut items = Vec::new();
@@ -1140,7 +1140,7 @@ impl<'a> ParserImpl<'a> {
                     block,
                 }))
             }
-            _ => if let Some(v) = self.maybe_sym_path(false)? {
+            _ => if let Some(v) = self.maybe_path(false)? {
                 v
             } else {
                 return Ok(None);
@@ -1547,9 +1547,9 @@ impl<'a> ParserImpl<'a> {
     fn impl_(&mut self) -> PResult<NodeId> {
         let start = self.expect(Token::Keyword(Keyword::Impl))?.span.start;
         let ty_params = self.maybe_formal_ty_params()?;
-        let sym1 = self.sym_path(true)?;
+        let sym1 = self.path(true)?;
         let sym2 = if self.lex.maybe(Token::Keyword(Keyword::For)).is_some() {
-            Some(self.sym_path(true)?)
+            Some(self.path(true)?)
         } else {
             None
         };
