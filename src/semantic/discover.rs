@@ -322,6 +322,15 @@ impl DiscoverData {
         }
     }
 
+    pub fn find_use_node(&self, path: NodeId, hir: &Hir) -> Option<NodeId> {
+        let maybe_use = self.parent_of(self.find_path_start(path, hir).unwrap());
+        if hir.node_kind(maybe_use).value == NodeKind::Use {
+            Some(maybe_use)
+        } else {
+            None
+        }
+    }
+
     pub fn find_fn_call(&self, callee_path: NodeId, hir: &Hir) -> Option<NodeId> {
         let path_head = self.find_path_start(callee_path, hir)?;
         let path_owner = self.parent_of(path_head);
@@ -439,7 +448,8 @@ impl DiscoverData {
                 if ident.value == Ident::self_lower() && (renamed_as.is_none() || original) {
                     let parent = self.parent_of(node);
                     ident.span.spanned(
-                        hir.path_segment(parent).prefix.last().unwrap().ident.value.clone())
+                        // `prefix` list will be empty for `use {self}` construct.
+                        hir.path_segment(parent).prefix.last()?.ident.value.clone())
                 } else if !original {
                     renamed_as.as_ref().map(|v| v.clone()).unwrap_or_else(|| ident.clone())
                 } else {
@@ -485,8 +495,7 @@ impl DiscoverData {
     pub fn importable_name(&self, node: NodeId, hir: &Hir) -> Option<S<Ident>> {
         match hir.node_kind(node).value {
             NodeKind::PathEndIdent => {
-                let maybe_use = self.parent_of(self.find_path_start(node, hir).unwrap());
-                if hir.node_kind(maybe_use).value != NodeKind::Use {
+                if self.find_use_node(node, hir).is_none() {
                     return None;
                 }
                 self.name(node, hir)
@@ -618,6 +627,10 @@ impl Build<'_> {
     fn insert_wildcard_import(&mut self, node: NodeId) {
         let scope = self.cur_scope();
         self.data.ensure_scope(scope).insert_wildcard_import(node);
+    }
+
+    fn error(&self, node: NodeId, span: Span, text: String) {
+        self.diag.borrow_mut().error_span(self.hir, self.data, node, span, text);
     }
 }
 

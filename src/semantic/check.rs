@@ -1001,6 +1001,17 @@ impl PassImpl<'_> {
             | NodeKind::PathEndStar
             => return self.resolve_path(&ctx),
             NodeKind::PathEndIdent => {
+                // Check `use {self}` case.
+                if self.discover_data.find_use_node(ctx.node, self.hir).is_some() {
+                    let ident = &self.hir.path_end_ident(ctx.node).item.ident;
+                    if ident.value.is_self_lower()
+                        && self.hir.path_segment(self.discover_data.parent_of(ctx.node)).prefix.is_empty()
+                    {
+                        self.error_span(ctx.node, ident.span,
+                            "`self` import can only be used in path with prefix".into());
+                        return Ok(None)
+                    }
+                }
                 return if self.discover_data.find_method_call(ctx.node, ctx.hir).is_none() {
                     self.resolve_path(&ctx)
                 } else {

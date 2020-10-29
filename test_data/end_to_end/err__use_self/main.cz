@@ -1,0 +1,12 @@
+use {self};
+use {self, self};
+
+module m {
+    use super::{self};
+    use super::{self, self};
+    use super::super::{self};
+    use super::super::{self, self};
+    use package::{self};
+}
+
+fn main() {}
