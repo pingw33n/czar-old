@@ -329,7 +329,7 @@ pub struct Check<'a> {
     pub discover_data: &'a DiscoverData,
     pub resolve_data: &'a ResolveData,
     pub packages: &'a Packages,
-    pub diag: DiagRef,
+    pub diag: DiagRef<'a>,
 }
 
 impl<'a> Check<'a> {
@@ -357,7 +357,7 @@ impl<'a> Check<'a> {
             type_id_set: Default::default(),
             unnamed_structs,
             hir: self.hir,
-            diag: self.diag.clone(),
+            diag: self.diag,
             failed_typings: Default::default(),
             resolve_data: self.resolve_data,
         };
@@ -456,7 +456,7 @@ struct PassImpl<'a> {
     /// Unnamed record and tuple structs defined in all packages.
     unnamed_structs: HashMap<UnnamedStructKey, TypeId>,
     hir: &'a Hir,
-    diag: DiagRef,
+    diag: DiagRef<'a>,
     failed_typings: NodeMap<()>,
     resolve_data: &'a ResolveData,
 }
@@ -2000,7 +2000,7 @@ impl PassImpl<'_> {
             hir: self.hir,
             package_id: self.package_id,
             packages: self.packages,
-            diag: self.diag.clone(),
+            diag: self.diag,
             resolve_data: &self.resolve_data,
         }
     }

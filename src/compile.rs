@@ -1,6 +1,7 @@
+use std::cell::RefCell;
 use std::path::Path;
 
-use crate::diag::{Diag, DiagRef};
+use crate::diag::Diag;
 use crate::hir::Ident;
 use crate::package::*;
 use crate::semantic::check::Check;
@@ -50,11 +51,11 @@ pub fn compile(
         }
     };
 
-    let diag = DiagRef::new(diag.into());
+    let diag = &RefCell::new(diag);
 
     let resolve_data = ResolveData::default();
 
-    let discover_data = DiscoverData::build(&hir, diag.clone());
+    let discover_data = DiscoverData::build(&hir, diag);
 
     // println!("package `{}` {:?}", name, id);
     // discover_data.print_scopes(&hir);
@@ -65,7 +66,7 @@ pub fn compile(
         resolve_data: &resolve_data,
         discover_data: &discover_data,
         packages,
-        diag: diag.clone(),
+        diag,
     }.run();
 
     // println!("package `{}` {:?}", name, id);

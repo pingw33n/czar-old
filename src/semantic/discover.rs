@@ -586,7 +586,7 @@ struct Build<'a> {
     scope_stack: Vec<ScopeUid>,
     node_stack: Vec<NodeId>,
     module_stack: Vec<NodeId>,
-    diag: DiagRef,
+    diag: DiagRef<'a>,
 }
 
 impl Build<'_> {

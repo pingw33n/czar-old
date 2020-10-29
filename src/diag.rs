@@ -29,7 +29,7 @@ pub struct SaveState {
     error_count: usize,
 }
 
-pub type DiagRef = std::rc::Rc<std::cell::RefCell<Diag>>;
+pub type DiagRef<'a> = &'a std::cell::RefCell<Diag>;
 
 #[derive(Default)]
 pub struct Diag {

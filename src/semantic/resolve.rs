@@ -130,7 +130,7 @@ pub struct ResolveImports<'a> {
     pub resolve_data: &'a ResolveData,
     pub package_id: PackageId,
     pub packages: &'a Packages,
-    pub diag: DiagRef,
+    pub diag: DiagRef<'a>,
 }
 
 impl ResolveImports<'_> {
@@ -144,7 +144,7 @@ impl ResolveImports<'_> {
             resolve_data: self.resolve_data,
             package_id: self.package_id,
             packages: self.packages,
-            diag: self.diag.clone(),
+            diag: self.diag,
         };
         let nodes = &mut Vec::new();
         for (_, scope) in self.discover_data.scopes() {
@@ -309,7 +309,7 @@ pub struct Resolver<'a> {
     pub resolve_data: &'a ResolveData,
     pub package_id: PackageId,
     pub packages: &'a Packages,
-    pub diag: DiagRef,
+    pub diag: DiagRef<'a>,
 }
 
 impl Resolver<'_> {
@@ -346,7 +346,7 @@ impl Resolver<'_> {
                 hir: &package.hir,
                 package_id,
                 packages: self.packages,
-                diag: self.diag.clone(),
+                diag: self.diag,
                 resolve_data: &package.resolve_data,
             }
         }
