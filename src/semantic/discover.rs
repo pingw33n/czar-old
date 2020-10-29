@@ -346,6 +346,7 @@ impl DiscoverData {
 
     pub fn print_scopes(&self, hir: &Hir) {
         struct Visitor<'a> {
+            hir: &'a Hir,
             data: &'a DiscoverData,
             indent: u32,
         }
@@ -362,8 +363,8 @@ impl DiscoverData {
             fn before_node(&mut self, ctx: HirVisitorCtx) {
                 self.indent += 1;
                 self.print_indent();
-                let node = ctx.hir.node_kind(ctx.node);
-                if let Some(name) = ctx.hir.try_module(ctx.node)
+                let node = self.hir.node_kind(ctx.node);
+                if let Some(name) = self.hir.try_module(ctx.node)
                     .and_then(|Module { name, .. }| name.as_ref())
                 {
                     println!("{:?} {:?} `{}` {}:{}",
@@ -387,7 +388,7 @@ impl DiscoverData {
                                 if i > 0 {
                                     print!(", ");
                                 }
-                                let nk = ctx.hir.node_kind(node);
+                                let nk = self.hir.node_kind(node);
                                 let failed = if items.failed.borrow().iter().any(|&(j, _)| j as usize == i) { "(F)" } else { "" };
                                 if let Some(sign) = self.data.try_fn_def_signature(node) {
                                     print!("{failed}`{name}::{sign}`#{ver} -> {node_kind:?} {node:?} {s}:{e}",
@@ -422,6 +423,7 @@ impl DiscoverData {
         }
 
         hir.traverse(&mut Visitor {
+            hir,
             data: self,
             indent: 0,
         });
@@ -650,7 +652,7 @@ impl HirVisitor for Build<'_> {
 
         match ctx.kind {
             NodeKind::FnDef => {
-                let sign = FnParamsSignature::from_def(ctx.node, ctx.hir);
+                let sign = FnParamsSignature::from_def(ctx.node, self.hir);
                 assert!(self.data.fn_def_signatures.insert(ctx.node, sign).is_none());
             }
             NodeKind::Module => {
@@ -698,16 +700,16 @@ impl HirVisitor for Build<'_> {
 
         match ctx.kind {
             NodeKind::FnDef => {
-                let params = &ctx.hir.fn_def(ctx.node).params;
+                let params = &self.hir.fn_def(ctx.node).params;
                 for &param in params {
-                    let name = ctx.hir.fn_def_param(param).name.clone();
+                    let name = self.hir.fn_def_param(param).name.clone();
                     self.insert_name(NsKind::Value, name.clone(), param);
                 }
             }
             NodeKind::Impl => {
-                let for_ = ctx.hir.impl_(ctx.node).for_;
-                let for_path_end = ctx.hir.find_flat_path_end(for_);
-                let span = ctx.hir.node_kind(for_).span;
+                let for_ = self.hir.impl_(ctx.node).for_;
+                let for_path_end = self.hir.find_flat_path_end(for_);
+                let span = self.hir.node_kind(for_).span;
                 self.insert_import(span.spanned(Ident::self_upper()), for_path_end);
                 self.data.impls.push(ctx.node);
             }
@@ -726,7 +728,7 @@ impl HirVisitor for Build<'_> {
         }
         match ctx.kind {
             NodeKind::LetDef => {
-                let name = ctx.hir.let_def(ctx.node).name.clone();
+                let name = self.hir.let_def(ctx.node).name.clone();
                 self.insert_versioned_name(NsKind::Value, name, ctx.node);
             },
             NodeKind::Use => {

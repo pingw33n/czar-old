@@ -674,7 +674,7 @@ impl PassImpl<'_> {
                     ret_ty,
                     unsafe_,
                     body,
-                    .. } = ctx.hir.fn_def(ctx.node);
+                    .. } = self.hir.fn_def(ctx.node);
                 if body.is_none() && unsafe_.is_none() {
                     self.error_span(ctx.node, name.span,
                         "external function must be marked as `unsafe`".into());
@@ -710,7 +710,7 @@ impl PassImpl<'_> {
                     trait_,
                     for_,
                     items,
-                } = ctx.hir.impl_(ctx.node);
+                } = self.hir.impl_(ctx.node);
                 if !ty_params.is_empty() || trait_.is_some() {
                     todo!();
                 }
@@ -813,7 +813,7 @@ impl PassImpl<'_> {
             | NodeKind::While
             => {},
             _ => {
-                unimplemented!("{:?}", ctx.hir.node_kind(ctx.node));
+                unimplemented!("{:?}", self.hir.node_kind(ctx.node));
             },
         }
         Ok(())
@@ -826,7 +826,7 @@ impl PassImpl<'_> {
                     name,
                     ret_ty,
                     body,
-                    .. } = ctx.hir.fn_def(ctx.node);
+                    .. } = self.hir.fn_def(ctx.node);
                 let expected_ret_ty = if let Some(n) = *ret_ty {
                     self.typing(n)?
                 } else {
@@ -835,11 +835,11 @@ impl PassImpl<'_> {
                 if let Some(body) = *body {
                     let (actual_ret_ty, expected_ret_ty) = self.unify(self.typing(body)?, expected_ret_ty);
                     if actual_ret_ty != expected_ret_ty {
-                        let node = ctx.hir.block(body).exprs.last()
+                        let node = self.hir.block(body).exprs.last()
                             .copied().unwrap_or(body);
                         self.error(node, format!(
                             "mismatching return types: function `{fname}::{fsign}` expects `{exp}`, found `{act}`",
-                            fname=name.value, fsign= FnParamsSignature::from_def(ctx.node, ctx.hir),
+                            fname=name.value, fsign= FnParamsSignature::from_def(ctx.node, self.hir),
                             exp=self.display_type(expected_ret_ty),
                             act=self.display_type(actual_ret_ty)));
                     }
@@ -854,9 +854,9 @@ impl PassImpl<'_> {
     fn do_typing(&mut self, ctx: HirVisitorCtx) -> Result<Option<TypeId>, ()> {
         let ty = match ctx.kind {
             NodeKind::Block => {
-                if let Some(&expr) = ctx.hir.block(ctx.node).exprs.last() {
+                if let Some(&expr) = self.hir.block(ctx.node).exprs.last() {
                     use NodeKind::*;
-                    match ctx.hir.node_kind(expr).value {
+                    match self.hir.node_kind(expr).value {
                         | Impl
                         | Loop
                         | FnDef
@@ -873,7 +873,7 @@ impl PassImpl<'_> {
             }
             NodeKind::FieldAccess => {
                 self.check_data.set_lvalue(ctx.node);
-                let hir::FieldAccess { receiver, field } = ctx.hir.field_access(ctx.node);
+                let hir::FieldAccess { receiver, field } = self.hir.field_access(ctx.node);
                 let struct_ty = self.typing(*receiver)?;
                 self.resolve_struct_field(struct_ty, ctx.node, field)?
             }
@@ -881,10 +881,10 @@ impl PassImpl<'_> {
             NodeKind::FnDef => return Err(()),
             NodeKind::FnDefParam => {
                 self.check_data.set_lvalue(ctx.node);
-                self.typing(ctx.hir.fn_def_param(ctx.node).ty)?
+                self.typing(self.hir.fn_def_param(ctx.node).ty)?
             }
             NodeKind::IfExpr => {
-                let &IfExpr { cond, if_true, if_false } = ctx.hir.if_expr(ctx.node);
+                let &IfExpr { cond, if_true, if_false } = self.hir.if_expr(ctx.node);
                 if let Ok(actual_cond_ty) = self.typing(cond) {
                     if actual_cond_ty != self.primitive_type(PrimitiveType::Bool) {
                         self.error(cond, format!(
@@ -912,7 +912,7 @@ impl PassImpl<'_> {
             }
             NodeKind::LetDef => {
                 self.check_data.set_lvalue(ctx.node);
-                let &LetDef { ty, init, .. } = ctx.hir.let_def(ctx.node);
+                let &LetDef { ty, init, .. } = self.hir.let_def(ctx.node);
                 if let Some(ty) = ty {
                     let ty = self.typing(ty)?;
                     if let Some(init) = init {
@@ -933,7 +933,7 @@ impl PassImpl<'_> {
                 }
             }
             NodeKind::Literal => {
-                match ctx.hir.literal(ctx.node) {
+                match self.hir.literal(ctx.node) {
                     &Literal::Bool(_) => self.primitive_type(PrimitiveType::Bool),
                     &Literal::Int(IntLiteral { ty, .. }) => {
                         if let Some(ty) = ty {
@@ -974,7 +974,7 @@ impl PassImpl<'_> {
             }
             NodeKind::Module => return Ok(None),
             NodeKind::Op => {
-                match ctx.hir.op(ctx.node) {
+                match self.hir.op(ctx.node) {
                     &Op::Binary(op) => {
                         self.type_binary_op(op, ctx)?
                     }
@@ -984,7 +984,7 @@ impl PassImpl<'_> {
                 }
             }
             NodeKind::Path => {
-                let segment = ctx.hir.path(ctx.node).segment;
+                let segment = self.hir.path(ctx.node).segment;
                 if self.failed_typings.contains_key(&segment) {
                     return Err(())
                 } else if let Some(target) = self.check_data.try_target_of(segment) {
@@ -1012,14 +1012,14 @@ impl PassImpl<'_> {
                         return Ok(None)
                     }
                 }
-                return if self.discover_data.find_method_call(ctx.node, ctx.hir).is_none() {
+                return if self.discover_data.find_method_call(ctx.node, self.hir).is_none() {
                     self.resolve_path(&ctx)
                 } else {
                     Ok(None)
                 };
             },
             NodeKind::PathSegment => {
-                let suffix = &ctx.hir.path_segment(ctx.node).suffix;
+                let suffix = &self.hir.path_segment(ctx.node).suffix;
                 if suffix.len() == 1 {
                     if self.failed_typings.contains_key(&suffix[0]) {
                         return Err(())
@@ -1034,11 +1034,11 @@ impl PassImpl<'_> {
                 }
             }
             NodeKind::Struct => {
-                self.typing(ctx.hir.struct_(ctx.node).ty)?
+                self.typing(self.hir.struct_(ctx.node).ty)?
             }
             NodeKind::StructType => {
-                let fields = &ctx.hir.struct_type(ctx.node).fields;
-                let named = ctx.hir.try_struct(self.discover_data.parent_of(ctx.node)).is_some();
+                let fields = &self.hir.struct_type(ctx.node).fields;
+                let named = self.hir.try_struct(self.discover_data.parent_of(ctx.node)).is_some();
 
                 let mut seen_fields = HashSet::new();
                 let mut dup_fields = HashSet::new();
@@ -1093,11 +1093,11 @@ impl PassImpl<'_> {
                 }
             }
             NodeKind::StructValueField => {
-                let value = ctx.hir.struct_value_field(ctx.node).value;
+                let value = self.hir.struct_value_field(ctx.node).value;
                 self.typing(value)?
             }
             NodeKind::StructValue => {
-                let StructValue { name, explicit_tuple, fields } = ctx.hir.struct_value(ctx.node);
+                let StructValue { name, explicit_tuple, fields } = self.hir.struct_value(ctx.node);
                 assert!(explicit_tuple.is_none() || !fields.is_empty());
                 let ty = if let Some(name) = *name {
                     self.typing(name)?
@@ -1108,7 +1108,7 @@ impl PassImpl<'_> {
                         let mut field_tys = Vec::with_capacity(fields.len());
                         let mut err = false;
                         for &field in fields {
-                            let f = ctx.hir.struct_value_field(field);
+                            let f = self.hir.struct_value_field(field);
                             if let Ok(ty) = self.typing(f.value) {
                                 field_tys.push((f.name.clone().map(|v| v.value), ty));
                             } else {
@@ -1123,11 +1123,11 @@ impl PassImpl<'_> {
                 };
                 let mut seen_fields = HashSet::new();
                 for (i, &field_node) in fields.iter().enumerate() {
-                    let field = ctx.hir.struct_value_field(field_node);
+                    let field = self.hir.struct_value_field(field_node);
                     let f = if let Some(n) = &field.name {
                         n.span.spanned(Field::Ident(n.value.clone()))
                     } else {
-                        ctx.hir.node_kind(field.value).span.spanned(Field::Index(i as u32))
+                        self.hir.node_kind(field.value).span.spanned(Field::Index(i as u32))
                     };
                     let expected_ty = if let Ok(v) = self.resolve_struct_field(ty, field_node, &f) {
                         v
@@ -1204,7 +1204,7 @@ impl PassImpl<'_> {
                 ty
             }
             NodeKind::TyExpr => {
-                let TyExpr { muta: _, data } = ctx.hir.ty_expr(ctx.node);
+                let TyExpr { muta: _, data } = self.hir.ty_expr(ctx.node);
                 match &data.value {
                     TyData::Array(_) => unimplemented!(),
                     &TyData::Ptr(_) => unimplemented!(),
@@ -1218,7 +1218,7 @@ impl PassImpl<'_> {
                 }
             }
             NodeKind::TypeAlias => {
-                let TypeAlias { vis: _, name: _, ty_params, ty } = ctx.hir.type_alias(ctx.node);
+                let TypeAlias { vis: _, name: _, ty_params, ty } = self.hir.type_alias(ctx.node);
                 if !ty_params.is_empty() {
                     todo!();
                 }
@@ -1227,7 +1227,7 @@ impl PassImpl<'_> {
             NodeKind::Use => self.primitive_type(PrimitiveType::Unit),
             NodeKind::While
             => {
-                let cond = ctx.hir.while_(ctx.node).cond;
+                let cond = self.hir.while_(ctx.node).cond;
                 if let Ok(actual_cond_ty) = self.typing(cond) {
                     if actual_cond_ty != self.primitive_type(PrimitiveType::Bool) {
                         self.error(cond, format!(
@@ -1237,7 +1237,7 @@ impl PassImpl<'_> {
                 }
                 self.primitive_type(PrimitiveType::Unit)
             },
-            _ => unimplemented!("{:?}", ctx.hir.node_kind(ctx.node))
+            _ => unimplemented!("{:?}", self.hir.node_kind(ctx.node))
         };
         Ok(Some(ty))
     }
@@ -1609,7 +1609,7 @@ impl PassImpl<'_> {
             callee,
             kind,
             params: actual_params,
-            .. } = ctx.hir.fn_call(ctx.node);
+            .. } = self.hir.fn_call(ctx.node);
         let (fn_def_node, res_ty) = match *kind {
             FnCallKind::Free => {
                 let callee_ty = self.type_(self.typing(*callee)?);
@@ -1700,7 +1700,7 @@ impl PassImpl<'_> {
             },
         }
 
-        let span = ctx.hir.path_end_ident(ctx.node).item.ident.span;
+        let span = self.hir.path_end_ident(ctx.node).item.ident.span;
         assert!(!reso.is_empty());
         let reso_ctx = self.reso_ctx();
         let (pkg, node) = {
@@ -1709,7 +1709,7 @@ impl PassImpl<'_> {
                 if reso_ctx == ResoCtx::Value;
                 if let Some(fn_call) = self.discover_data.find_fn_call(ctx.node, self.hir);
                 then {
-                    Some((FnParamsSignature::from_call(fn_call, ctx.hir), self.hir.node_kind(fn_call).span))
+                    Some((FnParamsSignature::from_call(fn_call, self.hir), self.hir.node_kind(fn_call).span))
                 } else {
                     None
                 }

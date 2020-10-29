@@ -146,11 +146,10 @@ pub enum TypeAliasLink {
 }
 
 #[derive(Clone, Copy)]
-pub struct HirVisitorCtx<'a> {
+pub struct HirVisitorCtx {
     pub node: NodeId,
     pub kind: NodeKind,
     pub link: NodeLink,
-    pub hir: &'a Hir,
 }
 
 pub trait HirVisitor {
@@ -169,11 +168,11 @@ impl<T: HirVisitor> Traverser<'_, T> {
     }
 
     fn before_node(&mut self, node: NodeId, kind: NodeKind, link_kind: NodeLink) {
-        self.visitor.before_node(HirVisitorCtx { node, kind, link: link_kind, hir: self.hir });
+        self.visitor.before_node(HirVisitorCtx { node, kind, link: link_kind });
     }
 
     fn after_node(&mut self, node: NodeId, kind: NodeKind, link_kind: NodeLink) {
-        self.visitor.after_node(HirVisitorCtx { node, kind, link: link_kind, hir: self.hir });
+        self.visitor.after_node(HirVisitorCtx { node, kind, link: link_kind });
     }
 
     fn traverse0(&mut self, node: NodeId, link_kind: NodeLink) {
