@@ -1,4 +1,4 @@
-error: mismatching types of `if` arms: `String`, `?integer`
+error: mismatching types of `if` arms: `String`, `<integer>`
   --> main.cz:2:13
 2 |     let x = if true {
                 ~~~~~~~~~

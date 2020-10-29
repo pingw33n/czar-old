@@ -3,7 +3,7 @@ error: mismatching return types: function `f1::()` expects `i32`, found `String`
 2 |     "test"
         ~~~~~~
 
-error: mismatching return types: function `f2::(param)` expects `{String,}`, found `{u32, ?integer}`
+error: mismatching return types: function `f2::(param)` expects `{String,}`, found `{u32, <integer>}`
   --> main.cz:6:5
 6 |     {param, 42}
         ~~~~~~~~~~~

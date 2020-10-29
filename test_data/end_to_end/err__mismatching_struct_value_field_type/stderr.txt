@@ -1,4 +1,4 @@
-error: mismatching types in struct `Foo` field `foo`: expected `String`, found `?integer`
+error: mismatching types in struct `Foo` field `foo`: expected `String`, found `<integer>`
   --> main.cz:6:16
 6 |     Foo { foo: 42, bar: "foo" };
                    ~~
@@ -13,17 +13,17 @@ error: mismatching types in struct `Tuple` field `0`: expected `{}`, found `Stri
 14 |     Tuple { "foo", 42 };
                  ~~~~~
 
-error: mismatching types in struct `Tuple` field `1`: expected `String`, found `?integer`
+error: mismatching types in struct `Tuple` field `1`: expected `String`, found `<integer>`
   --> main.cz:14:20
 14 |     Tuple { "foo", 42 };
                         ~~
 
-error: mismatching types: expected `{bar: i32, foo: String}`, found `{bar: String, foo: ?integer}`
+error: mismatching types: expected `{bar: i32, foo: String}`, found `{bar: String, foo: <integer>}`
   --> main.cz:21:9
 21 |     } = {
              ~
 
-error: mismatching types: expected `{String, i32}`, found `{?integer, String}`
+error: mismatching types: expected `{String, i32}`, found `{<integer>, String}`
   --> main.cz:31:9
 31 |     } = {
              ~

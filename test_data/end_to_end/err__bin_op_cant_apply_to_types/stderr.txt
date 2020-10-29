@@ -1,29 +1,29 @@
-error: binary operation `==` can't be applied to types `{}`, `?integer`
+error: binary operation `==` can't be applied to types `{}`, `<integer>`
   --> main.cz:2:8
 2 |     {} == 42;
            ~~
 
-error: binary operation `!=` can't be applied to types `{}`, `?integer`
+error: binary operation `!=` can't be applied to types `{}`, `<integer>`
   --> main.cz:6:8
 6 |     {} != 42;
            ~~
 
-error: binary operation `>` can't be applied to types `{}`, `?integer`
+error: binary operation `>` can't be applied to types `{}`, `<integer>`
   --> main.cz:10:8
 10 |     {} > 42;
             ~
 
-error: binary operation `>=` can't be applied to types `{}`, `?integer`
+error: binary operation `>=` can't be applied to types `{}`, `<integer>`
   --> main.cz:14:8
 14 |     {} >= 42;
             ~~
 
-error: binary operation `<` can't be applied to types `{}`, `?integer`
+error: binary operation `<` can't be applied to types `{}`, `<integer>`
   --> main.cz:18:8
 18 |     {} < 42;
             ~
 
-error: binary operation `<=` can't be applied to types `{}`, `?integer`
+error: binary operation `<=` can't be applied to types `{}`, `<integer>`
   --> main.cz:22:8
 22 |     {} <= 42;
             ~~

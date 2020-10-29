@@ -1595,12 +1595,12 @@ impl PassImpl<'_> {
                     }
                     &TypeData::Type(ty) => self.display_type0(ty, f),
                     &TypeData::UnknownNumber(v) => match v {
-                        NumberType::Int => write!(f, "?integer"),
-                        NumberType::Float => write!(f, "?float"),
+                        NumberType::Int => write!(f, "<integer>"),
+                        NumberType::Float => write!(f, "<float>"),
                     }
                 }
             }
-            None => write!(f, "?unknown")
+            None => write!(f, "<unknown>")
         }
     }
 
