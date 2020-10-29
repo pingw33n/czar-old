@@ -7,6 +7,7 @@ use crate::semantic::check::Check;
 use crate::semantic::discover::DiscoverData;
 use crate::syntax;
 use crate::syntax::parse::ErrorKind;
+use crate::semantic::resolve::{ResolveImports, ResolveData};
 
 pub struct Error(String);
 
@@ -51,7 +52,22 @@ pub fn compile(
 
     let diag = DiagRef::new(diag.into());
 
+    let resolve_data = ResolveData::default();
+
     let discover_data = DiscoverData::build(&hir, diag.clone());
+
+    // println!("package `{}` {:?}", name, id);
+    // discover_data.print_scopes(&hir);
+
+    ResolveImports {
+        package_id: id,
+        hir: &hir,
+        resolve_data: &resolve_data,
+        discover_data: &discover_data,
+        packages,
+        diag: diag.clone(),
+    }.run();
+
     // println!("package `{}` {:?}", name, id);
     // discover_data.print_scopes(&hir);
 
@@ -61,6 +77,7 @@ pub fn compile(
         package_kind: kind,
         hir: &hir,
         discover_data: &discover_data,
+        resolve_data: &resolve_data,
         packages,
         diag: diag.clone(),
     }.run();
@@ -75,6 +92,7 @@ pub fn compile(
             name,
             hir,
             discover_data,
+            resolve_data,
             check_data,
         })
     } else {

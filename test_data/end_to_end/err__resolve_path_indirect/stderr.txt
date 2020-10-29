@@ -7,3 +7,8 @@ error: name `S` is defined multiple times
   --> main.cz:10:9
 10 | use m1::S;
              ~
+
+error: missing field `x` in initializer of struct `S`
+  --> main.cz:14:5
+14 |     S{};
+         ~~~

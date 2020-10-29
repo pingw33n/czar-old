@@ -14,7 +14,7 @@ pub use llvm::OutputFormat;
 struct ExprCtx<'a> {
     package: &'a Package,
     fn_: llvm::DValueRef,
-    allocas: &'a mut HashMap<NodeId, llvm::IValueRef>,
+    allocas: &'a mut NodeMap<llvm::IValueRef>,
 }
 
 #[derive(Clone, Copy)]

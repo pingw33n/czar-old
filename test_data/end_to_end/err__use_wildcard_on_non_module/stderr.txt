@@ -47,3 +47,18 @@ error: name `m1` is defined multiple times
   --> main.cz:14:21
 14 | use m1::{S::foobar, self};
                          ~~~~
+
+error: could not find `A` in current scope
+  --> main.cz:17:5
+17 |     A;
+         ~
+
+error: could not find `B` in current scope
+  --> main.cz:18:5
+18 |     B;
+         ~
+
+error: could not find `C` in current scope
+  --> main.cz:19:5
+19 |     C;
+         ~

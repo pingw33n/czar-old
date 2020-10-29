@@ -1,0 +1,17 @@
+fn f3() {
+    module m {
+        pub fn NAME() { prints("f3"); println(); }
+        struct NAME {x:i32}
+    }
+
+    type NAME = m::NAME;
+
+    use m::NAME;
+
+    NAME();
+    print_i32(NAME {x: 424242}.x); println();
+}
+
+
+fn main() {
+}

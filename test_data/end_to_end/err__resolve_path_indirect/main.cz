@@ -11,5 +11,5 @@ use m1::S;
 
 fn main() {
     S{x:42};
-    S{}; // TODO this should error too
+    S{};
 }

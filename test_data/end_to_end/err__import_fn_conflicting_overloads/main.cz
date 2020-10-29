@@ -1,0 +1,56 @@
+module m1 {
+    fn f() {}
+}
+
+module m2 {
+    fn f(x: i32) {}
+}
+
+fn f1() {
+    use m1::f;
+
+    fn f() {}
+}
+
+fn f2() {
+    use m1::f;
+    use m2::f;
+
+    fn f() {}
+}
+
+fn f3() {
+    use m2::f;
+
+    fn f() {}
+}
+
+fn f4() {
+    use m2::*;
+
+    fn f() {}
+
+    f(); // OK
+    f(x: 42); // OK
+}
+
+fn f5() {
+    use m2::*;
+
+    fn f() {}
+    fn f(x: i32) {}
+
+    f(); // OK
+    f(x: 42); // OK
+}
+
+fn f6() {
+    use m1::*;
+    use m2::*;
+
+    f();
+    f(x: 42);
+}
+
+fn main() {
+}

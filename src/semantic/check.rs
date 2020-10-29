@@ -12,8 +12,7 @@ use crate::util::iter::IteratorExt;
 
 use super::*;
 use discover::{DiscoverData, NsKind};
-use resolve::Resolver;
-use crate::semantic::resolve::{ResolutionKind, ResolveCache};
+use resolve::{ResolutionKind, Resolver,ResolveData};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NumberType {
@@ -242,7 +241,6 @@ pub struct CheckData {
     typings: NodeMap<TypeId>,
     std: Option<Box<Std>>,
     path_to_target: NodeMap<GlobalNodeId>,
-    resolve_cache: ResolveCache,
     /// Maps `FieldAccess` and `StructValueField` nodes to the field index on a struct type.
     /// Note the index may not correspond to index of HIR field, use `StructTypeField::def_idx`.
     struct_fields: NodeMap<u32>,
@@ -318,10 +316,6 @@ impl CheckData {
     pub fn entry_point(&self) -> Option<NodeId> {
         self.entry_point
     }
-
-    pub fn resolve_cache(&self) -> &ResolveCache {
-        &self.resolve_cache
-    }
 }
 
 #[derive(Debug)]
@@ -333,6 +327,7 @@ pub struct Check<'a> {
     pub package_kind: PackageKind,
     pub hir: &'a Hir,
     pub discover_data: &'a DiscoverData,
+    pub resolve_data: &'a ResolveData,
     pub packages: &'a Packages,
     pub diag: DiagRef,
 }
@@ -364,6 +359,7 @@ impl<'a> Check<'a> {
             hir: self.hir,
             diag: self.diag.clone(),
             failed_typings: Default::default(),
+            resolve_data: self.resolve_data,
         };
         if self.package_id.is_std() {
             imp.build_lang_types();
@@ -462,6 +458,7 @@ struct PassImpl<'a> {
     hir: &'a Hir,
     diag: DiagRef,
     failed_typings: NodeMap<()>,
+    resolve_data: &'a ResolveData,
 }
 
 impl PassImpl<'_> {
@@ -1653,29 +1650,21 @@ impl PassImpl<'_> {
     fn describe_named(&self, node: GlobalNodeId) -> String {
         let hir = self.hir(node.0);
         let kind = hir.node_kind(node.1).value;
-        match kind {
-            NodeKind::FnDef => format!("function `{}`", hir.fn_def(node.1).name.value),
-            NodeKind::FnDefParam => format!("function parameter `{}`", hir.fn_def_param(node.1).name().value),
-            NodeKind::LetDef => format!("variable `{}`", hir.let_def(node.1).name.value),
-            NodeKind::Module => format!("module `{}`", hir.module(node.1).name.as_ref().unwrap().name.value),
-            NodeKind::Struct => {
-                let prim = if node.0.is_std() && !self.package_id.is_std() {
-                    let cd = &self.packages[PackageId::std()].check_data;
-                    let ty = cd.typing(node.1);
-                    assert!(ty.0.is_std());
-                    cd.type_(ty.1).data().as_primitive().is_some()
-                } else {
-                    false
-                };
-                let kind = if prim {
-                    "primitive type"
-                } else {
-                    "struct type"
-                };
-                format!("{} `{}`", kind, hir.struct_(node.1).name.value)
-            },
-            _ => unreachable!("{:?}", kind),
+        if kind == NodeKind::Struct {
+            let prim = if node.0.is_std() && !self.package_id.is_std() {
+                let cd = &self.packages[PackageId::std()].check_data;
+                let ty = cd.typing(node.1);
+                assert!(ty.0.is_std());
+                cd.type_(ty.1).data().as_primitive().is_some()
+            } else {
+                false
+            };
+            if prim {
+                let name = self.discover_data(node.0).name(node.1, hir).unwrap();
+                return format!("primitive type `{}`", name.value);
+            }
         }
+        self.discover_data(node.0).describe_named(node.1, hir).unwrap()
     }
 
     fn resolve_path(&mut self, ctx: &HirVisitorCtx) -> Result<Option<TypeId>, ()> {
@@ -1757,34 +1746,6 @@ impl PassImpl<'_> {
                 }
             } else {
                 if reso_ctx == ResoCtx::Import {
-                    let cant_import: Vec<_> = reso.nodes()
-                        .map(|(_, n)| n)
-                        .filter(|n| !can_import(self.hir(n.0).node_kind(n.1).value))
-                        .collect();
-                    if cant_import.len() == reso.len() {
-                        for node in cant_import {
-                            let node = self.describe_named(node);
-                            self.error_span(ctx.node, span, format!(
-                                "{} can't be imported", node));
-                        }
-                        return Err(());
-                    } else {
-                        let name = self.discover_data.import_name(ctx.node, self.hir).unwrap();
-                        let scope = self.discover_data.def_scope_of(ctx.node);
-                        let scope = self.discover_data.scope(scope.0);
-                        let mut can_import_any = false;
-                        for (ns, _) in reso.nodes() {
-                            can_import_any |= scope.namespace(ns).get(&name.value, 0)
-                                .filter(|&n| self.hir.node_kind(n).value != NodeKind::PathEndIdent)
-                                .next()
-                                .is_none();
-                        }
-                            if !can_import_any {
-                            self.error_span(ctx.node, name.span, format!(
-                                "name `{}` is defined multiple times",
-                                name.value));
-                        }
-                    }
                     self.primitive_type(PrimitiveType::Unit);
                     return Ok(None);
                 } else {
@@ -2029,7 +1990,7 @@ impl PassImpl<'_> {
             package_id: self.package_id,
             packages: self.packages,
             diag: self.diag.clone(),
-            cache: &self.check_data.resolve_cache,
+            resolve_data: &self.resolve_data,
         }
     }
 }
@@ -2105,44 +2066,4 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | Root
         => return None,
     })
-}
-
-/// Whether the target of `kind` can be imported with `use`.
-fn can_import(kind: NodeKind) -> bool {
-    use NodeKind::*;
-    match kind {
-        | FnDef
-        | Struct
-        | Module
-        | TypeAlias
-        => true,
-
-        | Block
-        | BlockFlowCtl
-        | Cast
-        | FieldAccess
-        | FnCall
-        | FnDefParam
-        | IfExpr
-        | Impl
-        | Let
-        | LetDef
-        | Literal
-        | Loop
-        | Op
-        | Path
-        | PathEndEmpty
-        | PathEndIdent
-        | PathEndStar
-        | PathSegment
-        | Range
-        | StructType
-        | StructValue
-        | StructValueField
-        | TyExpr
-        | TypeParam
-        | Use
-        | While
-        => false,
-    }
 }

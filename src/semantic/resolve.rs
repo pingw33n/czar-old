@@ -1,6 +1,7 @@
 use atomic_refcell::AtomicRefCell;
 use enum_map::EnumMap;
-use std::collections::{HashMap, HashSet};
+use if_chain::if_chain;
+use std::collections::HashSet;
 
 use crate::diag::DiagRef;
 use crate::hir::*;
@@ -11,13 +12,14 @@ use crate::util::iter::IteratorExt;
 use super::discover::{DiscoverData, NsKind, ScopeVid};
 
 #[derive(Default)]
-pub struct ResolveCache {
-    inner: AtomicRefCell<ResolveCacheInner>,
+pub struct ResolveData {
+    inner: AtomicRefCell<ResolveDataInner>,
 }
 
 #[derive(Default)]
-struct ResolveCacheInner {
-    resolutions: HashMap<NodeId, Result<Resolution>>,
+struct ResolveDataInner {
+    /// Resolution result cache.
+    resolutions: NodeMap<Result<Resolution>>,
 
     /// Dedups errors in tree paths.
     /// This is needed because not all errors can be cached: e.g. items in `PathSegment`.
@@ -44,7 +46,7 @@ pub enum ResolutionKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Resolution {
     kind: ResolutionKind,
-    nodes: HashSet<(NsKind, GlobalNodeId)>,
+    nodes: EnumMap<NsKind, Vec<GlobalNodeId>>,
     /// See `ResolutionKind` for details.
     trailing_path: Vec<S<Ident>>,
 }
@@ -63,18 +65,34 @@ impl Resolution {
     }
 
     pub fn nodes<'a>(&'a self) -> impl Iterator<Item=(NsKind, GlobalNodeId)> + 'a {
-        self.nodes.iter().copied()
+        let mut r = Vec::new();
+        for (ns, n) in &self.nodes {
+            for &n in n {
+                r.push((ns, n));
+            }
+        }
+        r.into_iter()
     }
 
     pub fn ns_nodes<'a>(&'a self, ns: NsKind) -> impl Iterator<Item=GlobalNodeId> + 'a {
-        self.nodes()
-            .filter(move |(k, _)| *k == ns)
-            .map(|(_, n)| n)
+        self.nodes[ns].iter().copied()
     }
 
-    fn insert_node(&mut self, ns: NsKind, node: GlobalNodeId) {
-        debug_assert!(!self.nodes().any(|(_, n)| n == node));
-        self.nodes.insert((ns, node));
+    pub fn ns_nodes_slice(&self, ns: NsKind) -> &[GlobalNodeId] {
+        &self.nodes[ns]
+    }
+
+    pub fn is_full(&self) -> bool {
+        for ns in NsKind::iter() {
+            if self.nodes[ns].is_empty() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn insert(&mut self, ns: NsKind, node: GlobalNodeId) {
+        self.nodes[ns].push(node);
     }
 
     fn type_or_value(&self) -> Option<GlobalNodeId> {
@@ -83,16 +101,20 @@ impl Resolution {
     }
 
     fn clear(&mut self) {
-        self.nodes.clear();
+        for vec in self.nodes.values_mut() {
+            vec.clear();
+        }
         self.trailing_path.clear();
     }
 
     pub fn len(&self) -> usize {
-        self.nodes.len()
+        self.nodes.values()
+            .map(|v| v.len())
+            .sum()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
+        self.len() == 0
     }
 
     pub fn trailing_path(&self) -> &[S<Ident>] {
@@ -102,14 +124,192 @@ impl Resolution {
 
 pub type Result<T> = std::result::Result<T, ()>;
 
-#[derive(Clone)]
-pub struct Resolver<'a> {
+pub struct ResolveImports<'a> {
     pub discover_data: &'a DiscoverData,
     pub hir: &'a Hir,
+    pub resolve_data: &'a ResolveData,
     pub package_id: PackageId,
     pub packages: &'a Packages,
     pub diag: DiagRef,
-    pub cache: &'a ResolveCache,
+}
+
+impl ResolveImports<'_> {
+    /// This pass goes over all scopes and verifies there are no conflicts between defined and imported names.
+    /// Marks the failed items via `Items::mark_failed()` for the resolver to use.
+    /// Non-defining imports like wildcards, are expected to be checked later.
+    pub fn run(&mut self) {
+        let resolver = Resolver {
+            hir: self.hir,
+            discover_data: &*self.discover_data,
+            resolve_data: self.resolve_data,
+            package_id: self.package_id,
+            packages: self.packages,
+            diag: self.diag.clone(),
+        };
+        let nodes = &mut Vec::new();
+        for (_, scope) in self.discover_data.scopes() {
+            for ns_kind in NsKind::iter() {
+                let ns = scope.namespace(ns_kind);
+                for name in ns.ordered_names() {
+                    let items = ns.get(name).unwrap();
+                    nodes.clear();
+                    for (i, &(ver, node)) in items.versions().iter().enumerate() {
+                        if ver != 0 {
+                            break;
+                        }
+                        if self.hir.node_kind(node).value == NodeKind::PathEndIdent {
+                            if let Ok(reso) = resolver.resolve_node(node) {
+                                if reso.kind() == ResolutionKind::Exact {
+                                    let mut failed = false;
+                                    for target_node in reso.ns_nodes(ns_kind) {
+                                        // Note due to recursive resolution we can be getting duplicate target_node's here.
+                                        if !failed && self.insert(nodes, node, target_node).is_err() {
+                                            failed = true;
+                                        }
+                                        if failed {
+                                            items.mark_failed(i as u32, target_node);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            let target_node = (self.package_id, node);
+                            if self.insert(nodes, node, target_node).is_err() {
+                                items.mark_failed(i as u32, target_node);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn insert(&self,
+        nodes: &mut Vec<(GlobalNodeId, Option<NodeId>)>,
+        name_node: NodeId,
+        node: GlobalNodeId,
+    ) -> Result<()> {
+        let name = || self.discover_data.name(name_node, self.hir).unwrap();
+        let original_name = || self.discover_data.original_name(name_node, self.hir).unwrap();
+
+        let hir = |pkg| if node.0 == self.package_id {
+            self.hir
+        } else {
+            &self.packages[pkg].hir
+        };
+        let disc_data = |pkg| if node.0 == self.package_id {
+            &*self.discover_data
+        } else {
+            &self.packages[pkg].discover_data
+        };
+
+        debug_assert!(disc_data(node.0).name(node.1, hir(node.0)).is_some());
+        debug_assert_ne!(hir(node.0).node_kind(node.1).value, NodeKind::PathEndIdent);
+
+        let import_name_node = if (self.package_id, name_node) != node {
+            Some(name_node)
+        } else {
+            None
+        };
+
+        if import_name_node.is_some()
+            && disc_data(node.0).importable_name(node.1, hir(node.0)).is_none()
+        {
+            let span = original_name().span;
+            let name = disc_data(node.0).describe_named(node.1, hir(node.0)).unwrap();
+            self.error(name_node, span, format!("{} can't be imported", name));
+            return Err(());
+        }
+
+        let fn_sign = disc_data(node.0).try_fn_def_signature(node.1);
+        let mut had_fn_import = None;
+        for &(existing, existing_import_nn) in &*nodes {
+            let existing_fn_sign = disc_data(existing.0).try_fn_def_signature(existing.1);
+            let ok = if let Some(fn_sign) = fn_sign {
+                if let Some(existing_fn_sign) = existing_fn_sign {
+                    // New fn vs existing fn.
+
+                    if import_name_node.is_some()
+                        && import_name_node != existing_import_nn
+                        && existing != node
+                    {
+                        // Importing a fn: check if it's the same import.
+                        let name = name();
+                        let original_name = original_name();
+                        if name == original_name {
+                            self.error(name_node, name.span, format!(
+                                "can't import function `{}`: there are conflicting overloads",
+                                name.value));
+                        } else {
+                            self.error(name_node, name.span, format!(
+                                "can't import function `{}` as `{}`: there are conflicting overloads",
+                                original_name.value, name.value));
+                        }
+                        false
+                    } else if import_name_node.is_none() && existing_import_nn.is_some() {
+                        // Defining a fn: check there are no fn imports.
+                        let name = name();
+                        self.error(name_node, name.span, format!(
+                            "can't define function `{}`: there are conflicting overloads",
+                            name.value));
+                        false
+                    } else if existing_fn_sign == fn_sign {
+                        let name = name();
+                        self.error(name_node, name.span, format!(
+                            "function `{}::{}` is defined multiple times",
+                                name.value, fn_sign));
+                        false
+                    } else {
+                        true
+                    }
+                } else {
+                    // New fn vs existing non-fn.
+                    let name = name();
+                    self.error(name_node, name.span, format!(
+                        "function `{}::{}` redefines already defined name",
+                            name.value, fn_sign));
+                    false
+                }
+            } else if let Some(_existing_fn_sign) = existing_fn_sign {
+                // New non-fn vs existing fn.
+                let name = name();
+                self.error(name_node, name.span, format!(
+                    "name `{}` redefines already defined function",
+                        name.value));
+                false
+            } else {
+                // New non-fn vs existing non-fn.
+                let name = name();
+                self.error(name_node, name.span, format!(
+                    "name `{}` is defined multiple times",
+                        name.value));
+                false
+            };
+            if !ok {
+                return Err(());
+            }
+            if existing_fn_sign.is_some() {
+                let ex = had_fn_import.replace(existing_import_nn);
+                assert!(ex.is_none() || ex == had_fn_import);
+            }
+        }
+        nodes.push((node, import_name_node));
+        Ok(())
+    }
+
+    fn error(&self, node: NodeId, span: Span, text: String) {
+        self.diag.borrow_mut().error_span(self.hir, self.discover_data, node, span, text);
+    }
+}
+
+#[derive(Clone)]
+pub struct Resolver<'a> {
+    pub hir: &'a Hir,
+    pub discover_data: &'a DiscoverData,
+    pub resolve_data: &'a ResolveData,
+    pub package_id: PackageId,
+    pub packages: &'a Packages,
+    pub diag: DiagRef,
 }
 
 impl Resolver<'_> {
@@ -147,7 +347,7 @@ impl Resolver<'_> {
                 package_id,
                 packages: self.packages,
                 diag: self.diag.clone(),
-                cache: package.check_data.resolve_cache(),
+                resolve_data: &package.resolve_data,
             }
         }
     }
@@ -173,7 +373,7 @@ impl Resolver<'_> {
         path: NodeId,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<Resolution> {
-        if let Some(r) = self.cache.inner.borrow().resolutions.get(&path) {
+        if let Some(r) = self.resolve_data.inner.borrow().resolutions.get(&path) {
             return r.clone();
         }
 
@@ -189,7 +389,7 @@ impl Resolver<'_> {
         assert!(paths.remove(&(self.package_id, path)));
 
         if use_ {
-            assert!(self.cache.inner.borrow_mut().resolutions.insert(path, r.map(|_| reso.clone())).is_none());
+            assert!(self.resolve_data.inner.borrow_mut().resolutions.insert(path, r.map(|_| reso.clone())).is_none());
         }
 
         r?;
@@ -256,7 +456,7 @@ impl Resolver<'_> {
                     (self.package_id, scope)
                 }
             };
-            reso.insert_node(NsKind::Type, node);
+            reso.insert(NsKind::Type, node);
         } else {
             let scope = self.discover_data.def_scope_of(path);
             let first = path_idents.first().unwrap().clone().map(|v| v.unwrap());
@@ -264,7 +464,7 @@ impl Resolver<'_> {
             self.resolve_in_scope_tree(reso, path, scope, first, paths)?;
             if !reso.is_empty() {
             } else if let Some(package) = self.packages.try_by_name(&first.value) {
-                reso.insert_node(NsKind::Type, (package.id, package.hir.root));
+                reso.insert(NsKind::Type, (package.id, package.hir.root));
             } else {
                 let std_resolver = self.with_package(PackageId::std());
                 // TODO cache this
@@ -332,7 +532,7 @@ impl Resolver<'_> {
             reso.clear();
 
             if type_reso {
-                reso.insert_node(NsKind::Type, (self.package_id, scope.0));
+                reso.insert(NsKind::Type, (self.package_id, scope.0));
                 reso.kind = ResolutionKind::Type;
                 reso.trailing_path = idents
                     .into_iter()
@@ -342,7 +542,7 @@ impl Resolver<'_> {
                 break;
             } else if ident.value.is_self_lower() {
                 assert_eq!(i, idents.len() - 1);
-                reso.insert_node(NsKind::Type, (self.package_id, scope.0));
+                reso.insert(NsKind::Type, (self.package_id, scope.0));
                 break;
             }
             self.resolve_in_scope(
@@ -408,51 +608,60 @@ impl Resolver<'_> {
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<()> {
         if let Some(scope) = self.discover_data.try_scope(scope_vid.0) {
-            // Look in namespaces of the scope for exact matches and for imports to resolve.
             for ns in NsKind::iter() {
-                for node in scope.namespace(ns).get(name.value, scope_vid.1) {
-                    if self.hir.node_kind(node).value == NodeKind::PathEndIdent {
-                        if reso.ns_nodes(ns).next().is_none() {
+                if let Some(items) = scope.namespace(ns).get(name.value) {
+                    let is_failed = items.is_failed();
+                    for (id, node) in items.get(scope_vid.1) {
+                        if self.hir.node_kind(node).value == NodeKind::PathEndIdent {
                             let target = self.resolve(node, paths)?;
-                            for node in target.ns_nodes(ns) {
-                                reso.insert_node(ns, node);
+                            for target_node in target.ns_nodes(ns) {
+                                if !is_failed.is_failed(id, target_node) {
+                                    reso.insert(ns, target_node);
+                                }
+                            }
+                        } else {
+                            let node = (self.package_id, node);
+                            if !is_failed.is_failed(id, node) {
+                                reso.insert(ns, node);
                             }
                         }
-                    } else {
-                        reso.insert_node(ns, (self.package_id, node));
                     }
                 }
             }
 
-            // If nothing found look in wildcard imports.
-            if reso.is_empty() {
+            // If not all namespaces were filled, look in wildcard imports.
+            if !reso.is_full() {
                 let mut found_in_wc_imports = Vec::new();
                 for &path in scope.wildcard_imports() {
-                    if let Some((pkg, scope)) = self.resolve(path, paths)?.type_or_value() {
-                        let mut wild_reso = Resolution::new(ResolutionKind::Exact);
-                        self.with_package(pkg)
-                            .resolve_in_scope(&mut wild_reso, node, (scope, 0), name, paths)?;
-                        if !wild_reso.is_empty() {
-                            found_in_wc_imports.push(wild_reso);
+                    if_chain! {
+                        if let Ok(reso) = self.resolve(path, paths);
+                        if let Some((pkg, scope)) = reso.type_or_value();
+                        then {
+                            let mut wild_reso = Resolution::new(ResolutionKind::Exact);
+                            if self.with_package(pkg)
+                                .resolve_in_scope(&mut wild_reso, node, (scope, 0), name, paths).is_ok()
+                            {
+                                if !wild_reso.is_empty() {
+                                    found_in_wc_imports.push(wild_reso);
+                                }
+                            }
                         }
                     }
                 }
                 match found_in_wc_imports.len() {
                     0 => {}
                     1 => {
-                        let mut inserted = 0;
-                        for (ns, node) in found_in_wc_imports[0].nodes() {
-                            if reso.ns_nodes(ns).next().is_none() {
-                                reso.insert_node(ns, node);
-                                inserted += 1;
+                        for ns in NsKind::iter() {
+                            if reso.ns_nodes_slice(ns).is_empty() {
+                                for n in found_in_wc_imports[0].ns_nodes(ns) {
+                                    reso.insert(ns, n);
+                                }
                             }
                         }
-                        assert!(inserted > 0);
                     }
                     _ => {
                         self.error(node, name.span, format!(
                             "`{}` found in multiple wildcard imports", name.value));
-                        return Err(());
                     },
                 }
             }
@@ -462,7 +671,7 @@ impl Resolver<'_> {
 
     fn error(&self, node: NodeId, span: Span, text: String) {
         let source_id = self.discover_data.source_of(node, self.hir);
-        if self.cache.inner.borrow_mut().errors.insert((source_id, span)) {
+        if self.resolve_data.inner.borrow_mut().errors.insert((source_id, span)) {
             self.diag.borrow_mut().error_span(self.hir, self.discover_data, node, span, text);
         }
     }

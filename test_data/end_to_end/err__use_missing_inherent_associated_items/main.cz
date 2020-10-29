@@ -13,7 +13,7 @@ use m1::S::x;
 use m1::{S::{foo, bar::x}};
 use m1::{S::foobar, S::barfoo};
 
-// FIXME all these should error
+
 use std::char::*;
 use std::char::{};
 use std::char::charbar;

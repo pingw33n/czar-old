@@ -1,0 +1,4 @@
+error: name `NAME` is defined multiple times
+  --> main.cz:9:12
+9 |     use m::NAME;
+               ~~~~

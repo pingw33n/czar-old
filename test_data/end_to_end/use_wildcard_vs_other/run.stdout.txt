@@ -1,0 +1,8 @@
+fn vs_defined1
+struct m1 vs_defined1
+struct vs_defined2
+fn vs_defined3
+struct vs_defined3
+struct m2 vs_imported1
+struct m1 vs_imported2
+struct m2 vs_imported3

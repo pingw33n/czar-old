@@ -1,0 +1,79 @@
+module m1 {
+    struct Name {m1: String}
+    fn Name() -> String {"fn m1"}
+}
+
+module m2 {
+    struct Name {m2: String}
+}
+
+module m3 {
+    fn Name() -> String {"fn m3"}
+}
+
+fn vs_defined1() {
+    use m1::*;
+
+    fn Name(text: String) {
+        prints(text); println();
+    }
+
+    Name(text:"fn vs_defined1");
+    prints(Name{m1:"struct m1 vs_defined1"}.m1); println();
+}
+
+fn vs_defined2() {
+    use m1::*;
+
+    struct Name {text: String}
+
+    Name();
+    prints(Name{text:"struct vs_defined2"}.text); println();
+}
+
+fn vs_defined3() {
+    use m1::*;
+
+    fn Name(_ s: String) {
+        prints(s); println();
+    }
+
+    struct Name {stuff: String}
+
+    Name("fn vs_defined3");
+    prints(Name{stuff:"struct vs_defined3"}.stuff); println();
+}
+
+fn vs_imported1() {
+    use m2::Name;
+    use m1::*;
+
+    Name();
+    prints(Name{m2:"struct m2 vs_imported1"}.m2); println();
+}
+
+fn vs_imported2() {
+    use m1::*;
+    use m3::Name;
+
+    Name();
+    prints(Name{m1:"struct m1 vs_imported2"}.m1); println();
+}
+
+fn vs_imported3() {
+    use m3::Name;
+    use m1::*;
+    use m2::Name;
+
+    Name();
+    prints(Name{m2:"struct m2 vs_imported3"}.m2); println();
+}
+
+fn main() {
+    vs_defined1();
+    vs_defined2();
+    vs_defined3();
+    vs_imported1();
+    vs_imported2();
+    vs_imported3();
+}
