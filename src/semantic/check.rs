@@ -781,8 +781,8 @@ impl PassImpl<'_> {
                     let name = &self.hir.fn_def(node).name;
                     let sign = self.discover_data.fn_def_signature(node);
                     self.error_span(node, name.span, format!(
-                        "function `{}::{}` is defined multiple times within inherent `impl`",
-                        name.value, sign));
+                        "function `{}` is defined multiple times within inherent `impl`",
+                        sign.display_with_name(&name.value)));
                 }
             }
             | NodeKind::Struct
@@ -1729,8 +1729,8 @@ impl PassImpl<'_> {
                     if let Some(name) = &name {
                         // There are other fns with the same name but none with matching signature.
                         self.error_span(ctx.node, call_span, format!(
-                            "couldn't find function `{}::{}`: none of existing functions matches the signature",
-                            name, call_sign));
+                            "couldn't find function `{}`: none of existing functions matches the signature",
+                            call_sign.display_with_name(name)));
                         return Err(());
                     }
                     if let Some(node) = reso.ns_nodes(NsKind::Value).next() {
@@ -1755,8 +1755,8 @@ impl PassImpl<'_> {
                         if let Some(FnDef { name, .. }) = self.hir(node.0).try_fn_def(node.1) {
                             let text = if it.next().is_none() {
                                 let sign = self.discover_data(node.0).fn_def_signature(node.1);
-                                format!("invalid function reference, must include function's signature: `{}::{}`",
-                                    name.value, sign)
+                                format!("invalid function reference, must include function's signature: `{}`",
+                                    sign.display_with_name(&name.value))
                             } else {
                                 "invalid function reference, must include function's signature".into()
                             };
@@ -1833,8 +1833,8 @@ impl PassImpl<'_> {
             return Ok((fn_def, fn_ty));
         }
         self.error(*callee, format!(
-            "method `{}::{}` not found for type `{}`",
-            name.value, sign,
+            "method `{}` not found for type `{}`",
+            sign.display_with_name(&name.value),
             self.display_type(receiver_ty)));
 
         Err(())
@@ -1918,8 +1918,8 @@ impl PassImpl<'_> {
                     return Ok(fn_ty);
                 }
                 self.error_span(full_path, item_name.span, format!(
-                    "associated function `{}::{}` not found for type `{}`",
-                    item_name.value, sign,
+                    "associated function `{}` not found for type `{}`",
+                    sign.display_with_name(&item_name.value),
                     self.display_type(ty)));
                     return Err(());
             } else {

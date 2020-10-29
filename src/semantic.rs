@@ -50,7 +50,25 @@ impl FnParamsSignature {
                 .unwrap_or_else(|| Ident::underscore()));
         Self::from_iter(it)
     }
+
+    pub fn display_with_name<'a>(&'a self, name: &'a str) -> impl std::fmt::Display + 'a {
+        struct Impl<'a> {
+            name: &'a str,
+            sign: &'a FnParamsSignature,
+        }
+        impl std::fmt::Display for Impl<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}::{}", self.name, self.sign)
+            }
+        }
+        Impl {
+            name,
+            sign: self,
+        }
+    }
 }
+
+
 
 impl std::fmt::Display for FnParamsSignature {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {

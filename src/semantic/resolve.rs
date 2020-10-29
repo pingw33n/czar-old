@@ -256,8 +256,8 @@ impl ResolveImports<'_> {
                     } else if existing_fn_sign == fn_sign {
                         let name = name();
                         self.error(name_node, name.span, format!(
-                            "function `{}::{}` is defined multiple times",
-                                name.value, fn_sign));
+                            "function `{}` is defined multiple times",
+                                fn_sign.display_with_name(&name.value)));
                         false
                     } else {
                         true
