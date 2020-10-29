@@ -1,0 +1,44 @@
+fn f(_ v: i32) -> i32 {
+    print_i32(v); println();
+    v
+}
+
+struct Struct {
+    a: i32,
+    b: i32,
+    c: i32,
+}
+
+struct Tuple {
+    i32,
+    i32,
+    i32,
+}
+
+fn main() {
+    Struct {
+        c: f(1),
+        a: f(2),
+        b: f(3),
+    };
+    Tuple {
+        f(4),
+        f(5),
+        f(6),
+    };
+    {
+        c: f(7),
+        a: f(8),
+        b: f(9),
+    };
+    {
+        b: f(10),
+        c: f(11),
+        a: f(12),
+    };
+    {
+        f(13),
+        f(14),
+        f(15),
+    };
+}

@@ -1,0 +1,32 @@
+fn f(_ v: i32) -> i32 {
+    print_i32(v); println();
+    v
+}
+
+fn foo(_ a: i32, b: i32, c: i32) {}
+
+struct S {}
+
+impl S {
+    fn f(_ v: i32) -> Self {
+        f(v);
+        Self {}
+    }
+
+    fn foo(_ a: i32, b: i32, c: i32) {
+    }
+
+    fn foo(self, _ a: i32, b: i32, c: i32) -> Self {
+        f(c + 1);
+        Self {}
+    }
+}
+
+fn main() {
+    foo(f(1), b: f(2), c: f(3));
+    S::f(4)
+        .foo(f(5), b: f(6), c: f(7))
+        .foo(f(9), b: f(10), c: f(11));
+    S::foo(f(13), b: f(14), c: f(15));
+    S::foo(self: S::f(16), f(17), b: f(18), c: f(19));
+}
