@@ -301,16 +301,20 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     item: PathItem { ident: _, ty_params },
                     renamed_as: _,
                 } = self.hir.path_end_ident(node);
-                for &node in ty_params {
-                    self.traverse0(node, NodeLink::Path(PathLink::EndIdentTyParams));
+                if let Some(ty_params) = ty_params {
+                    for &node in &ty_params.value {
+                        self.traverse0(node, NodeLink::Path(PathLink::EndIdentTyParams));
+                    }
                 }
             },
             NodeKind::PathEndStar => {},
             NodeKind::PathSegment => {
                 let PathSegment { prefix, suffix } = self.hir.path_segment(node);
                 for PathItem { ident: _, ty_params } in prefix {
-                    for &node in ty_params {
-                        self.traverse0(node, NodeLink::Path(PathLink::SegmentItemTyParams));
+                    if let Some(ty_params) = ty_params {
+                        for &node in &ty_params.value {
+                            self.traverse0(node, NodeLink::Path(PathLink::SegmentItemTyParams));
+                        }
                     }
                 }
                 for &node in suffix {

@@ -69,3 +69,8 @@ fn mod_file_resolution() {
     let mod3 = hir.module(root_mod.items[1]);
     assert_eq!(mod3.source_id, None);
 }
+
+#[test]
+fn for_parser_debugging() {
+    parse_str("".into());
+}

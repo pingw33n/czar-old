@@ -1,8 +1,13 @@
 fn f() {
   foo(Map<K, V>(0));
+  foo(Map<>(0));
   foo(Map < K, V > 0);
   foo(Map < K);
   foo(Map<K>);
   Struct<T, U<V>> { foo: "foo" };
+  Struct<> { foo: "foo" };
   Struct<T, U<V>>.foo();
+  Struct<>.foo();
+  (path<>::to<T, Inner<>>::Struct<T<>, U<>> {/*{,}*/}) << path<>::to<T, Inner<>>::Struct<T<U<>>, V<>>();
+  (path<>::to<T, Inner<>>::Struct<T<>, U<>> {/*{,}*/}) > path<>::to<T, Inner<>>::Struct<T<U<>>, V<>>();
 }

@@ -224,7 +224,7 @@ impl Hir {
         let end = self.insert_path_end_ident(ident.span.spanned(PathEndIdent {
             item: PathItem {
                 ident,
-                ty_params: Vec::new(),
+                ty_params: None,
             },
             renamed_as: None,
         }));
@@ -248,8 +248,8 @@ impl Hir {
 
         let suffix = items.pop().unwrap();
         let suffix_start = suffix.ident.span.start;
-        let end = suffix.ty_params.last()
-            .map(|&v| self.node_kind(v).span.end)
+        let end = suffix.ty_params.as_ref()
+            .map(|v| v.span.end)
             .unwrap_or(suffix.ident.span.end);
         let suffix = self.insert_path_end_ident(Span::new(suffix_start, end).spanned(
             PathEndIdent {
@@ -734,7 +734,7 @@ pub struct PathSegment {
 #[derive(Debug)]
 pub struct PathItem {
     pub ident: S<Ident>,
-    pub ty_params: Vec<NodeId>, // TyExpr
+    pub ty_params: Option<S<Vec<NodeId /*TyExpr*/>>>,
 }
 
 #[derive(Debug)]

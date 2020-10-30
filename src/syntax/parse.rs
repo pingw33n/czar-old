@@ -597,7 +597,6 @@ impl<'a> ParserImpl<'a> {
                 let save = self.save_state();
                 match self.path_ty_params() {
                     Ok(ty_params) => {
-                        assert!(!ty_params.is_empty());
                         if !in_type_pos {
                             let tok = self.lex.nth(0);
                             match tok.value {
@@ -609,7 +608,7 @@ impl<'a> ParserImpl<'a> {
                                 | Token::Dot
                                 => {
                                     self.discard_state(save);
-                                    Ok(ty_params)
+                                    Ok(Some(ty_params))
                                 }
                                 _ => {
                                     self.restore_state(save);
@@ -618,7 +617,7 @@ impl<'a> ParserImpl<'a> {
                             }
                         } else {
                             self.discard_state(save);
-                            Ok(ty_params)
+                            Ok(Some(ty_params))
                         }
                     }
                     Err(e) => {
@@ -631,7 +630,7 @@ impl<'a> ParserImpl<'a> {
                     }
                 }
             } else {
-                Ok(Vec::new())
+                Ok(None)
             };
 
             let done = ty_params.is_err();
@@ -664,7 +663,7 @@ impl<'a> ParserImpl<'a> {
             PathEndIdent {
                 item: PathItem {
                     ident,
-                    ty_params: Vec::new(),
+                    ty_params: None,
                 },
                 renamed_as,
             })))
@@ -741,7 +740,7 @@ impl<'a> ParserImpl<'a> {
                         let ident = self.ident()?;
                         prefix.push(PathItem {
                             ident,
-                            ty_params: Vec::new(),
+                            ty_params: None,
                         });
                         state = State::SepOrEnd;
                     } else {
@@ -778,11 +777,13 @@ impl<'a> ParserImpl<'a> {
             })))
     }
 
-    fn path_ty_params(&mut self) -> PResult<Vec<NodeId>> {
-        self.expect(Token::Lt)?;
+    fn path_ty_params(&mut self) -> PResult<S<Vec<NodeId>>> {
+        let start = self.expect(Token::Lt)?.span.start;
         let mut ty_params = Vec::new();
-        loop {
-            ty_params.push(self.ty_expr()?);
+        let end = loop {
+            if !matches!(self.lex.nth(0).value, Token::Gt | Token::GtGt) {
+                ty_params.push(self.ty_expr()?);
+            }
             let mut tok = self.lex.nth(0);
             // Split GtGt into Gt and Gt.
             if tok.value == Token::GtGt {
@@ -797,15 +798,15 @@ impl<'a> ParserImpl<'a> {
             match tok.value {
                 Token::Comma => {}
                 Token::Gt => {
-                    break;
+                    break tok.span.end;
                 }
                 _ => {
                     return self.error(tok.span,
                         format!("expected `,` or `>`, found `{}`", tok.value));
                 }
             }
-        }
-        Ok(ty_params)
+        };
+        Ok(Span::new(start, end).spanned(ty_params))
     }
 
     fn maybe_formal_ty_params(&mut self) -> PResult<Vec<NodeId>> {
