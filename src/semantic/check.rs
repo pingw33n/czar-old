@@ -10,9 +10,9 @@ use crate::hir::traverse::*;
 use crate::package::{GlobalNodeId, PackageId, Packages, PackageKind};
 use crate::util::iter::IteratorExt;
 
-use super::*;
+use super::{*, PathItem};
 use discover::{DiscoverData, NsKind};
-use resolve::{ResolutionKind, Resolver,ResolveData};
+use resolve::{self, ResolutionKind, Resolver, ResolveData};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NumberType {
@@ -165,7 +165,8 @@ pub enum TypeData {
     Primitive(PrimitiveType),
     Struct(StructType),
     Type(TypeId),
-    UnknownNumber(NumberType)
+    UnknownNumber(NumberType), // TODO remove, use Var
+    Var,
 }
 
 impl TypeData {
@@ -177,11 +178,25 @@ impl TypeData {
             _ => None,
         }
     }
+
+    pub fn ty_params(&self) -> &[TypeId] {
+        match self {
+            | TypeData::Fn(FnType { ty_params, .. })
+            | TypeData::Struct(StructType { ty_params, .. })
+            => ty_params,
+            | TypeData::Primitive(_)
+            | TypeData::UnknownNumber(_)
+            | TypeData::Var
+            => &[],
+            TypeData::Type(_) => unreachable!(),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct FnType {
     pub params: Vec<TypeId>,
+    pub ty_params: Vec<TypeId>,
     pub result: TypeId,
     pub unsafe_: bool,
 }
@@ -197,11 +212,14 @@ pub struct StructTypeField {
 #[derive(Debug)]
 pub struct StructType {
     pub fields: Vec<StructTypeField>,
+    pub ty_params: Vec<TypeId>,
 }
 
 pub type LocalTypeId = usize;
 
 pub type TypeId = (PackageId, LocalTypeId);
+
+pub type TypeMap<T> = HashMap<TypeId, T>;
 
 #[derive(Default)]
 pub struct Std {
@@ -248,7 +266,7 @@ pub struct CheckData {
     unnamed_structs: HashMap<UnnamedStructKey, LocalTypeId>,
     lvalues: NodeMap<()>,
     /// Impls defined in this package.
-    impls: HashMap<TypeId, Vec<Impl>>,
+    impls: TypeMap<Vec<Impl>>,
     entry_point: Option<NodeId>,
 }
 
@@ -670,11 +688,14 @@ impl PassImpl<'_> {
             NodeKind::FnDef => {
                 let FnDef {
                     name,
+                    vis: _,
+                    ty_params,
                     params,
                     ret_ty,
                     unsafe_,
+                    variadic: _,
                     body,
-                    .. } = self.hir.fn_def(ctx.node);
+                } = self.hir.fn_def(ctx.node);
                 if body.is_none() && unsafe_.is_none() {
                     self.error_span(ctx.node, name.span,
                         "external function must be marked as `unsafe`".into());
@@ -693,11 +714,22 @@ impl PassImpl<'_> {
                 } else {
                     self.primitive_type(PrimitiveType::Unit)
                 };
+
+                let mut ty_param_tys = Vec::with_capacity(ty_params.len());
+                for &ty_param in ty_params {
+                    if let Ok(ty) = self.ensure_typing(ty_param) {
+                        ty_param_tys.push(ty);
+                    } else {
+                        err = true;
+                    }
+                }
+
                 if err {
                     return Err(());
                 }
                 self.insert_typing(ctx.node, TypeData::Fn(FnType {
                     params: param_tys,
+                    ty_params: ty_param_tys,
                     result,
                     unsafe_: unsafe_.is_some(),
                 }));
@@ -711,8 +743,19 @@ impl PassImpl<'_> {
                     for_,
                     items,
                 } = self.hir.impl_(ctx.node);
-                if !ty_params.is_empty() || trait_.is_some() {
+                if trait_.is_some() {
                     todo!();
+                }
+
+                let mut err = false;
+
+                let mut ty_param_tys = Vec::with_capacity(ty_params.len());
+                for &ty_param in ty_params {
+                    if let Ok(ty) = self.ensure_typing(ty_param) {
+                        ty_param_tys.push(ty);
+                    } else {
+                        err = true;
+                    }
                 }
 
                 self.reso_ctxs.push(ResoCtx::Type);
@@ -722,7 +765,7 @@ impl PassImpl<'_> {
 
                 if struct_ty.0 != self.package_id {
                     self.error(*for_, "cannot define inherent `impl` for a type from outside of this package".into());
-                    return Err(());
+                    err = true;
                 }
 
                 {
@@ -730,6 +773,7 @@ impl PassImpl<'_> {
                     match struct_ty.data() {
                         | TypeData::Primitive(_)
                         | TypeData::Struct(_)
+                        | TypeData::Var
                         => {}
                         TypeData::Fn(_) => {
                             self.error(*for_, format!(
@@ -776,6 +820,10 @@ impl PassImpl<'_> {
                         }
                         _ => unreachable!(),
                     }
+
+                    if err {
+                        return Err(());
+                    }
                 }
                 for node in dup_errs {
                     let name = &self.hir.fn_def(node).name;
@@ -789,6 +837,9 @@ impl PassImpl<'_> {
             | NodeKind::TypeAlias
             => {
                 self.begin_typing(ctx.node);
+            }
+            NodeKind::TypeParam => {
+                self.insert_typing(ctx.node, TypeData::Var);
             }
             | NodeKind::Block
             | NodeKind::FieldAccess
@@ -812,9 +863,11 @@ impl PassImpl<'_> {
             | NodeKind::Use
             | NodeKind::While
             => {},
-            _ => {
-                unimplemented!("{:?}", self.hir.node_kind(ctx.node));
-            },
+            | NodeKind::BlockFlowCtl
+            | NodeKind::Cast
+            | NodeKind::Loop
+            | NodeKind::Range
+            => todo!("{:?}", self.hir.node_kind(ctx.node)),
         }
         Ok(())
     }
@@ -877,7 +930,7 @@ impl PassImpl<'_> {
                 let struct_ty = self.typing(*receiver)?;
                 self.resolve_struct_field(struct_ty, ctx.node, field)?
             }
-            NodeKind::FnCall => self.type_fn_call(&ctx)?,
+            NodeKind::FnCall => self.check_fn_call(&ctx)?,
             NodeKind::FnDef => return Err(()),
             NodeKind::FnDefParam => {
                 self.check_data.set_lvalue(ctx.node);
@@ -1038,7 +1091,7 @@ impl PassImpl<'_> {
             }
             NodeKind::StructType => {
                 let fields = &self.hir.struct_type(ctx.node).fields;
-                let named = self.hir.try_struct(self.discover_data.parent_of(ctx.node)).is_some();
+                let struct_ = self.hir.try_struct(self.discover_data.parent_of(ctx.node));
 
                 let mut seen_fields = HashSet::new();
                 let mut dup_fields = HashSet::new();
@@ -1054,7 +1107,7 @@ impl PassImpl<'_> {
                     }
                 }
 
-                if named {
+                if let Some(Struct { ty_params, .. }) = struct_ {
                     let mut field_tys = Vec::with_capacity(fields.len());
                     let mut err = false;
                     for (def_idx, f) in fields.iter().enumerate() {
@@ -1070,11 +1123,22 @@ impl PassImpl<'_> {
                             err = true;
                         }
                     }
+
+                    let mut ty_param_tys = Vec::with_capacity(ty_params.len());
+                    for &ty_param in ty_params {
+                        if let Ok(ty) = self.typing(ty_param) {
+                            ty_param_tys.push(ty);
+                        } else {
+                            err = true;
+                        }
+                    }
+
                     if err {
                         return Err(());
                     }
                     self.insert_type(ctx.node, TypeData::Struct(StructType {
                         fields: field_tys,
+                        ty_params: ty_param_tys,
                     }))
                 } else {
                     let mut field_tys = Vec::with_capacity(fields.len());
@@ -1099,10 +1163,12 @@ impl PassImpl<'_> {
             NodeKind::StructValue => {
                 let StructValue { name, explicit_tuple, fields } = self.hir.struct_value(ctx.node);
                 assert!(explicit_tuple.is_none() || !fields.is_empty());
-                let ty = if let Some(name) = *name {
-                    self.typing(name)?
+                let (ty, ty_args) = if let Some(name) = *name {
+                    let ty = self.typing(name)?;
+                    let ty_args= self.build_path_ty_args(name, ty);
+                    (ty, ty_args)
                 } else {
-                    if fields.is_empty() {
+                    let ty = if fields.is_empty() {
                         self.primitive_type(PrimitiveType::Unit)
                     } else {
                         let mut field_tys = Vec::with_capacity(fields.len());
@@ -1119,7 +1185,8 @@ impl PassImpl<'_> {
                             return Err(());
                         }
                         self.unnamed_struct(ctx.node, field_tys)
-                    }
+                    };
+                    (ty, Ok(Vec::new()))
                 };
                 let mut seen_fields = HashSet::new();
                 for (i, &field_node) in fields.iter().enumerate() {
@@ -1169,7 +1236,7 @@ impl PassImpl<'_> {
 
                 let expected_field_count = match self.type_(ty).data() {
                     TypeData::Primitive(PrimitiveType::Unit) => 0,
-                    TypeData::Struct(StructType { fields }) => fields.len(),
+                    TypeData::Struct(StructType { fields, ty_params: _ }) => fields.len(),
                     _ => unreachable!(),
                 };
                 if seen_fields.len() != expected_field_count {
@@ -1199,6 +1266,12 @@ impl PassImpl<'_> {
                             self.display_type(ty.id()),
                             expected_field_count, if expected_field_count > 1 { "s" } else { "" }));
                     }
+                }
+
+                let ty_args = ty_args?;
+
+                if !ty_args.is_empty() {
+                    todo!();
                 }
 
                 ty
@@ -1240,6 +1313,96 @@ impl PassImpl<'_> {
             _ => unimplemented!("{:?}", self.hir.node_kind(ctx.node))
         };
         Ok(Some(ty))
+    }
+
+    fn path_ty_args(path: &[PathItem]) -> Option<S<&[NodeId]>> {
+        let mut r = None;
+        for path_item in path {
+            if let Some(args) = &path_item.ty_args {
+                assert!(r.replace(args.span.spanned(&args.value[..])).is_none());
+            }
+        }
+        r
+    }
+
+    fn check_path_node_ty_args(&self, path: NodeId /*PathEndIdent*/, ty: TypeId) -> Result<(), ()> {
+        let path_start = self.discover_data.find_path_start(path, self.hir).unwrap();
+
+        let fully_inferrable = match self.hir.node_kind(self.discover_data.parent_of(path_start)).value {
+            | NodeKind::StructValue
+            | NodeKind::FnCall
+            => true,
+            _ => false,
+        };
+
+        let path = PathItem::from_hir_path(path, self.hir, self.discover_data);
+
+        self.check_path_ty_args(&path, ty, fully_inferrable)
+    }
+
+    fn check_path_ty_args(&self, path: &[PathItem], ty: TypeId, fully_inferrable: bool) -> Result<(), ()> {
+        assert!(!path.is_empty());
+        let args = Self::path_ty_args(path);
+
+        let mut err = false;
+        let param_count = self.type_(ty).data().ty_params().len();
+        if args.is_some() || !fully_inferrable {
+            let (arg_count, span) = args.map(|v| (v.value.len(), v.span))
+                .unwrap_or_else(|| (0, self.hir.node_kind(path.last().unwrap().node).span));
+            if arg_count != param_count {
+                if param_count == 0 {
+                    self.error_span(path[0].node, span, format!(
+                        "unexpected type arguments: type `{}` doesn't have type parameters",
+                        self.display_type(ty)));
+                } else {
+                    self.error_span(path[0].node, span, format!(
+                        "wrong number of type arguments: expected {}, found {}",
+                        param_count, arg_count));
+                }
+                err = true;
+            }
+        }
+        if err {
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn build_path_ty_args(&mut self, path: NodeId /*Path*/, ty: TypeId) -> Result<Vec<TypeId>, ()> {
+        let params = self.type_(ty).data().ty_params();
+        if params.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut err = false;
+        let mut r = Vec::with_capacity(params.len());
+        let path = &PathItem::from_hir_path(path, self.hir, self.discover_data);
+        let args = Self::path_ty_args(path);
+        if let Some(args) = args {
+            assert_eq!(args.value.len(), params.len());
+            for &arg in args.value {
+                // TODO check for any type `_`
+                if let Ok(ty) = self.typing(arg) {
+                    r.push(ty);
+                } else {
+                    err = true;
+                }
+            }
+        } else {
+            let node = path.last().unwrap().node;
+            for _ in 0..params.len() {
+                r.push(self.new_inference_type_var(node));
+            }
+        }
+        if err {
+            Err(())
+        } else {
+            Ok(r)
+        }
+    }
+
+    fn new_inference_type_var(&mut self, node: NodeId) -> TypeId {
+        self.insert_type(node, TypeData::Var)
     }
 
     fn type_binary_op(&mut self, BinaryOp { kind, left, right }: BinaryOp, ctx: HirVisitorCtx) -> Result<TypeId, ()> {
@@ -1395,7 +1558,7 @@ impl PassImpl<'_> {
     ) -> Result<TypeId, ()> {
         let (idx, ty) = {
             let struct_ty = self.type_(struct_ty);
-            let ty_fields = if let TypeData::Struct(StructType { fields }) = struct_ty.data() {
+            let ty_fields = if let TypeData::Struct(StructType { fields, ty_params: _ }) = struct_ty.data() {
                 &fields[..]
             } else {
                 &[]
@@ -1468,6 +1631,7 @@ impl PassImpl<'_> {
         } else {
             let ty = self.insert_type(node, TypeData::Struct(StructType {
                 fields,
+                ty_params: Vec::new(),
             }));
             assert_eq!(ty.0, self.package_id);
             self.unnamed_structs.insert(key.clone(), ty);
@@ -1510,11 +1674,22 @@ impl PassImpl<'_> {
         match &ty.data {
             Some(v) => {
                 match v {
-                    TypeData::Fn(FnType { params, result, unsafe_ }) => {
+                    TypeData::Fn(FnType { params, ty_params, result, unsafe_ }) => {
                         if *unsafe_ {
                             write!(f, "unsafe ")?;
                         }
-                        write!(f, "fn(")?;
+                        write!(f, "fn")?;
+                        if !ty_params.is_empty() {
+                            write!(f, "<")?;
+                            for (i, &ty_param) in ty_params.iter().enumerate() {
+                                if i > 0 {
+                                    write!(f, ", ")?;
+                                }
+                                self.display_type0(ty_param, f)?;
+                            }
+                            write!(f, ">")?;
+                        }
+                        write!(f, "(")?;
                         for (i, &param) in params.iter().enumerate() {
                             if i > 0 {
                                 write!(f, ", ")?;
@@ -1529,15 +1704,22 @@ impl PassImpl<'_> {
                         Ok(())
                     }
                     &TypeData::Primitive(v) => write!(f, "{}", v),
-                    TypeData::Struct(StructType { fields: ty_fields }) => {
-                        if let Some(Struct { name , ty_params, .. }) = hir.try_struct(self.discover_data(ty.node().0).parent_of(ty.node().1)) {
+                    TypeData::Struct(StructType { fields: field_tys, ty_params }) => {
+                        if let Some(Struct { name, .. }) = hir.try_struct(self.discover_data(ty.node().0).parent_of(ty.node().1)) {
                             write!(f, "{}", name.value)?;
                             if !ty_params.is_empty() {
-                                todo!();
+                                write!(f, "<")?;
+                                for (i, &ty_param) in ty_params.iter().enumerate() {
+                                    if i > 0 {
+                                        write!(f, ", ")?;
+                                    }
+                                    self.display_type0(ty_param, f)?;
+                                }
+                                write!(f, ">")?;
                             }
                         } else if let Some(hir::StructType { fields: def_fields }) = hir.try_struct_type(ty.node().1) {
-                            assert!(def_fields.len() >= ty_fields.len());
-                            let mut fields: Vec<_> = ty_fields.iter()
+                            assert!(def_fields.len() >= field_tys.len());
+                            let mut fields: Vec<_> = field_tys.iter()
                                 .map(|ty_field| {
                                     let def_field = &def_fields[ty_field.def_idx as usize];
                                     (def_field.name.as_ref().map(|v| v.value.clone()), ty_field.ty)
@@ -1564,8 +1746,8 @@ impl PassImpl<'_> {
                         } else {
                             let def_fields = &hir.struct_value(ty.node().1).fields;
                             // TODO can this be deduped with hir::StructType code above?
-                            assert_eq!(def_fields.len(), ty_fields.len());
-                            let mut fields: Vec<_> = ty_fields.iter()
+                            assert_eq!(def_fields.len(), field_tys.len());
+                            let mut fields: Vec<_> = field_tys.iter()
                                 .map(|ty_field| {
                                     let def_field = def_fields[ty_field.def_idx as usize];
                                     let name = hir.struct_value_field(def_field).name.as_ref().map(|v| v.value.clone());
@@ -1594,6 +1776,13 @@ impl PassImpl<'_> {
                         Ok(())
                     }
                     &TypeData::Type(ty) => self.display_type0(ty, f),
+                    TypeData::Var => {
+                        if let Some(tp) = self.hir(ty.id().0).try_type_param(ty.node) {
+                            write!(f, "{}", tp.name.value)
+                        } else {
+                            write!(f, "<{:?}>", ty.id())
+                        }
+                    }
                     &TypeData::UnknownNumber(v) => match v {
                         NumberType::Int => write!(f, "<integer>"),
                         NumberType::Float => write!(f, "<float>"),
@@ -1604,12 +1793,12 @@ impl PassImpl<'_> {
         }
     }
 
-    fn type_fn_call(&mut self, ctx: &HirVisitorCtx) -> Result<TypeId, ()> {
+    fn check_fn_call(&mut self, ctx: &HirVisitorCtx) -> Result<TypeId, ()> {
         let FnCall {
             callee,
             kind,
-            params: actual_params,
-            .. } = self.hir.fn_call(ctx.node);
+            args,
+        } = self.hir.fn_call(ctx.node);
         let (fn_def_node, res_ty) = match *kind {
             FnCallKind::Free => {
                 let callee_ty = self.type_(self.typing(*callee)?);
@@ -1622,6 +1811,10 @@ impl PassImpl<'_> {
                     return Err(());
                 };
                 let fn_def_node = callee_ty.node();
+                let ty_args = self.build_path_ty_args(*callee, ty)?;
+                if !ty_args.is_empty() {
+                    todo!();
+                }
                 (fn_def_node, ty)
             }
             FnCallKind::Method => {
@@ -1631,27 +1824,27 @@ impl PassImpl<'_> {
             }
         };
 
-        let expected_params = self.hir(fn_def_node.0).fn_def(fn_def_node.1).params.clone();
-        assert_eq!(actual_params.len(), expected_params.len());
+        let params = self.hir(fn_def_node.0).fn_def(fn_def_node.1).params.clone();
+        assert_eq!(args.len(), params.len());
 
-        for (actual, &expected) in actual_params
+        for (arg, &param) in args
             .iter()
-            .zip(expected_params.iter())
+            .zip(params.iter())
         {
-            let actual_ty = if let Ok(ty) = self.typing(actual.value) {
+            let arg_ty = if let Ok(ty) = self.typing(arg.value) {
                 ty
             } else {
                 continue;
             };
-            let expected_ty = self.check_data(fn_def_node.0).typing(expected);
-            let (actual_ty, expected_ty) = self.unify(actual_ty, expected_ty);
-            if actual_ty != expected_ty {
+            let param_ty = self.check_data(fn_def_node.0).typing(param);
+            let (arg_ty, param_ty) = self.unify(arg_ty, param_ty);
+            if arg_ty != param_ty {
                 let hir = self.hir(fn_def_node.0);
                 let name = &hir.fn_def(fn_def_node.1).name.value;
-                self.error(actual.value, format!(
-                    "mismatching types in fn call of `{fname}::{fsign}`: expected `{exp}`, found `{act}`",
-                    fname=name, fsign= FnParamsSignature::from_def(fn_def_node.1, hir),
-                    exp=self.display_type(expected_ty), act=self.display_type(actual_ty)));
+                self.error(arg.value, format!(
+                    "mismatching types in fn call of `{f}`: expected `{param}`, found `{arg}`",
+                    f=FnParamsSignature::from_def(fn_def_node.1, hir).display_with_name(name),
+                    param=self.display_type(param_ty), arg=self.display_type(arg_ty)));
             }
         }
 
@@ -1696,7 +1889,7 @@ impl PassImpl<'_> {
             ResolutionKind::Type => {
                 let (k, type_) = reso.nodes().exactly_one().unwrap();
                 assert_eq!(k, NsKind::Type);
-                return self.resolve_path_in_type(ctx.node, type_, reso.trailing_path()).map(Some);
+                return self.resolve_type_path(ctx.node, type_, reso.type_path()).map(Some);
             },
         }
 
@@ -1794,6 +1987,7 @@ impl PassImpl<'_> {
         self.check_data.insert_path_to_target(ctx.node, (pkg, node));
         Ok(Some(if pkg == self.package_id {
             if let Some(ty) = self.ensure_opt_typing(node)? {
+                self.check_path_node_ty_args(ctx.node, ty)?;
                 ty
             } else {
                 self.error_span(ctx.node, span, format!(
@@ -1808,27 +2002,20 @@ impl PassImpl<'_> {
     fn resolve_method_call(&mut self, fn_call: NodeId)
         -> Result<(GlobalNodeId, TypeId), ()>
     {
-        let FnCall {
-            callee,
-            kind,
-            params,
-        } = self.hir.fn_call(fn_call);
-        assert_eq!(*kind, FnCallKind::Method);
+        let fnc = self.hir.fn_call(fn_call);
+        assert_eq!(fnc.kind, FnCallKind::Method);
 
-        let path = self.hir.path_end_ident(
-            self.hir.path_segment(self.hir.path(*callee).segment).suffix[0]);
-        let name = &path.item.ident;
-        if path.item.ty_args.is_some() {
-            todo!();
-        }
+        let (path_end_node, path_end_item) = fnc.callee_path_item(self.hir);
+        let name = &path_end_item.ident;
 
-        let receiver = params[0].value;
+        let receiver = fnc.args[0].value;
         let receiver_ty = self.ensure_typing(receiver)?;
 
         match self.type_(receiver_ty).data() {
             | TypeData::Struct(_)
             | TypeData::Primitive(_)
             | TypeData::Fn(_)
+            | TypeData::Var
             => {}
             TypeData::Type(_) => unreachable!(),
             TypeData::UnknownNumber(_) => {
@@ -1837,18 +2024,27 @@ impl PassImpl<'_> {
             }
         }
 
-        let sign = FnParamsSignature::from_call(fn_call, self.hir);
-        if let Some(fn_def) = self.resolve_impl_fn(receiver_ty, &name.value, &sign) {
-            self.check_data.insert_path_to_target(*callee, fn_def);
-            let fn_ty = self.ensure_typing_global(fn_def)?;
-            return Ok((fn_def, fn_ty));
-        }
-        self.error(*callee, format!(
-            "method `{}` not found for type `{}`",
-            sign.display_with_name(&name.value),
-            self.display_type(receiver_ty)));
+        let mut err = false;
 
-        Err(())
+        let sign = FnParamsSignature::from_call(fn_call, self.hir);
+        let r = if let Some(fn_def) = self.resolve_impl_fn(receiver_ty, &name.value, &sign) {
+            self.check_data.insert_path_to_target(fnc.callee, fn_def);
+            let fn_ty = self.ensure_typing_global(fn_def)?;
+            err |= self.check_path_ty_args(&[PathItem::from_hir(path_end_node, path_end_item)], fn_ty, true).is_err();
+            Ok((fn_def, fn_ty))
+        } else {
+            self.error(fnc.callee, format!(
+                "method `{}` not found for type `{}`",
+                sign.display_with_name(&name.value),
+                self.display_type(receiver_ty)));
+            Err(())
+        };
+        if err {
+            Err(())
+        } else {
+            r
+        }
+
     }
 
     fn resolve_impl_fn(&self, ty: TypeId, name: &Ident, sign: &FnParamsSignature) -> Option<GlobalNodeId> {
@@ -1891,34 +2087,33 @@ impl PassImpl<'_> {
     }
 
     /// Performs type-based path resolution.
-    fn resolve_path_in_type(&mut self,
+    fn resolve_type_path(&mut self,
         full_path: NodeId,
         type_: GlobalNodeId,
-        path: &[S<Ident>],
+        path: &[PathItem],
     ) -> Result<TypeId, ()> {
-        assert!(path.len() > 0);
+        assert!(path.len() > 1);
 
         let ty = self.ensure_typing_global(type_)?;
-
-        if path.len() == 1 {
-            return Ok(ty);
-        }
 
         match self.type_(ty).data() {
             | TypeData::Struct(_)
             | TypeData::Primitive(_)
             | TypeData::Fn(_)
+            | TypeData::Var
             => {}
             TypeData::Type(_) => unreachable!(),
             TypeData::UnknownNumber(_) => {
-                self.error_span(full_path, path[0].span, "can't infer type".into());
+                self.error_span(full_path, path[0].name.span, "can't infer type".into());
                 return Err(());
             }
         }
 
-        let item_name = &path[1];
+        let mut err = self.check_path_ty_args(&path[..1], ty, true).is_err();
 
-        if_chain! {
+        let item_name = &path[1].name;
+
+        let r = if_chain! {
             if path.len() == 2;
             if let Some(fn_call) = self.discover_data.find_fn_call(full_path, self.hir);
             then {
@@ -1926,19 +2121,26 @@ impl PassImpl<'_> {
                 if let Some(fn_def) = self.resolve_impl_fn(ty, &item_name.value, &sign) {
                     self.check_data.insert_path_to_target(full_path, fn_def);
                     let fn_ty = self.ensure_typing_global(fn_def)?;
-                    return Ok(fn_ty);
+                    err |= self.check_path_ty_args(&path[1..2], fn_ty, true).is_err();
+                    Ok(fn_ty)
+                } else {
+                    self.error_span(full_path, item_name.span, format!(
+                        "associated function `{}` not found for type `{}`",
+                        sign.display_with_name(&item_name.value),
+                        self.display_type(ty)));
+                    Err(())
                 }
-                self.error_span(full_path, item_name.span, format!(
-                    "associated function `{}` not found for type `{}`",
-                    sign.display_with_name(&item_name.value),
-                    self.display_type(ty)));
-                    return Err(());
             } else {
                 self.error_span(full_path, item_name.span, format!(
                     "associated item `{}` not found for type `{}`",
                     item_name.value, self.display_type(ty)));
-                    return Err(());
+                Err(())
             }
+        };
+        if err {
+            Err(())
+        } else {
+            r
         }
     }
 
@@ -1966,7 +2168,7 @@ impl PassImpl<'_> {
 
         let ty = self.typing(node)?;
         match self.type_(ty).data() {
-            TypeData::Fn(FnType { params, result, unsafe_ }) => {
+            TypeData::Fn(FnType { params, result, unsafe_, ty_params: _ }) => {
                 assert_eq!(params.len(), 0);
                 let fn_def = self.hir.fn_def(node);
                 if !matches!(self.type_(*result).data(), TypeData::Primitive(PrimitiveType::Unit)) {

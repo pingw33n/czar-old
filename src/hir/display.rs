@@ -143,17 +143,17 @@ impl Display<'_> {
             }
             NodeKind::FnDefParam => unreachable!(),
             NodeKind::FnCall => {
-                let FnCall { callee, kind, params } = self.hir.fn_call(node);
-                let mut params = params.iter();
+                let FnCall { callee, kind, args } = self.hir.fn_call(node);
+                let mut args = args.iter();
                 if *kind == FnCallKind::Method {
-                    let FnCallParam { name: _, value } = params.next().unwrap();
+                    let FnCallArg { name: _, value } = args.next().unwrap();
                     self.expr(*value, p)?;
                     p.print('.')?;
                 }
                 self.expr(*callee, p)?;
 
                 p.print('(')?;
-                for (i, FnCallParam{ name, value }) in params.enumerate() {
+                for (i, FnCallArg { name, value }) in args.enumerate() {
                     if i > 0 {
                         p.print(", ")?;
                     }

@@ -58,7 +58,7 @@ pub enum FnLink {
 #[derive(Clone, Copy, Debug)]
 pub enum FnCallLink {
     Callee,
-    ParamValue,
+    Arg,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -202,10 +202,10 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 self.traverse0(*receiver, NodeLink::FieldAccessReceiver);
             },
             NodeKind::FnCall => {
-                let FnCall { callee, params, .. } = self.hir.fn_call(node);
+                let FnCall { callee, args: params, .. } = self.hir.fn_call(node);
                 self.traverse0(*callee, NodeLink::FnCall(FnCallLink::Callee));
                 for param in params {
-                    self.traverse0(param.value, NodeLink::FnCall(FnCallLink::ParamValue));
+                    self.traverse0(param.value, NodeLink::FnCall(FnCallLink::Arg));
                 }
             },
             NodeKind::FnDef => {

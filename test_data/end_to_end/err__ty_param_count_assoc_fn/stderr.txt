@@ -1,0 +1,114 @@
+error: associated item `foo` not found for type `S3<S3, T>`
+  --> main.cz:4:9
+4 |     S3::foo;
+            ~~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:5:7
+5 |     S3<>::foo;
+          ~~
+
+error: associated item `foo` not found for type `S3<S3, T>`
+  --> main.cz:5:11
+5 |     S3<>::foo;
+              ~~~
+
+error: associated item `foo` not found for type `S3<S3, T>`
+  --> main.cz:6:20
+6 |     S3<u32, bool>::foo;
+                       ~~~
+
+error: wrong number of type arguments: expected 2, found 1
+  --> main.cz:7:7
+7 |     S3<u32>::foo;
+          ~~~~~
+
+error: associated item `foo` not found for type `S3<S3, T>`
+  --> main.cz:7:14
+7 |     S3<u32>::foo;
+                 ~~~
+
+error: wrong number of type arguments: expected 2, found 3
+  --> main.cz:8:7
+8 |     S3<u32, bool, char>::foo;
+          ~~~~~~~~~~~~~~~~~
+
+error: associated item `foo` not found for type `S3<S3, T>`
+  --> main.cz:8:26
+8 |     S3<u32, bool, char>::foo;
+                             ~~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:11:10
+11 |     impl S3 {}
+              ~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:12:12
+12 |     impl S3<> {}
+                ~~
+
+error: wrong number of type arguments: expected 2, found 1
+  --> main.cz:13:12
+13 |     impl S3<u32> {}
+                ~~~~~
+
+error: wrong number of type arguments: expected 2, found 3
+  --> main.cz:14:12
+14 |     impl S3<u32, char, bool> {}
+                ~~~~~~~~~~~~~~~~~
+
+error: unexpected type arguments: type `S3` doesn't have type parameters
+  --> main.cz:16:16
+16 |     impl<S3> S3<T, T> {}
+                    ~~~~~~
+
+error: could not find `T` in current scope
+  --> main.cz:16:17
+16 |     impl<S3> S3<T, T> {}
+                     ~
+
+error: could not find `T` in current scope
+  --> main.cz:16:20
+16 |     impl<S3> S3<T, T> {}
+                        ~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:19:21
+19 |     impl<S, T, U> S3<> {}
+                         ~~
+
+error: wrong number of type arguments: expected 2, found 3
+  --> main.cz:20:21
+20 |     impl<S, T, U> S3<S, T, U> {}
+                         ~~~~~~~~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:25:7
+25 |     S3<>::foo<>();
+           ~~
+
+error: wrong number of type arguments: expected 1, found 0
+  --> main.cz:25:14
+25 |     S3<>::foo<>();
+                  ~~
+
+error: wrong number of type arguments: expected 2, found 3
+  --> main.cz:26:7
+26 |     S3<u32, char, bool>::foo<u32, i32>();
+           ~~~~~~~~~~~~~~~~~
+
+error: wrong number of type arguments: expected 1, found 2
+  --> main.cz:26:29
+26 |     S3<u32, char, bool>::foo<u32, i32>();
+                                 ~~~~~~~~~~
+
+error: associated function `bar::()` not found for type `S3<S3, T>`
+  --> main.cz:27:9
+27 |     S3::bar<>();
+             ~~~
+
+error: associated function `bar::()` not found for type `S3<S3, T>`
+  --> main.cz:28:9
+28 |     S3::bar<u32, i32>();
+             ~~~

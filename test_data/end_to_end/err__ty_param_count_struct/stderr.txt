@@ -1,0 +1,94 @@
+error: could not find `U` in current scope
+  --> main.cz:2:8
+2 |     u: U,
+           ~
+
+error: could not find `U` in current scope
+  --> main.cz:3:9
+3 |     u2: U<>,
+            ~
+
+error: unexpected type arguments: type `T` doesn't have type parameters
+  --> main.cz:4:9
+4 |     b: T<u32>,
+            ~~~~~
+
+error: unexpected type arguments: modules don't have type parameters
+  --> main.cz:22:14
+22 |     let s: m1<u32, String>::m2<u32>::S;
+                  ~~~~~~~~~~~~~
+
+error: unexpected type arguments: modules don't have type parameters
+  --> main.cz:22:31
+22 |     let s: m1<u32, String>::m2<u32>::S;
+                                   ~~~~~
+
+error: unexpected type arguments: modules don't have type parameters
+  --> main.cz:23:17
+23 |     let s: S2<m1<u32, String>::m2<u32>::S>;
+                     ~~~~~~~~~~~~~
+
+error: unexpected type arguments: modules don't have type parameters
+  --> main.cz:23:34
+23 |     let s: S2<m1<u32, String>::m2<u32>::S>;
+                                      ~~~~~
+
+error: wrong number of type arguments: expected 1, found 0
+  --> main.cz:26:12
+26 |     let s: S2;
+                ~~
+
+error: could not find `S2` in `m1`
+  --> main.cz:27:19
+27 |     let s: S2<m1::S2<u32>>;
+                       ~~
+
+error: wrong number of type arguments: expected 1, found 2
+  --> main.cz:28:14
+28 |     let s: S2<u32, char>;
+                  ~~~~~~~~~~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:30:12
+30 |     let s: S3;
+                ~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:31:14
+31 |     let s: S3<>;
+                  ~~
+
+error: wrong number of type arguments: expected 2, found 1
+  --> main.cz:32:14
+32 |     let s: S3<bool>;
+                  ~~~~~~
+
+error: wrong number of type arguments: expected 2, found 3
+  --> main.cz:33:14
+33 |     let s: S3<bool, char, S2<u32, u32>>;
+                  ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error: wrong number of type arguments: expected 1, found 2
+  --> main.cz:33:29
+33 |     let s: S3<bool, char, S2<u32, u32>>;
+                                 ~~~~~~~~~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:35:15
+35 |     let s = S3<> {};
+                   ~~
+
+error: wrong number of type arguments: expected 2, found 1
+  --> main.cz:36:15
+36 |     let s = S3<bool> {};
+                   ~~~~~~
+
+error: wrong number of type arguments: expected 2, found 3
+  --> main.cz:37:15
+37 |     let s = S3<bool, char, S2<u32, u32>> {};
+                   ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error: wrong number of type arguments: expected 1, found 2
+  --> main.cz:37:30
+37 |     let s = S3<bool, char, S2<u32, u32>> {};
+                                  ~~~~~~~~~~

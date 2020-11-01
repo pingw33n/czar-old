@@ -791,8 +791,8 @@ impl<'a> ParserImpl<'a> {
             if tok.value == Token::GtGt {
                 self.lex.consume();
                 let i = tok.span.start;
-                self.lex.insert(S::new(Span::new(i, i + 1), Token::Gt));
-                self.lex.insert(S::new(Span::new(i + 1, i + 2), Token::Gt));
+                self.lex.insert(Span::new(i + 1, i + 2).spanned(Token::Gt));
+                self.lex.insert(Span::new(i, i + 1).spanned(Token::Gt));
 
                 tok = self.lex.nth(0);
             }
@@ -1386,9 +1386,9 @@ impl<'a> ParserImpl<'a> {
 
     // Expects the opening paren to be already consumed.
     fn fn_call(&mut self, callee: NodeId, receiver: Option<NodeId>) -> PResult<NodeId> {
-        let mut params = Vec::new();
+        let mut args = Vec::new();
         let kind = if let Some(receiver) = receiver {
-            params.push(FnCallParam {
+            args.push(FnCallArg {
                 name: Some(self.hir.node_kind(receiver).span.spanned(Ident::self_lower())),
                 value: receiver,
             });
@@ -1412,7 +1412,7 @@ impl<'a> ParserImpl<'a> {
                 ..Default::default()
             })?;
             if let Some(value) = value {
-                params.push(FnCallParam {
+                args.push(FnCallArg {
                     name,
                     value,
                 });
@@ -1438,7 +1438,7 @@ impl<'a> ParserImpl<'a> {
         Ok(self.hir.insert_fn_call(span.spanned(FnCall {
             callee,
             kind,
-            params,
+            args,
         })))
     }
 

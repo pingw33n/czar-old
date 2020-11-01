@@ -1,0 +1,21 @@
+struct S {s: String}
+fn foo() -> String { "foo<>()" }
+
+impl S {
+    fn new() -> Self { Self{ s: "new<>()" } }
+    fn print(self) { print(self.s); }
+}
+
+fn print(_ s: String) {
+    prints(s); println();
+}
+
+fn main() {
+    let s: String<> = "String<>";
+    print(s);
+
+    let s: S<> = S<>::new<>();
+    s.print<>();
+
+    print<>(foo<>());
+}

@@ -636,14 +636,22 @@ pub enum FnCallKind {
 #[derive(Debug)]
 pub struct FnCall {
     /// If `kind` is `Free` this is expr of function type.
-    /// If `kind` is `Method` this is single-item `Path`.
+    /// If `kind` is `Method` this is flat `Path`.
     pub callee: NodeId,
     pub kind: FnCallKind,
-    pub params: Vec<FnCallParam>,
+    pub args: Vec<FnCallArg>,
+}
+
+impl FnCall {
+    pub fn callee_path_item<'a>(&self, hir: &'a Hir) -> (NodeId /*PathEndIdent*/, &'a PathItem) {
+        let node = hir.path_segment(hir.path(self.callee).segment).suffix[0];
+        let item = &hir.path_end_ident(node).item;
+        (node, item)
+    }
 }
 
 #[derive(Debug)]
-pub struct FnCallParam {
+pub struct FnCallArg {
     pub name: Option<S<Ident>>,
     pub value: NodeId,
 }
@@ -819,8 +827,8 @@ pub struct StructValueField {
 pub struct Struct {
     pub vis: Option<S<Vis>>,
     pub name: S<Ident>,
-    pub ty_params: Vec<NodeId>,
-    pub ty: NodeId, // StructType
+    pub ty_params: Vec<NodeId /*TypeParam*/>,
+    pub ty: NodeId /*StructType*/,
 }
 
 #[derive(Debug)]

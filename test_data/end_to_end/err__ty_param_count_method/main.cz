@@ -1,0 +1,10 @@
+fn main() {
+    struct S {}
+    impl S {
+        fn foo<T>(self) {}
+    }
+    let s = S{};
+    s.foo();
+    s.foo<>();
+    s.foo<char, bool>();
+}

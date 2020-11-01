@@ -1,0 +1,29 @@
+struct S3<S3, T> {}
+
+fn main() {
+    S3::foo;
+    S3<>::foo;
+    S3<u32, bool>::foo;
+    S3<u32>::foo;
+    S3<u32, bool, char>::foo;
+    S3::foo();
+
+    impl S3 {}
+    impl S3<> {}
+    impl S3<u32> {}
+    impl S3<u32, char, bool> {}
+
+    impl<S3> S3<T, T> {}
+
+    struct S {}
+    impl<S, T, U> S3<> {}
+    impl<S, T, U> S3<S, T, U> {}
+
+    impl S3<u32, String> {
+        fn foo<T>() {}
+    }
+    S3<>::foo<>();
+    S3<u32, char, bool>::foo<u32, i32>();
+    S3::bar<>();
+    S3::bar<u32, i32>();
+}

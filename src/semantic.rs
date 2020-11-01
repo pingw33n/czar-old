@@ -2,7 +2,8 @@ pub mod check;
 pub mod discover;
 pub mod resolve;
 
-use crate::hir::*;
+use crate::hir::{self, *};
+use crate::semantic::discover::DiscoverData;
 
 #[derive(Clone, Eq, Debug, Hash, PartialEq)]
 pub struct FnParamsSignature {
@@ -43,9 +44,9 @@ impl FnParamsSignature {
     }
 
     pub fn from_call(node: NodeId, hir: &Hir) -> FnParamsSignature {
-        let params = &hir.fn_call(node).params;
-        let it = params.iter()
-            .map(|param| param.name.as_ref()
+        let args = &hir.fn_call(node).args;
+        let it = args.iter()
+            .map(|arg| arg.name.as_ref()
                 .map(|v| v.value.clone())
                 .unwrap_or_else(|| Ident::underscore()));
         Self::from_iter(it)
@@ -68,8 +69,6 @@ impl FnParamsSignature {
     }
 }
 
-
-
 impl std::fmt::Display for FnParamsSignature {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "(")?;
@@ -80,5 +79,53 @@ impl std::fmt::Display for FnParamsSignature {
             write!(f, "{}", item.as_str())?;
         }
         write!(f, ")")
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PathItem {
+    pub node: NodeId /*PathSegment|PathEndIdent*/,
+    pub name: S<Ident>,
+    pub ty_args: Option<S<Vec<NodeId /*TyExpr*/>>>,
+}
+
+impl PathItem {
+    pub fn from_hir(node: NodeId, item: &hir::PathItem) -> Self {
+        Self {
+            node,
+            name: item.ident.clone(),
+            ty_args: item.ty_args.clone(),
+        }
+    }
+
+    pub fn from_hir_path(
+        path: NodeId /*Path|PathSegment|PathEndIdent|PathEndStar|PathEndEmpty*/,
+        hir: &Hir,
+        discover_data: &DiscoverData,
+    ) -> Vec<Self> {
+        let mut r = Vec::new();
+        let mut n = path;
+        loop {
+            let nk = hir.node_kind(n);
+            match nk.value {
+                NodeKind::Path => {
+                    break hir.node_kind(discover_data.parent_of(n)).value == NodeKind::Use;
+                }
+                NodeKind::PathEndIdent => {
+                    r.push(PathItem::from_hir(n, &hir.path_end_ident(n).item));
+                }
+                NodeKind::PathSegment => {
+                    let PathSegment { prefix, suffix: _ } = hir.path_segment(n);
+                    for item in prefix.iter().rev() {
+                        r.push(PathItem::from_hir(n, item));
+                    }
+                }
+                NodeKind::PathEndStar | NodeKind::PathEndEmpty => {}
+                _ => unreachable!(),
+            }
+            n = discover_data.parent_of(n);
+        };
+        r.reverse();
+        r
     }
 }

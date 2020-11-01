@@ -58,7 +58,7 @@ pub struct Codegen<'a> {
     packages: &'a Packages,
     fn_defs: HashMap<GlobalNodeId, llvm::DValueRef>,
     fn_body_todos: HashSet<GlobalNodeId>,
-    types: HashMap<TypeId, llvm::TypeRef>,
+    types: TypeMap<llvm::TypeRef>,
 }
 
 impl<'a> Codegen<'a> {
@@ -182,10 +182,17 @@ impl<'a> Codegen<'a> {
                 self.bodyb.struct_gep(receiver, idx).into()
             }
             NodeKind::FnCall => {
-                let FnCall { callee, kind: _, params } = ctx.package.hir.fn_call(node);
-                let callee = self.expr(*callee, ctx).to_direct(self.bodyb);
+                let fnc = ctx.package.hir.fn_call(node);
+
+                let ty_args = fnc.callee_path_item(&ctx.package.hir).1.ty_args.as_ref()
+                    .map(|v| v.value.len()).unwrap_or(0);
+                if ty_args != 0 {
+                    todo!();
+                }
+
+                let callee = self.expr(fnc.callee, ctx).to_direct(self.bodyb);
                 let args_ll = &mut Vec::new();
-                for &FnCallParam { value, .. } in params {
+                for &FnCallArg { value, .. } in &fnc.args {
                     let v = self.expr(value, ctx).to_direct(self.bodyb);
                     args_ll.push(v);
                 }
@@ -524,7 +531,10 @@ impl<'a> Codegen<'a> {
         } else {
             let package = &self.packages[unaliased.0];
             match package.check_data.type_(unaliased.1).data() {
-                TypeData::Fn(FnType { params, result, .. }) => {
+                TypeData::Fn(FnType { params, ty_params, result, unsafe_: _, }) => {
+                    if !ty_params.is_empty() {
+                        todo!();
+                    }
                     let param_tys = &mut Vec::with_capacity(params.len());
                     for &param in params {
                         param_tys.push(self.type_(param));
@@ -535,7 +545,10 @@ impl<'a> Codegen<'a> {
                 &TypeData::Primitive(prim) => {
                     self.make_prim_type(prim)
                 }
-                TypeData::Struct(check::StructType { fields }) => {
+                TypeData::Struct(check::StructType { fields, ty_params }) => {
+                    if !ty_params.is_empty() {
+                        todo!();
+                    }
                     let package = &self.packages[unaliased.0];
                     let node = package.check_data.type_(unaliased.1).node().1;
                     let tys = &mut Vec::new();
@@ -547,6 +560,7 @@ impl<'a> Codegen<'a> {
                         .unwrap_or("__Unnamed");
                     self.llvm.named_struct_type(name, tys)
                 }
+                TypeData::Var => todo!(),
                 | TypeData::Type(_)
                 | TypeData::UnknownNumber(_)
                 => unreachable!(),

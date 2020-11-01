@@ -1,0 +1,19 @@
+error: couldn't find function `a::()`: none of existing functions matches the signature
+  --> main.cz:13:5
+13 |     a();
+         ~~~
+
+error: couldn't find function `a::()`: none of existing functions matches the signature
+  --> main.cz:14:5
+14 |     a<>();
+         ~~~~~
+
+error: wrong number of type arguments: expected 2, found 1
+  --> main.cz:16:6
+16 |     b<u32>();
+          ~~~~~
+
+error: wrong number of type arguments: expected 2, found 3
+  --> main.cz:17:6
+17 |     b<u32, String, bool>();
+          ~~~~~~~~~~~~~~~~~~~

@@ -1,0 +1,38 @@
+struct S<T> {
+    u: U,
+    u2: U<>,
+    b: T<u32>,
+    c: u32<T>,
+    d: u32<>,
+}
+
+struct S2<S2> {
+    v: S2<>,
+}
+
+struct S3<S3, T> {}
+
+module m1 {
+    module m2 {
+        use super::super::S;
+    }
+}
+
+fn main() {
+    let s: m1<u32, String>::m2<u32>::S;
+    let s: S2<m1<u32, String>::m2<u32>::S>;
+    let s: S;
+    let s: S<u32>;
+    let s: S2;
+    let s: S2<m1::S2<u32>>;
+    let s: S2<u32, char>;
+
+    let s: S3;
+    let s: S3<>;
+    let s: S3<bool>;
+    let s: S3<bool, char, S2<u32, u32>>;
+    //let s = S3 {}; TODO should not fail
+    let s = S3<> {};
+    let s = S3<bool> {};
+    let s = S3<bool, char, S2<u32, u32>> {};
+}

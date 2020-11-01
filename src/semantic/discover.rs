@@ -322,8 +322,8 @@ impl DiscoverData {
         }
     }
 
-    pub fn find_use_node(&self, path: NodeId, hir: &Hir) -> Option<NodeId> {
-        let maybe_use = self.parent_of(self.find_path_start(path, hir).unwrap());
+    pub fn find_use_node(&self, maybe_path: NodeId, hir: &Hir) -> Option<NodeId> {
+        let maybe_use = self.try_parent_of(self.find_path_start(maybe_path, hir)?)?;
         if hir.node_kind(maybe_use).value == NodeKind::Use {
             Some(maybe_use)
         } else {
@@ -703,7 +703,7 @@ impl HirVisitor for Build<'_> {
                 let params = &self.hir.fn_def(ctx.node).params;
                 for &param in params {
                     let name = self.hir.fn_def_param(param).name.clone();
-                    self.insert_name(NsKind::Value, name.clone(), param);
+                    self.insert_name(NsKind::Value, name, param);
                 }
             }
             NodeKind::Impl => {
@@ -712,6 +712,10 @@ impl HirVisitor for Build<'_> {
                 let span = self.hir.node_kind(for_).span;
                 self.insert_import(span.spanned(Ident::self_upper()), for_path_end);
                 self.data.impls.push(ctx.node);
+            }
+            NodeKind::TypeParam => {
+                let name = self.hir.type_param(ctx.node).name.clone();
+                self.insert_name(NsKind::Type, name, ctx.node);
             }
             _ => {}
         }
@@ -747,6 +751,7 @@ fn creates_scope(kind: NodeKind) -> bool {
         | FnDef
         | Impl
         | Module
+        | Struct
         => true,
 
         | BlockFlowCtl
@@ -766,7 +771,6 @@ fn creates_scope(kind: NodeKind) -> bool {
         | PathEndStar
         | PathSegment
         | Range
-        | Struct
         | StructType
         | StructValue
         | StructValueField
