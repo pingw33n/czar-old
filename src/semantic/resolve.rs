@@ -414,7 +414,7 @@ impl Resolver<'_> {
                 NodeKind::PathEndStar | NodeKind::PathEndEmpty => path_idents.push(nk.span.spanned(None)),
                 NodeKind::PathSegment => {
                     let PathSegment { prefix, suffix: _ } = self.hir.path_segment(n);
-                    for PathItem { ident, ty_params: _ } in prefix.iter().rev() {
+                    for PathItem { ident, ty_args: _ } in prefix.iter().rev() {
                         path_idents.push(ident.clone().map(Some));
                     }
                 }

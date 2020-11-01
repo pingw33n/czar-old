@@ -568,7 +568,7 @@ impl Display<'_> {
     }
 
     fn path_item(&self, item: &PathItem, p: &mut Printer) -> Result {
-        let PathItem { ident, ty_params } = item;
+        let PathItem { ident, ty_args: ty_params } = item;
         self.ident(&ident.value, p)?;
         if let Some(ty_params) = ty_params {
             p.print("<")?;

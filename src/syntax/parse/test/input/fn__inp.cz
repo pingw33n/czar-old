@@ -40,6 +40,8 @@ fn foo(
   _ unnamed2: u32,
 ) {
   receiver.foo(0, arg1: 42, label: 56, 78);
+  receiver.foo<>();
+  receiver.foo<T, path<>::to<T, Inner<>>::Struct<T<U<>>, V<>>>();
 }
 
 fn f2() {

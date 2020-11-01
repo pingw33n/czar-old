@@ -25,6 +25,8 @@ fn foo() {
 }
 fn foo(self, _ unnamed: u32, arg1: u32, label name: u32, _ unnamed2: u32) {
   receiver.foo(0, arg1: 42, label: 56, 78);
+  receiver.foo<>();
+  receiver.foo<T, path<>::to<T, Inner<>>::Struct<T<U<>>, V<>>>();
 }
 fn f2() {
   path::to::Foo::bar(self: 42);

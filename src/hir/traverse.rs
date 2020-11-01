@@ -298,11 +298,11 @@ impl<T: HirVisitor> Traverser<'_, T> {
             NodeKind::PathEndEmpty => {},
             NodeKind::PathEndIdent => {
                 let PathEndIdent {
-                    item: PathItem { ident: _, ty_params },
+                    item: PathItem { ident: _, ty_args },
                     renamed_as: _,
                 } = self.hir.path_end_ident(node);
-                if let Some(ty_params) = ty_params {
-                    for &node in &ty_params.value {
+                if let Some(ty_args) = ty_args {
+                    for &node in &ty_args.value {
                         self.traverse0(node, NodeLink::Path(PathLink::EndIdentTyParams));
                     }
                 }
@@ -310,9 +310,9 @@ impl<T: HirVisitor> Traverser<'_, T> {
             NodeKind::PathEndStar => {},
             NodeKind::PathSegment => {
                 let PathSegment { prefix, suffix } = self.hir.path_segment(node);
-                for PathItem { ident: _, ty_params } in prefix {
-                    if let Some(ty_params) = ty_params {
-                        for &node in &ty_params.value {
+                for PathItem { ident: _, ty_args } in prefix {
+                    if let Some(ty_args) = ty_args {
+                        for &node in &ty_args.value {
                             self.traverse0(node, NodeLink::Path(PathLink::SegmentItemTyParams));
                         }
                     }

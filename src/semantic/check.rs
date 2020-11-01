@@ -1818,7 +1818,7 @@ impl PassImpl<'_> {
         let path = self.hir.path_end_ident(
             self.hir.path_segment(self.hir.path(*callee).segment).suffix[0]);
         let name = &path.item.ident;
-        if path.item.ty_params.is_some() {
+        if path.item.ty_args.is_some() {
             todo!();
         }
 

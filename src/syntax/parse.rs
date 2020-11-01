@@ -310,7 +310,7 @@ impl<'a> ParserImpl<'a> {
             .unwrap_or(tok.span.start);
 
         let name = self.ident()?;
-        let ty_params = self.maybe_formal_ty_params()?;
+        let ty_params = self.maybe_ty_params()?;
 
         let mut params = Vec::new();
         self.expect(Token::BlockOpen(lex::Block::Paren))?;
@@ -339,7 +339,7 @@ impl<'a> ParserImpl<'a> {
                         return self.error(tok.span, format!("expected `self`, found `{}`", tok.value));
                     }
                     if let Some(self_) = self_ {
-                        let ty = self.hir.insert_path_from_ident(self_.with_value(Ident::self_upper()));
+                        let ty = self.hir.insert_path_from_ident(self_.with_value(Ident::self_upper()), None);
                         let mut ty = self.hir.insert_ty_expr(
                             Span::new(mut_.map(|v| v.span.start).unwrap_or(self_.span.start), self_.span.end).spanned(TyExpr {
                                 muta: mut_.map(|v| v.with_value(())),
@@ -592,51 +592,11 @@ impl<'a> ParserImpl<'a> {
                 }
             };
 
-            let ty_params = if self.lex.nth(0).value == Token::Lt {
-                // FIXME remove added HIR nodes when restoring state
-                let save = self.save_state();
-                match self.path_ty_params() {
-                    Ok(ty_params) => {
-                        if !in_type_pos {
-                            let tok = self.lex.nth(0);
-                            match tok.value {
-                                | Token::BlockOpen(_)
-                                | Token::BlockClose(_)
-                                | Token::Semi
-                                | Token::ColonColon
-                                | Token::Comma
-                                | Token::Dot
-                                => {
-                                    self.discard_state(save);
-                                    Ok(Some(ty_params))
-                                }
-                                _ => {
-                                    self.restore_state(save);
-                                    Err(())
-                                }
-                            }
-                        } else {
-                            self.discard_state(save);
-                            Ok(Some(ty_params))
-                        }
-                    }
-                    Err(e) => {
-                        if in_type_pos {
-                            self.discard_state(save);
-                            return Err(e);
-                        }
-                        self.restore_state(save);
-                        Err(())
-                    }
-                }
-            } else {
-                Ok(None)
-            };
+            let (ty_args, done) = self.maybe_ty_args(in_type_pos)?;
 
-            let done = ty_params.is_err();
             items.push(PathItem {
                 ident,
-                ty_params: ty_params.unwrap_or_default(),
+                ty_args,
             });
 
             if done || self.lex.maybe(Token::ColonColon).is_none() {
@@ -645,6 +605,48 @@ impl<'a> ParserImpl<'a> {
         }
 
         Ok(Some(self.hir.insert_path_from_items(anchor, items)))
+    }
+
+    fn maybe_ty_args(&mut self, in_type_pos: bool) -> PResult<(Option<S<Vec<NodeId>>>, bool)> {
+        if self.lex.nth(0).value != Token::Lt {
+            return Ok((None, false));
+        }
+        // FIXME remove added HIR nodes when restoring state
+        let save = self.save_state();
+        Ok(match self.path_ty_args() {
+            Ok(ty_args) => {
+                if !in_type_pos {
+                    let tok = self.lex.nth(0);
+                    match tok.value {
+                        | Token::BlockOpen(_)
+                        | Token::BlockClose(_)
+                        | Token::Semi
+                        | Token::ColonColon
+                        | Token::Comma
+                        | Token::Dot
+                        => {
+                            self.discard_state(save);
+                            (Some(ty_args), false)
+                        }
+                        _ => {
+                            self.restore_state(save);
+                            (None, true)
+                        }
+                    }
+                } else {
+                    self.discard_state(save);
+                    (Some(ty_args), false)
+                }
+            }
+            Err(e) => {
+                if in_type_pos {
+                    self.discard_state(save);
+                    return Err(e);
+                }
+                self.restore_state(save);
+                (None, true)
+            }
+        })
     }
 
     fn maybe_as_ident(&mut self) -> PResult<Option<S<Ident>>> {
@@ -663,7 +665,7 @@ impl<'a> ParserImpl<'a> {
             PathEndIdent {
                 item: PathItem {
                     ident,
-                    ty_params: None,
+                    ty_args: None,
                 },
                 renamed_as,
             })))
@@ -740,7 +742,7 @@ impl<'a> ParserImpl<'a> {
                         let ident = self.ident()?;
                         prefix.push(PathItem {
                             ident,
-                            ty_params: None,
+                            ty_args: None,
                         });
                         state = State::SepOrEnd;
                     } else {
@@ -777,7 +779,7 @@ impl<'a> ParserImpl<'a> {
             })))
     }
 
-    fn path_ty_params(&mut self) -> PResult<S<Vec<NodeId>>> {
+    fn path_ty_args(&mut self) -> PResult<S<Vec<NodeId>>> {
         let start = self.expect(Token::Lt)?.span.start;
         let mut ty_params = Vec::new();
         let end = loop {
@@ -809,7 +811,7 @@ impl<'a> ParserImpl<'a> {
         Ok(Span::new(start, end).spanned(ty_params))
     }
 
-    fn maybe_formal_ty_params(&mut self) -> PResult<Vec<NodeId>> {
+    fn maybe_ty_params(&mut self) -> PResult<Vec<NodeId>> {
         let tok = self.lex.nth(0);
         if tok.value != Token::Lt {
             return Ok(Vec::new());
@@ -1349,8 +1351,9 @@ impl<'a> ParserImpl<'a> {
         let field = match field.value {
             Token::Ident => {
                 let ident = self.ident()?;
+                let (ty_args, _) = self.maybe_ty_args(false)?;
                 if self.lex.maybe(Token::BlockOpen(lex::Block::Paren)).is_some() {
-                    let callee = self.hir.insert_path_from_ident(ident);
+                    let callee = self.hir.insert_path_from_ident(ident, ty_args);
                     return self.fn_call(callee, Some(receiver));
                 }
                 ident.map(Field::Ident)
@@ -1511,7 +1514,7 @@ impl<'a> ParserImpl<'a> {
         self.expect(Token::Keyword(Keyword::Struct))?;
 
         let name = self.ident()?;
-        let ty_params = self.maybe_formal_ty_params()?;
+        let ty_params = self.maybe_ty_params()?;
         let ty = self.struct_type(true, true)?;
 
         let start = vis.as_ref().map(|v| v.span.start)
@@ -1529,7 +1532,7 @@ impl<'a> ParserImpl<'a> {
         self.expect(Token::Keyword(Keyword::Type))?;
 
         let name = self.ident()?;
-        let ty_params = self.maybe_formal_ty_params()?;
+        let ty_params = self.maybe_ty_params()?;
         self.expect(Token::Eq)?;
         let ty = self.ty_expr()?;
         self.expect(Token::Semi)?;
@@ -1547,7 +1550,7 @@ impl<'a> ParserImpl<'a> {
 
     fn impl_(&mut self) -> PResult<NodeId> {
         let start = self.expect(Token::Keyword(Keyword::Impl))?.span.start;
-        let ty_params = self.maybe_formal_ty_params()?;
+        let ty_params = self.maybe_ty_params()?;
         let sym1 = self.path(true)?;
         let sym2 = if self.lex.maybe(Token::Keyword(Keyword::For)).is_some() {
             Some(self.path(true)?)
