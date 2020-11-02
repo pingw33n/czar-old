@@ -129,7 +129,6 @@ pub enum TypeData {
     Fn(FnType),
     Struct(StructType),
     Type(TypeId),
-    UnknownNumber(NumberKind), // TODO remove, use Var
     Var,
 }
 
@@ -139,9 +138,7 @@ impl TypeData {
             | TypeData::Fn(FnType { ty_params, .. })
             | TypeData::Struct(StructType { ty_params, .. })
             => ty_params,
-            | TypeData::UnknownNumber(_)
-            | TypeData::Var
-            => &[],
+            TypeData::Var => &[],
             TypeData::Type(_) => unreachable!(),
         }
     }
@@ -322,7 +319,6 @@ impl<'a> Check<'a> {
         let imp = &mut PassImpl {
             discover_data: self.discover_data,
             check_data: &mut check_data,
-            unknown_num_types: Default::default(),
             package_id: self.package_id,
             package_name: self.package_name,
             package_kind: self.package_kind,
@@ -335,6 +331,7 @@ impl<'a> Check<'a> {
             diag: self.diag,
             failed_typings: Default::default(),
             resolve_data: self.resolve_data,
+            inference_ctxs: Vec::new(),
         };
         if self.package_id.is_std() {
             imp.make_lang_items();
@@ -417,10 +414,34 @@ impl UnnamedStructKey {
     }
 }
 
+#[derive(Debug, EnumAsInner)]
+enum InferenceVar {
+    Any,
+    Number(NumberKind),
+}
+
+#[derive(Default)]
+struct InferenceCtx {
+    vars: HashMap<LocalTypeId, InferenceVar>,
+}
+
+impl InferenceCtx {
+    fn insert(&mut self, id: LocalTypeId, var: InferenceVar) {
+        assert!(self.vars.insert(id, var).is_none());
+    }
+
+    fn get(&self, id: LocalTypeId) -> Option<&InferenceVar> {
+        self.vars.get(&id)
+    }
+
+    fn remove(&mut self, id: LocalTypeId) {
+        assert!(self.vars.remove(&id).is_some())
+    }
+}
+
 struct PassImpl<'a> {
     discover_data: &'a DiscoverData,
     check_data: &'a mut CheckData,
-    unknown_num_types: HashSet<LocalTypeId>,
     package_id: PackageId,
     package_name: &'a Ident,
     package_kind: PackageKind,
@@ -434,6 +455,7 @@ struct PassImpl<'a> {
     diag: DiagRef<'a>,
     failed_typings: NodeMap<()>,
     resolve_data: &'a ResolveData,
+    inference_ctxs: Vec<InferenceCtx>,
 }
 
 impl PassImpl<'_> {
@@ -544,11 +566,12 @@ impl PassImpl<'_> {
     }
 
     fn insert_type(&mut self, node: NodeId, data: TypeData) -> TypeId {
-        let unknown_number = data.as_unknown_number().is_some();
-        let ty = self.check_data.insert_type((self.package_id, node), Some(data));
-        if unknown_number {
-            assert!(self.unknown_num_types.insert(ty.1));
-        }
+        self.check_data.insert_type((self.package_id, node), Some(data))
+    }
+
+    fn new_inference_var(&mut self, node: NodeId, var: InferenceVar) -> TypeId {
+        let ty = self.insert_type(node, TypeData::Var);
+        self.inference_ctx_mut().insert(ty.1, var);
         ty
     }
 
@@ -722,7 +745,6 @@ impl PassImpl<'_> {
                             return Err(());
                         }
                         | TypeData::Type(_)
-                        | TypeData::UnknownNumber(_)
                         => unreachable!(),
                     }
                 }
@@ -836,7 +858,6 @@ impl PassImpl<'_> {
                             exp=self.display_type(expected_ret_ty),
                             act=self.display_type(actual_ret_ty)));
                     }
-                    self.handle_unknown_num_types();
                 }
             },
             _ => {},
@@ -946,7 +967,7 @@ impl PassImpl<'_> {
                                 USize => PrimitiveType::USize,
                             }))
                         } else {
-                            self.insert_type(ctx.node, TypeData::UnknownNumber(NumberKind::Int))
+                            self.new_inference_var(ctx.node, InferenceVar::Number(NumberKind::Int))
                         }
                     },
                     &Literal::Float(FloatLiteral { ty, .. }) => {
@@ -957,7 +978,7 @@ impl PassImpl<'_> {
                                 F64 => PrimitiveType::F64,
                             }))
                         } else {
-                            self.insert_type(ctx.node, TypeData::UnknownNumber(NumberKind::Float))
+                            self.new_inference_var(ctx.node, InferenceVar::Number(NumberKind::Float))
                         }
                     }
                     Literal::Unit => self.std().lang_type(LangItem::Unit),
@@ -1105,7 +1126,7 @@ impl PassImpl<'_> {
                 assert!(explicit_tuple.is_none() || !fields.is_empty());
                 let (ty, ty_args) = if let Some(name) = *name {
                     let ty = self.typing(name)?;
-                    let ty_args= self.build_path_ty_args(name, ty);
+                    let ty_args = self.build_path_ty_args(name, ty);
                     (ty, ty_args)
                 } else {
                     let ty = if fields.is_empty() {
@@ -1330,7 +1351,7 @@ impl PassImpl<'_> {
         } else {
             let node = path.last().unwrap().node;
             for _ in 0..params.len() {
-                r.push(self.new_inference_type_var(node));
+                r.push(self.new_inference_var(node, InferenceVar::Any));
             }
         }
         if err {
@@ -1338,10 +1359,6 @@ impl PassImpl<'_> {
         } else {
             Ok(r)
         }
-    }
-
-    fn new_inference_type_var(&mut self, node: NodeId) -> TypeId {
-        self.insert_type(node, TypeData::Var)
     }
 
     fn type_binary_op(&mut self, BinaryOp { kind, left, right }: BinaryOp, ctx: HirVisitorCtx) -> Result<TypeId, ()> {
@@ -1369,9 +1386,16 @@ impl PassImpl<'_> {
             | LtEq
             | NotEq
             => {
-                let ok = matches!((self.std().as_lang_item(left_ty.id()), self.std().as_lang_item(right_ty.id())),
-                    (Some(LangItem::Primitive(l)), Some(LangItem::Primitive(r))) if l == r)
-                    || matches!((left_ty.data(), right_ty.data()), (TypeData::UnknownNumber(l), TypeData::UnknownNumber(r)) if l == r);
+                let lli = self.std().as_lang_item(left_ty.id());
+                let rli = self.std().as_lang_item(right_ty.id());
+                let ok =
+                    // Any primitive.
+                    matches!((lli, rli), (Some(LangItem::Primitive(l)), Some(LangItem::Primitive(r))) if l == r)
+                    // String | Unit
+                    || matches!(lli, Some(v) if lli == rli && matches!(v, LangItem::String | LangItem::Unit))
+                    // Any number.
+                    || matches!((self.as_any_number(left_ty.id()), self.as_any_number(right_ty.id())),
+                        (Some(l), Some(r)) if l == r);
                 if !ok {
                     self.error_span(ctx.node, kind.span, format!(
                         "binary operation `{}` can't be applied to types `{}`, `{}`",
@@ -1381,10 +1405,16 @@ impl PassImpl<'_> {
                 }
                 self.std().lang_type(LangItem::Primitive(PrimitiveType::Bool))
             },
-            Add | Div | Mul | Sub | Rem => {
-                let ok = matches!((self.std().as_lang_item(left_ty.id()), self.std().as_lang_item(right_ty.id())),
-                    (Some(LangItem::Primitive(l)), Some(LangItem::Primitive(r))) if l.as_number().is_some() && l == r)
-                    || matches!((left_ty.data(), right_ty.data()), (TypeData::UnknownNumber(l), TypeData::UnknownNumber(r)) if l == r);
+            | Add
+            | Div
+            | Mul
+            | Sub
+            | Rem
+            => {
+                let ok =
+                    // Any number.
+                    matches!((self.as_any_number(left_ty.id()), self.as_any_number(right_ty.id())),
+                        (Some(l), Some(r)) if l == r);
                 if !ok {
                     self.error_span(ctx.node, kind.span, format!(
                         "binary operation `{}` can't be applied to types `{}`, `{}`",
@@ -1405,9 +1435,9 @@ impl PassImpl<'_> {
         use UnaryOpKind::*;
         let ty = match kind.value {
             Neg => {
-                let ok = matches!(self.std().as_lang_item(arg_ty.id()),
-                    Some(LangItem::Primitive(prim)) if prim.as_number().is_some())
-                    || matches!(arg_ty.data(), TypeData::UnknownNumber(_));
+                let ok =
+                    // Any number.
+                    self.as_any_number(arg_ty.id()).is_some();
                 if !ok {
                     self.error_span(ctx.node, kind.span, format!(
                         "unary operation `{}` can't be applied to type `{}`",
@@ -1421,50 +1451,74 @@ impl PassImpl<'_> {
         Ok(ty)
     }
 
+    fn try_unify(&mut self, src: TypeId, dst: TypeId) -> bool {
+        let src_var = self.inference_var(src);
+        let dst_var = self.inference_var(dst);
+        let can = match (src_var, dst_var) {
+            (Some(InferenceVar::Any), None) => true,
+            (Some(&InferenceVar::Number(src_num)), None)
+                if Some(src_num) == self.as_any_number(dst)
+                => true,
+            (Some(&InferenceVar::Number(src_num)), Some(&InferenceVar::Number(dst_num)))
+                if src_num == dst_num
+                => true,
+            _ => false,
+        };
+        if can {
+            assert_eq!(src.0, self.package_id);
+            let src_ty = self.check_data.type_mut(src.1);
+            assert!(src_ty.data().as_var().is_some());
+            src_ty.data = Some(TypeData::Type(dst));
+            self.inference_ctx_mut().remove(src.1);
+            true
+        } else {
+            false
+        }
+    }
+
     fn unify(&mut self, ty1: TypeId, ty2: TypeId) -> (TypeId, TypeId) {
         if ty1 == ty2 {
             return (ty1, ty2);
         }
-        let (ty, to_type) = {
-            let ty1 = self.type_(ty1);
-            if ty1.id() == ty2 {
-                return (ty2, ty2);
-            }
-            let ty2 = self.type_(ty2);
-            if ty1.id() == ty2.id() {
-                return (ty1.id(), ty1.id());
-            }
-            let ty1_number = self.as_number(ty1.id());
-            let ty2_number = self.as_number(ty2.id());
-            use TypeData::*;
-            match (ty1.data(), ty1_number, ty2.data(), ty2_number) {
-                (&UnknownNumber(num), _, _, Some(ty2n)) if ty2n.kind() == num => (ty1.id(), ty2.id()),
-                (_, Some(ty1n), &UnknownNumber(num), _) if ty1n.kind() == num => (ty2.id(), ty1.id()),
-                (UnknownNumber(l), _, UnknownNumber(r), _) if l == r => (ty1.id(), ty2.id()),
-                _ => return (ty1.id(), ty2.id()),
-            }
-        };
-        assert_eq!(ty.0, self.package_id);
-        let typ = self.check_data.type_mut(ty.1);
-        assert!(typ.data().as_unknown_number().is_some());
-        assert!(self.unknown_num_types.remove(&ty.1));
-        typ.data = Some(TypeData::Type(to_type));
-        (to_type, to_type)
+        let ty1 = self.type_(ty1).id();
+        if ty1 == ty2 {
+            return (ty2, ty2);
+        }
+        let ty2 = self.type_(ty2).id();
+        if ty1 == ty2 {
+            return (ty1, ty1);
+        }
+        if self.try_unify(ty1, ty2) {
+            (ty2, ty2)
+        } else if self.try_unify(ty2, ty1) {
+            (ty1, ty1)
+        } else {
+            (ty1, ty2)
+        }
     }
 
-    fn handle_unknown_num_types(&mut self) {
-        if self.unknown_num_types.is_empty() {
-            return;
-        }
-        let i32 = self.std().lang_type(LangItem::Primitive(PrimitiveType::I32));
-        let f64 = self.std().lang_type(LangItem::Primitive(PrimitiveType::F64));
-        for ty in self.unknown_num_types.drain() {
-            let fallback = match self.check_data.type_(ty).data().as_unknown_number().unwrap() {
-                NumberKind::Int => i32,
-                NumberKind::Float => f64,
-            };
-            let typ = self.check_data.type_mut(ty);
-            typ.data = Some(TypeData::Type(fallback));
+    fn begin_inference(&mut self) {
+        self.inference_ctxs.push(InferenceCtx::default());
+    }
+
+    fn finish_inference(&mut self) {
+        for (id, var) in self.inference_ctxs.pop().unwrap().vars {
+            match var {
+                InferenceVar::Any => {
+                    let ty = self.type_((self.package_id, id));
+                    assert!(ty.data().as_var().is_some());
+                    assert_eq!(ty.node().0, self.package_id);
+                    self.error(ty.node().1, "can't infer type".into());
+                }
+                InferenceVar::Number(n) => {
+                    let fallback = match n {
+                        NumberKind::Int => PrimitiveType::I32,
+                        NumberKind::Float => PrimitiveType::F64,
+                    };
+                    let fallback = self.std().lang_type(LangItem::Primitive(fallback));
+                    self.check_data.type_mut(id).data = Some(TypeData::Type(fallback));
+                }
+            }
         }
     }
 
@@ -1715,12 +1769,14 @@ impl PassImpl<'_> {
                         if let Some(tp) = self.hir(ty.id().0).try_type_param(ty.node) {
                             write!(f, "{}", tp.name.value)
                         } else {
-                            write!(f, "<{:?}>", ty.id())
+                            match self.inference_var(ty.id()).unwrap() {
+                                InferenceVar::Any => write!(f, "<?T'{}>", ty.id().1),
+                                InferenceVar::Number(n) => match n {
+                                    NumberKind::Float => write!(f, "<float>"),
+                                    NumberKind::Int => write!(f, "<integer>"),
+                                }
+                            }
                         }
-                    }
-                    &TypeData::UnknownNumber(v) => match v {
-                        NumberKind::Int => write!(f, "<integer>"),
-                        NumberKind::Float => write!(f, "<float>"),
                     }
                 }
             }
@@ -1947,10 +2003,11 @@ impl PassImpl<'_> {
             | TypeData::Var
             => {}
             TypeData::Type(_) => unreachable!(),
-            TypeData::UnknownNumber(_) => {
-                self.error(receiver, "can't infer type".into());
-                return Err(());
-            }
+        }
+
+        if self.inference_var(receiver_ty).is_some() {
+            self.error(receiver, "can't infer type".into());
+            return Err(());
         }
 
         let mut err = false;
@@ -2031,11 +2088,9 @@ impl PassImpl<'_> {
             | TypeData::Var
             => {}
             TypeData::Type(_) => unreachable!(),
-            TypeData::UnknownNumber(_) => {
-                self.error_span(full_path, path[0].name.span, "can't infer type".into());
-                return Err(());
-            }
         }
+
+        debug_assert!(self.try_inference_var(ty).is_none());
 
         let mut err = self.check_path_ty_args(&path[..1], ty, true).is_err();
 
@@ -2139,9 +2194,40 @@ impl PassImpl<'_> {
         self.check_data(PackageId::std()).std()
     }
 
-    fn as_number(&self, ty: TypeId) -> Option<NumberType> {
+    fn as_any_number(&self, ty: TypeId) -> Option<NumberKind> {
         self.std().as_lang_item(ty)
-            .and_then(|v| v.as_number())
+            .and_then(|v| v.as_number().map(|v| v.kind()))
+            .or_else(|| self.try_inference_var(ty).and_then(|v| v.as_number()).copied())
+    }
+
+    fn try_inference_ctx(&self) -> Option<&InferenceCtx> {
+        self.inference_ctxs.last()
+    }
+
+    fn inference_ctx(&self) -> &InferenceCtx {
+        self.try_inference_ctx().unwrap()
+    }
+
+    fn inference_ctx_mut(&mut self) -> &mut InferenceCtx {
+        self.inference_ctxs.last_mut().unwrap()
+    }
+
+    fn try_inference_var(&self, ty: TypeId) -> Option<&InferenceVar> {
+        let ctx = self.try_inference_ctx()?;
+        if ty.0 == self.package_id {
+            ctx.get(ty.1)
+        } else {
+            None
+        }
+    }
+
+    fn inference_var(&self, ty: TypeId) -> Option<&InferenceVar> {
+        let ctx = self.inference_ctx();
+        if ty.0 == self.package_id {
+            ctx.get(ty.1)
+        } else {
+            None
+        }
     }
 }
 
@@ -2150,6 +2236,10 @@ impl HirVisitor for PassImpl<'_> {
         if let Some(v) = reso_ctx(ctx.link) {
             self.reso_ctxs.push(v);
         }
+        if ctx.kind == NodeKind::FnDef {
+            self.begin_inference();
+        }
+
         if self.has_complete_typing(ctx.node) == Ok(false) {
             let _ = self.do_pre_typing(ctx);
         }
@@ -2163,6 +2253,9 @@ impl HirVisitor for PassImpl<'_> {
             }
         }
 
+        if ctx.kind == NodeKind::FnDef {
+            self.finish_inference();
+        }
         if let Some(v) = reso_ctx(ctx.link) {
             assert_eq!(self.reso_ctxs.pop().unwrap(), v);
         }

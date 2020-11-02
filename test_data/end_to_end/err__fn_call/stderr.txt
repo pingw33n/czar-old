@@ -28,7 +28,7 @@ error: mismatching types in fn call of `foo::(_:b)`: expected `String`, found `<
 20 |     foo("test", b: 42);
                         ~~
 
-error: invalid callee type: expected function, found `i32`
+error: invalid callee type: expected function, found `<integer>`
   --> main.cz:26:5
 26 |     f();
          ~

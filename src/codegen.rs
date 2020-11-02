@@ -573,9 +573,7 @@ impl<'a> Codegen<'a> {
                         self.llvm.named_struct_type(name, tys)
                     }
                     TypeData::Var => todo!(),
-                    | TypeData::Type(_)
-                    | TypeData::UnknownNumber(_)
-                    => unreachable!(),
+                    TypeData::Type(_) => unreachable!(),
                 }
             }
         };
