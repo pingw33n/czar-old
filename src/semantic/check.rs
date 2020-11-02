@@ -12,7 +12,7 @@ use crate::util::iter::IteratorExt;
 
 use super::{*, PathItem};
 use discover::{DiscoverData, NsKind};
-use resolve::{self, ResolutionKind, Resolver, ResolveData};
+use resolve::{self, Resolution, ResolutionKind, Resolver, ResolveData};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NumberType {
@@ -243,6 +243,16 @@ impl CheckData {
             data,
         });
         (node.0, id)
+    }
+
+    fn finish_type(&mut self, incomplete_ty: LocalTypeId, target_ty: TypeId) {
+        let incomplete_ty = self.type_mut(incomplete_ty);
+        assert!(incomplete_ty.data.replace(TypeData::Type(target_ty)).is_none());
+    }
+
+    fn update_inference_var(&mut self, id: LocalTypeId, target_ty: TypeId) {
+        let ty = self.type_mut(id);
+        assert!(matches!(ty.data.replace(TypeData::Type(target_ty)), Some(TypeData::Var)));
     }
 
     pub fn typing(&self, node: NodeId) -> TypeId {
@@ -508,19 +518,20 @@ impl PassImpl<'_> {
         if self.failed_typings.contains_key(&node) {
             return Err(());
         }
-        if let Some(ty) = self.check_data.try_typing(node) {
-            Ok(Some(ty))
+        let ty = if let Some(ty) = self.check_data.try_typing(node) {
+            ty
         } else {
             self.hir.traverse_from(node, self);
             if self.failed_typings.contains_key(&node) {
                 return Err(());
             }
-            Ok(if let Some(ty) = self.check_data.try_typing(node) {
-                Some(self.type_(ty).id())
+            if let Some(ty) = self.check_data.try_typing(node) {
+                ty
             } else {
-                None
-            })
-        }
+                return Ok(None);
+            }
+        };
+        Ok(Some(self.type_(ty).id()))
     }
 
     fn ensure_typing(&mut self, node: NodeId) -> Result<TypeId, ()> {
@@ -566,6 +577,9 @@ impl PassImpl<'_> {
     }
 
     fn insert_type(&mut self, node: NodeId, data: TypeData) -> TypeId {
+        if let &TypeData::Type(ty) = &data {
+            assert!(self.check_data(ty.0).type_(ty.1).data().as_type().is_none());
+        }
         self.check_data.insert_type((self.package_id, node), Some(data))
     }
 
@@ -612,17 +626,18 @@ impl PassImpl<'_> {
 
     fn finish_typing(&mut self, node: NodeId, ty: Result<TypeId, ()>) {
         debug_assert!(!self.failed_typings.contains_key(&node));
-        if ty.is_err() {
-            self.insert_failed_typing(node);
-        }
+        let ty = match ty {
+            Ok(ty) => ty,
+            Err(()) => {
+                self.insert_failed_typing(node);
+                return;
+            }
+        };
         if let Some(incomplete_ty) = self.check_data.try_typing(node) {
             assert_eq!(incomplete_ty.0, self.package_id);
-            if let Ok(ty) = ty {
-                let typ = self.check_data.type_mut(incomplete_ty.1);
-                assert_eq!(typ.node(), (self.package_id, node));
-                assert!(typ.data.replace(TypeData::Type(ty)).is_none());
-            }
-        } else if let Ok(ty) = ty {
+            debug_assert_eq!(self.check_data.type_(incomplete_ty.1).node(), (self.package_id, node));
+            self.check_data.finish_type(incomplete_ty.1, ty);
+        } else {
             self.check_data.insert_typing(node, ty)
         }
     }
@@ -1466,9 +1481,7 @@ impl PassImpl<'_> {
         };
         if can {
             assert_eq!(src.0, self.package_id);
-            let src_ty = self.check_data.type_mut(src.1);
-            assert!(src_ty.data().as_var().is_some());
-            src_ty.data = Some(TypeData::Type(dst));
+            self.check_data.update_inference_var(src.1, dst);
             self.inference_ctx_mut().remove(src.1);
             true
         } else {
@@ -1516,7 +1529,7 @@ impl PassImpl<'_> {
                         NumberKind::Float => PrimitiveType::F64,
                     };
                     let fallback = self.std().lang_type(LangItem::Primitive(fallback));
-                    self.check_data.type_mut(id).data = Some(TypeData::Type(fallback));
+                    self.check_data.update_inference_var(id, fallback);
                 }
             }
         }
@@ -1879,14 +1892,24 @@ impl PassImpl<'_> {
             },
         }
 
-        let span = self.hir.path_end_ident(ctx.node).item.ident.span;
         assert!(!reso.is_empty());
+
+        if self.reso_ctx() == ResoCtx::Import {
+            self.std().lang_type(LangItem::Unit);
+            return Ok(None);
+        }
+
+       self.check_path(ctx.node, reso).map(Some)
+    }
+
+    fn check_path(&mut self, path: NodeId /*PathEndIdent*/, reso: Resolution) -> Result<TypeId, ()> {
         let reso_ctx = self.reso_ctx();
+        let span = self.hir.path_end_ident(path).item.ident.span;
         let (pkg, node) = {
             // Check if we're resolving FnCall's callee.
             let fn_call = if_chain! {
                 if reso_ctx == ResoCtx::Value;
-                if let Some(fn_call) = self.discover_data.find_fn_call(ctx.node, self.hir);
+                if let Some(fn_call) = self.discover_data.find_fn_call(path, self.hir);
                 then {
                     Some((FnParamsSignature::from_call(fn_call, self.hir), self.hir.node_kind(fn_call).span))
                 } else {
@@ -1918,7 +1941,7 @@ impl PassImpl<'_> {
                 } else {
                     if let Some(name) = &name {
                         // There are other fns with the same name but none with matching signature.
-                        self.error_span(ctx.node, call_span, format!(
+                        self.error_span(path, call_span, format!(
                             "couldn't find function `{}`: none of existing functions matches the signature",
                             call_sign.display_with_name(name)));
                         return Err(());
@@ -1928,61 +1951,56 @@ impl PassImpl<'_> {
                         node
                     } else {
                         let node = reso.ns_nodes(NsKind::Type).next().unwrap();
-                        self.error_span(ctx.node, span, format!(
+                        self.error_span(path, span, format!(
                             "expected function but found {}",
                             self.describe_named(node)));
                         return Err(());
                     }
                 }
             } else {
-                if reso_ctx == ResoCtx::Import {
-                    self.std().lang_type(LangItem::Unit);
-                    return Ok(None);
-                } else {
-                    let ns_kind = reso_ctx.to_ns_kind().unwrap();
-                    let mut it = reso.ns_nodes(ns_kind);
-                    if let Some(node) = it.next() {
-                        if let Some(FnDef { name, .. }) = self.hir(node.0).try_fn_def(node.1) {
-                            let text = if it.next().is_none() {
-                                let sign = self.discover_data(node.0).fn_def_signature(node.1);
-                                format!("invalid function reference, must include function's signature: `{}`",
-                                    sign.display_with_name(&name.value))
-                            } else {
-                                "invalid function reference, must include function's signature".into()
-                            };
-                            self.error_span(ctx.node, span, text);
-                            return Err(());
+                let ns_kind = reso_ctx.to_ns_kind().unwrap();
+                let mut it = reso.ns_nodes(ns_kind);
+                if let Some(node) = it.next() {
+                    if let Some(FnDef { name, .. }) = self.hir(node.0).try_fn_def(node.1) {
+                        let text = if it.next().is_none() {
+                            let sign = self.discover_data(node.0).fn_def_signature(node.1);
+                            format!("invalid function reference, must include function's signature: `{}`",
+                                sign.display_with_name(&name.value))
                         } else {
-                            assert!(it.next().is_none());
-                        }
-                        node
-                    } else {
-                        let node = reso.nodes().next().unwrap().1;
-                        let node = self.describe_named(node);
-                        let exp_str = match ns_kind {
-                            NsKind::Type => "type expression",
-                            NsKind::Value => "expression",
+                            "invalid function reference, must include function's signature".into()
                         };
-                        self.error_span(ctx.node, span, format!(
-                            "expected {}, found {}", exp_str, node));
+                        self.error_span(path, span, text);
                         return Err(());
+                    } else {
+                        assert!(it.next().is_none());
                     }
+                    node
+                } else {
+                    let node = reso.nodes().next().unwrap().1;
+                    let node = self.describe_named(node);
+                    let exp_str = match ns_kind {
+                        NsKind::Type => "type expression",
+                        NsKind::Value => "expression",
+                    };
+                    self.error_span(path, span, format!(
+                        "expected {}, found {}", exp_str, node));
+                    return Err(());
                 }
             }
         };
-        self.check_data.insert_path_to_target(ctx.node, (pkg, node));
-        Ok(Some(if pkg == self.package_id {
+        self.check_data.insert_path_to_target(path, (pkg, node));
+        Ok(if pkg == self.package_id {
             if let Some(ty) = self.ensure_opt_typing(node)? {
-                self.check_path_node_ty_args(ctx.node, ty)?;
+                self.check_path_node_ty_args(path, ty)?;
                 ty
             } else {
-                self.error_span(ctx.node, span, format!(
+                self.error_span(path, span, format!(
                     "expected type, found {}", self.describe_named((pkg, node))));
                 return Err(());
             }
         } else {
             self.packages[pkg].check_data.typing(node)
-        }))
+        })
     }
 
     fn resolve_method_call(&mut self, fn_call: NodeId)
