@@ -59,8 +59,8 @@
 254 + 255 = 253
 254 - 255 = 255
 254 * 255 = 2
-254 / 255 = 2
-254 % 255 = 0
+254 / 255 = 0
+254 % 255 = 254
 
 126 + 2 = 128
 126 - 2 = 124
@@ -71,7 +71,7 @@
 254 + 2 = 0
 254 - 2 = 252
 254 * 2 = 252
-254 / 2 = 255
+254 / 2 = 127
 254 % 2 = 0
 
 ==================== i16
@@ -135,8 +135,8 @@
 65534 + 65535 = 65533
 65534 - 65535 = 65535
 65534 * 65535 = 2
-65534 / 65535 = 2
-65534 % 65535 = 0
+65534 / 65535 = 0
+65534 % 65535 = 65534
 
 32766 + 2 = 32768
 32766 - 2 = 32764
@@ -147,7 +147,7 @@
 65534 + 2 = 0
 65534 - 2 = 65532
 65534 * 2 = 65532
-65534 / 2 = 65535
+65534 / 2 = 32767
 65534 % 2 = 0
 
 ==================== i32
@@ -211,8 +211,8 @@
 4294967294 + 4294967295 = 4294967293
 4294967294 - 4294967295 = 4294967295
 4294967294 * 4294967295 = 2
-4294967294 / 4294967295 = 2
-4294967294 % 4294967295 = 0
+4294967294 / 4294967295 = 0
+4294967294 % 4294967295 = 4294967294
 
 2147483646 + 2 = 2147483648
 2147483646 - 2 = 2147483644
@@ -223,7 +223,7 @@
 4294967294 + 2 = 0
 4294967294 - 2 = 4294967292
 4294967294 * 2 = 4294967292
-4294967294 / 2 = 4294967295
+4294967294 / 2 = 2147483647
 4294967294 % 2 = 0
 
 ==================== i64
@@ -287,8 +287,8 @@
 18446744073709551614 + 18446744073709551615 = 18446744073709551613
 18446744073709551614 - 18446744073709551615 = 18446744073709551615
 18446744073709551614 * 18446744073709551615 = 2
-18446744073709551614 / 18446744073709551615 = 2
-18446744073709551614 % 18446744073709551615 = 0
+18446744073709551614 / 18446744073709551615 = 0
+18446744073709551614 % 18446744073709551615 = 18446744073709551614
 
 9223372036854775806 + 2 = 9223372036854775808
 9223372036854775806 - 2 = 9223372036854775804
@@ -299,7 +299,7 @@
 18446744073709551614 + 2 = 0
 18446744073709551614 - 2 = 18446744073709551612
 18446744073709551614 * 2 = 18446744073709551612
-18446744073709551614 / 2 = 18446744073709551615
+18446744073709551614 / 2 = 9223372036854775807
 18446744073709551614 % 2 = 0
 
 ==================== i128
@@ -363,8 +363,8 @@
 0xfffffffffffffffffffffffffffffffe + 0xffffffffffffffffffffffffffffffff = 0xfffffffffffffffffffffffffffffffd
 0xfffffffffffffffffffffffffffffffe - 0xffffffffffffffffffffffffffffffff = 0xffffffffffffffffffffffffffffffff
 0xfffffffffffffffffffffffffffffffe * 0xffffffffffffffffffffffffffffffff = 2
-0xfffffffffffffffffffffffffffffffe / 0xffffffffffffffffffffffffffffffff = 2
-0xfffffffffffffffffffffffffffffffe % 0xffffffffffffffffffffffffffffffff = 0
+0xfffffffffffffffffffffffffffffffe / 0xffffffffffffffffffffffffffffffff = 0
+0xfffffffffffffffffffffffffffffffe % 0xffffffffffffffffffffffffffffffff = 0xfffffffffffffffffffffffffffffffe
 
 0x7ffffffffffffffffffffffffffffffe + 2 = 0x80000000000000000000000000000000
 0x7ffffffffffffffffffffffffffffffe - 2 = 0x7ffffffffffffffffffffffffffffffc
@@ -375,7 +375,7 @@
 0xfffffffffffffffffffffffffffffffe + 2 = 0
 0xfffffffffffffffffffffffffffffffe - 2 = 0xfffffffffffffffffffffffffffffffc
 0xfffffffffffffffffffffffffffffffe * 2 = 0xfffffffffffffffffffffffffffffffc
-0xfffffffffffffffffffffffffffffffe / 2 = 0xffffffffffffffffffffffffffffffff
+0xfffffffffffffffffffffffffffffffe / 2 = 0x7fffffffffffffffffffffffffffffff
 0xfffffffffffffffffffffffffffffffe % 2 = 0
 
 ==================== isize

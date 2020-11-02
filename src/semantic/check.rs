@@ -17,13 +17,37 @@ use resolve::{self, ResolutionKind, Resolver, ResolveData};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NumberType {
     Float,
-    Int,
+    Int {
+        signed: bool,
+    },
+}
+
+impl NumberType {
+    pub fn kind(self) -> NumberKind {
+        match self {
+            Self::Float => NumberKind::Float,
+            Self::Int { signed: _ } => NumberKind::Int,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Sign {
-    Signed,
-    Unsigned,
+pub enum NumberKind {
+    Float,
+    Int,
+}
+
+#[derive(Clone, Copy, Debug, EnumAsInner, Eq, Hash, PartialEq)]
+pub enum LangItem {
+    Primitive(PrimitiveType),
+    String,
+    Unit,
+}
+
+impl LangItem {
+    pub fn as_number(self) -> Option<NumberType> {
+        self.as_primitive().and_then(|v| v.as_number())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -43,49 +67,24 @@ pub enum PrimitiveType {
     U128,
     ISize,
     USize,
-    Unit,
     Char,
 }
 
 impl PrimitiveType {
     pub fn as_number(self) -> Option<NumberType> {
         use PrimitiveType::*;
-        match self {
-            | I8
-            | U8
-            | I16
-            | U16
-            | I32
-            | U32
-            | I64
-            | U64
-            | I128
-            | U128
-            | ISize
-            | USize
-            => Some(NumberType::Int),
-
+        Some(match self {
             | F32
             | F64
-            => Some(NumberType::Float),
+            => NumberType::Float,
 
-            | Bool
-            | Char
-            | Unit
-            => None,
-        }
-    }
-
-    pub fn int_sign(self) -> Option<Sign> {
-        use PrimitiveType::*;
-        match self {
             | I8
             | I16
             | I32
             | I64
             | I128
             | ISize
-            => Some(Sign::Signed),
+            => NumberType::Int { signed: true },
 
             | U8
             | U16
@@ -93,47 +92,13 @@ impl PrimitiveType {
             | U64
             | U128
             | USize
-            => Some(Sign::Signed),
+            => NumberType::Int { signed: false },
 
             | Bool
             | Char
-            | F32
-            | F64
-            | Unit
-            => None,
-        }
+            => return None,
+        })
     }
-}
-
-impl std::fmt::Display for PrimitiveType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use PrimitiveType::*;
-        let s = match *self {
-            Bool => "bool",
-            F32 => "f32",
-            F64 => "f64",
-            I8 => "i8",
-            U8 => "u8",
-            I16 => "i16",
-            U16 => "u16",
-            I32 => "i32",
-            U32 => "u32",
-            I64 => "i64",
-            U64 => "u64",
-            I128 => "i128",
-            U128 => "u128",
-            ISize => "isize",
-            USize => "usize",
-            Unit => "{}",
-            Char => "char",
-        };
-        write!(f, "{}", s)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum LangType {
-    String,
 }
 
 #[derive(Debug)]
@@ -162,29 +127,18 @@ impl Type {
 #[derive(Debug, EnumAsInner)]
 pub enum TypeData {
     Fn(FnType),
-    Primitive(PrimitiveType),
     Struct(StructType),
     Type(TypeId),
-    UnknownNumber(NumberType), // TODO remove, use Var
+    UnknownNumber(NumberKind), // TODO remove, use Var
     Var,
 }
 
 impl TypeData {
-    pub fn as_number(&self) -> Option<NumberType> {
-        use TypeData::*;
-        match self {
-            Primitive(v) => v.as_number(),
-            UnknownNumber(v) => Some(*v),
-            _ => None,
-        }
-    }
-
     pub fn ty_params(&self) -> &[TypeId] {
         match self {
             | TypeData::Fn(FnType { ty_params, .. })
             | TypeData::Struct(StructType { ty_params, .. })
             => ty_params,
-            | TypeData::Primitive(_)
             | TypeData::UnknownNumber(_)
             | TypeData::Var
             => &[],
@@ -223,22 +177,25 @@ pub type TypeMap<T> = HashMap<TypeId, T>;
 
 #[derive(Default)]
 pub struct Std {
-    primitive_types: HashMap<PrimitiveType, LocalTypeId>,
-    lang_type_to_id: HashMap<LangType, LocalTypeId>,
-    type_id_to_lang: HashMap<LocalTypeId, LangType>,
+    lang_item_to_type: HashMap<LangItem, LocalTypeId>,
+    type_to_lang_item: HashMap<LocalTypeId, LangItem>,
 }
 
 impl Std {
-    pub fn primitive(&self, ty: PrimitiveType) -> LocalTypeId {
-        self.primitive_types[&ty]
+    pub fn lang_type(&self, ty: LangItem) -> TypeId {
+        (PackageId::std(), self.lang_item_to_type[&ty])
     }
 
-    pub fn lang(&self, ty: LangType) -> LocalTypeId {
-        self.lang_type_to_id[&ty]
+    pub fn as_lang_item(&self, ty: TypeId) -> Option<LangItem> {
+        if ty.0.is_std() {
+            self.type_to_lang_item.get(&ty.1).copied()
+        } else {
+            None
+        }
     }
 
-    pub fn lang_of(&self, ty: LocalTypeId) -> Option<LangType> {
-        self.type_id_to_lang.get(&ty).copied()
+    pub fn as_primitive(&self, ty: TypeId) -> Option<PrimitiveType> {
+        self.as_lang_item(ty).and_then(|v| v.as_primitive().copied())
     }
 }
 
@@ -380,7 +337,7 @@ impl<'a> Check<'a> {
             resolve_data: self.resolve_data,
         };
         if self.package_id.is_std() {
-            imp.build_lang_types();
+            imp.make_lang_items();
         }
         let _ = imp.pre_check_impls();
         self.hir.traverse(imp);
@@ -398,8 +355,8 @@ impl<'a> Check<'a> {
         if self.diag.borrow().error_count() > 0 {
             return Err(CheckError(()));
         }
-        for (_, ty) in &check_data.types {
-            assert!(ty.data.is_some(), "{:?} {:?}", ty, self.hir.node_kind(ty.node));
+        for (_, ty) in &imp.check_data.types {
+            assert!(ty.data.is_some(), "{:?} {:?}", ty, imp.hir(ty.id().0).node_kind(ty.node));
         }
         Ok(check_data)
     }
@@ -480,30 +437,32 @@ struct PassImpl<'a> {
 }
 
 impl PassImpl<'_> {
-    pub fn build_lang_types(&mut self) {
+    pub fn make_lang_items(&mut self) {
         assert!(self.package_id.is_std());
 
         let mut std = Std::default();
 
         {
+            use LangItem::*;
             use PrimitiveType::*;
-            for &(prim_ty, path) in &[
-                (Bool, &["bool"][..]),
-                (Char, &["char"][..]),
-                (F32, &["f32"][..]),
-                (F64, &["f64"][..]),
-                (I8, &["i8"][..]),
-                (U8, &["u8"][..]),
-                (I16, &["i16"][..]),
-                (U16, &["u16"][..]),
-                (I32, &["i32"][..]),
-                (U32, &["u32"][..]),
-                (I64, &["i64"][..]),
-                (U64, &["u64"][..]),
-                (I128, &["i128"][..]),
-                (U128, &["u128"][..]),
-                (ISize, &["isize"][..]),
-                (USize, &["usize"][..]),
+            for &(lang_item, path) in &[
+                (Primitive(Bool), &["bool"][..]),
+                (Primitive(Char), &["char"][..]),
+                (Primitive(F32), &["f32"][..]),
+                (Primitive(F64), &["f64"][..]),
+                (Primitive(I8), &["i8"][..]),
+                (Primitive(U8), &["u8"][..]),
+                (Primitive(I16), &["i16"][..]),
+                (Primitive(U16), &["u16"][..]),
+                (Primitive(I32), &["i32"][..]),
+                (Primitive(U32), &["u32"][..]),
+                (Primitive(I64), &["i64"][..]),
+                (Primitive(U64), &["u64"][..]),
+                (Primitive(I128), &["i128"][..]),
+                (Primitive(U128), &["u128"][..]),
+                (Primitive(ISize), &["isize"][..]),
+                (Primitive(USize), &["usize"][..]),
+                (String, &["string", "String"][..]),
                 (Unit, &["Unit"][..]),
             ] {
                 let (pkg, node) = self.resolver()
@@ -511,30 +470,12 @@ impl PassImpl<'_> {
                     .unwrap()
                     .ns_nodes(NsKind::Type)
                     .exactly_one()
-                    .unwrap();
-                assert!(pkg.is_std());
-                let (pkg, ty) = self.insert_typing(node, TypeData::Primitive(prim_ty));
-                assert!(pkg.is_std());
-                assert!(std.primitive_types.insert(prim_ty, ty).is_none());
-            }
-        }
-
-        {
-            use LangType::*;
-            for &(lang_ty, path) in &[
-                (String, &["string", "String"][..]),
-            ] {
-                let (pkg, node) = self.resolver()
-                    .resolve_in_package(path)
-                    .unwrap()
-                    .ns_nodes(NsKind::Type)
-                    .exactly_one()
-                    .unwrap();
+                    .unwrap_or_else(|| panic!("missing lang item {:?}", lang_item));
                 assert!(pkg.is_std());
                 let ty = self.ensure_typing(node).unwrap();
-                assert!(ty.0.is_std());
-                assert!(std.type_id_to_lang.insert(ty.1, lang_ty).is_none());
-                assert!(std.lang_type_to_id.insert(lang_ty, ty.1).is_none());
+                assert!(pkg.is_std());
+                assert!(std.type_to_lang_item.insert(ty.1, lang_item).is_none());
+                assert!(std.lang_item_to_type.insert(lang_item, ty.1).is_none());
             }
         }
 
@@ -618,20 +559,20 @@ impl PassImpl<'_> {
         ty
     }
 
-    fn primitive_type(&self, ty: PrimitiveType) -> TypeId {
-        (PackageId::std(), self.check_data(PackageId::std()).std().primitive(ty))
-    }
-
-    fn lang_type(&self, ty: LangType) -> TypeId {
-        (PackageId::std(), self.check_data(PackageId::std()).std().lang(ty))
-    }
-
     fn typing(&self, node: NodeId) -> Result<TypeId, ()> {
         if self.failed_typings.contains_key(&node) {
             return Err(());
         }
         let ty = self.check_data.typing(node);
         Ok(self.type_(ty).id())
+    }
+
+    fn typing_global(&self, node: GlobalNodeId) -> Result<TypeId, ()> {
+        if node.0 == self.package_id {
+            self.typing(node.1)
+        } else {
+            Ok(self.type_(self.check_data(node.0).typing(node.1)).id())
+        }
     }
 
     fn begin_typing(&mut self, node: NodeId) -> TypeId {
@@ -712,7 +653,7 @@ impl PassImpl<'_> {
                 let result = if let Some(n) = *ret_ty {
                     self.ensure_typing(n)?
                 } else {
-                    self.primitive_type(PrimitiveType::Unit)
+                    self.std().lang_type(LangItem::Unit)
                 };
 
                 let mut ty_param_tys = Vec::with_capacity(ty_params.len());
@@ -735,7 +676,7 @@ impl PassImpl<'_> {
                 }));
             }
             NodeKind::Impl => {
-                self.finish_typing(ctx.node, Ok(self.primitive_type(PrimitiveType::Unit)));
+                self.finish_typing(ctx.node, Ok(self.std().lang_type(LangItem::Unit)));
 
                 let hir::Impl {
                     ty_params,
@@ -771,7 +712,6 @@ impl PassImpl<'_> {
                 {
                     let struct_ty = self.type_(struct_ty);
                     match struct_ty.data() {
-                        | TypeData::Primitive(_)
                         | TypeData::Struct(_)
                         | TypeData::Var
                         => {}
@@ -883,7 +823,7 @@ impl PassImpl<'_> {
                 let expected_ret_ty = if let Some(n) = *ret_ty {
                     self.typing(n)?
                 } else {
-                    self.primitive_type(PrimitiveType::Unit)
+                    self.std().lang_type(LangItem::Unit)
                 };
                 if let Some(body) = *body {
                     let (actual_ret_ty, expected_ret_ty) = self.unify(self.typing(body)?, expected_ret_ty);
@@ -917,11 +857,11 @@ impl PassImpl<'_> {
                         | Struct
                         | Use
                         | While
-                        => self.primitive_type(PrimitiveType::Unit),
+                        => self.std().lang_type(LangItem::Unit),
                         _ => self.typing(expr)?
                     }
                 } else {
-                    self.primitive_type(PrimitiveType::Unit)
+                    self.std().lang_type(LangItem::Unit)
                 }
             }
             NodeKind::FieldAccess => {
@@ -939,7 +879,7 @@ impl PassImpl<'_> {
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = self.hir.if_expr(ctx.node);
                 if let Ok(actual_cond_ty) = self.typing(cond) {
-                    if actual_cond_ty != self.primitive_type(PrimitiveType::Bool) {
+                    if actual_cond_ty != self.std().lang_type(LangItem::Primitive(PrimitiveType::Bool)) {
                         self.error(cond, format!(
                             "invalid type of `if` condition: expected `bool`, found `{}`",
                             self.display_type(actual_cond_ty)));
@@ -961,7 +901,7 @@ impl PassImpl<'_> {
             }
             NodeKind::Impl => unreachable!(),
             NodeKind::Let => {
-                self.primitive_type(PrimitiveType::Bool)
+                self.std().lang_type(LangItem::Primitive(PrimitiveType::Bool))
             }
             NodeKind::LetDef => {
                 self.check_data.set_lvalue(ctx.node);
@@ -987,11 +927,11 @@ impl PassImpl<'_> {
             }
             NodeKind::Literal => {
                 match self.hir.literal(ctx.node) {
-                    &Literal::Bool(_) => self.primitive_type(PrimitiveType::Bool),
+                    &Literal::Bool(_) => self.std().lang_type(LangItem::Primitive(PrimitiveType::Bool)),
                     &Literal::Int(IntLiteral { ty, .. }) => {
                         if let Some(ty) = ty {
                             use IntTypeSuffix::*;
-                            self.primitive_type(match ty {
+                            self.std().lang_type(LangItem::Primitive(match ty {
                                 I8 => PrimitiveType::I8,
                                 U8 => PrimitiveType::U8,
                                 I16 => PrimitiveType::I16,
@@ -1004,25 +944,25 @@ impl PassImpl<'_> {
                                 U128 => PrimitiveType::U128,
                                 ISize => PrimitiveType::ISize,
                                 USize => PrimitiveType::USize,
-                            })
+                            }))
                         } else {
-                            self.insert_type(ctx.node, TypeData::UnknownNumber(NumberType::Int))
+                            self.insert_type(ctx.node, TypeData::UnknownNumber(NumberKind::Int))
                         }
                     },
                     &Literal::Float(FloatLiteral { ty, .. }) => {
                         if let Some(ty) = ty {
                             use FloatTypeSuffix::*;
-                            self.primitive_type(match ty {
+                            self.std().lang_type(LangItem::Primitive(match ty {
                                 F32 => PrimitiveType::F32,
                                 F64 => PrimitiveType::F64,
-                            })
+                            }))
                         } else {
-                            self.insert_type(ctx.node, TypeData::UnknownNumber(NumberType::Float))
+                            self.insert_type(ctx.node, TypeData::UnknownNumber(NumberKind::Float))
                         }
                     }
-                    Literal::Unit => self.primitive_type(PrimitiveType::Unit),
-                    Literal::String(_) => self.lang_type(LangType::String),
-                    Literal::Char(_) => self.primitive_type(PrimitiveType::Char),
+                    Literal::Unit => self.std().lang_type(LangItem::Unit),
+                    Literal::String(_) => self.std().lang_type(LangItem::String),
+                    Literal::Char(_) => self.std().lang_type(LangItem::Primitive(PrimitiveType::Char)),
                 }
             }
             NodeKind::Module => return Ok(None),
@@ -1169,7 +1109,7 @@ impl PassImpl<'_> {
                     (ty, ty_args)
                 } else {
                     let ty = if fields.is_empty() {
-                        self.primitive_type(PrimitiveType::Unit)
+                        self.std().lang_type(LangItem::Unit)
                     } else {
                         let mut field_tys = Vec::with_capacity(fields.len());
                         let mut err = false;
@@ -1235,7 +1175,6 @@ impl PassImpl<'_> {
                 }
 
                 let expected_field_count = match self.type_(ty).data() {
-                    TypeData::Primitive(PrimitiveType::Unit) => 0,
                     TypeData::Struct(StructType { fields, ty_params: _ }) => fields.len(),
                     _ => unreachable!(),
                 };
@@ -1297,18 +1236,18 @@ impl PassImpl<'_> {
                 }
                 self.typing(*ty)?
             }
-            NodeKind::Use => self.primitive_type(PrimitiveType::Unit),
+            NodeKind::Use => self.std().lang_type(LangItem::Unit),
             NodeKind::While
             => {
                 let cond = self.hir.while_(ctx.node).cond;
                 if let Ok(actual_cond_ty) = self.typing(cond) {
-                    if actual_cond_ty != self.primitive_type(PrimitiveType::Bool) {
+                    if actual_cond_ty != self.std().lang_type(LangItem::Primitive(PrimitiveType::Bool)) {
                         self.error(cond, format!(
                             "invalid type of `while` condition: expected `bool`, found `{}`",
                             self.display_type(actual_cond_ty)));
                     }
                 }
-                self.primitive_type(PrimitiveType::Unit)
+                self.std().lang_type(LangItem::Unit)
             },
             _ => unimplemented!("{:?}", self.hir.node_kind(ctx.node))
         };
@@ -1421,7 +1360,7 @@ impl PassImpl<'_> {
                         self.display_type(left_ty.id()),
                         self.display_type(right_ty.id())));
                 }
-                self.primitive_type(PrimitiveType::Unit)
+                self.std().lang_type(LangItem::Unit)
             }
             | Eq
             | Gt
@@ -1430,11 +1369,9 @@ impl PassImpl<'_> {
             | LtEq
             | NotEq
             => {
-                let ok = match (left_ty.data(), right_ty.data()) {
-                    (TypeData::Primitive(l), TypeData::Primitive(r)) if l == r => true,
-                    (TypeData::UnknownNumber(l), TypeData::UnknownNumber(r)) if l == r => true,
-                    _ => false,
-                };
+                let ok = matches!((self.std().as_lang_item(left_ty.id()), self.std().as_lang_item(right_ty.id())),
+                    (Some(LangItem::Primitive(l)), Some(LangItem::Primitive(r))) if l == r)
+                    || matches!((left_ty.data(), right_ty.data()), (TypeData::UnknownNumber(l), TypeData::UnknownNumber(r)) if l == r);
                 if !ok {
                     self.error_span(ctx.node, kind.span, format!(
                         "binary operation `{}` can't be applied to types `{}`, `{}`",
@@ -1442,15 +1379,12 @@ impl PassImpl<'_> {
                         self.display_type(left_ty.id()),
                         self.display_type(right_ty.id())));
                 }
-                self.primitive_type(PrimitiveType::Bool)
+                self.std().lang_type(LangItem::Primitive(PrimitiveType::Bool))
             },
             Add | Div | Mul | Sub | Rem => {
-                let ok = match (left_ty.data(), right_ty.data()) {
-                    (TypeData::Primitive(l), TypeData::Primitive(r)) =>
-                        l.as_number().is_some() && l == r,
-                    (TypeData::UnknownNumber(l), TypeData::UnknownNumber(r)) => l == r,
-                    _ => false,
-                };
+                let ok = matches!((self.std().as_lang_item(left_ty.id()), self.std().as_lang_item(right_ty.id())),
+                    (Some(LangItem::Primitive(l)), Some(LangItem::Primitive(r))) if l.as_number().is_some() && l == r)
+                    || matches!((left_ty.data(), right_ty.data()), (TypeData::UnknownNumber(l), TypeData::UnknownNumber(r)) if l == r);
                 if !ok {
                     self.error_span(ctx.node, kind.span, format!(
                         "binary operation `{}` can't be applied to types `{}`, `{}`",
@@ -1471,11 +1405,9 @@ impl PassImpl<'_> {
         use UnaryOpKind::*;
         let ty = match kind.value {
             Neg => {
-                let ok = match arg_ty.data() {
-                    TypeData::Primitive(prim) if prim.as_number().is_some() => true,
-                    TypeData::UnknownNumber(_) => true,
-                    _ => false,
-                };
+                let ok = matches!(self.std().as_lang_item(arg_ty.id()),
+                    Some(LangItem::Primitive(prim)) if prim.as_number().is_some())
+                    || matches!(arg_ty.data(), TypeData::UnknownNumber(_));
                 if !ok {
                     self.error_span(ctx.node, kind.span, format!(
                         "unary operation `{}` can't be applied to type `{}`",
@@ -1502,11 +1434,13 @@ impl PassImpl<'_> {
             if ty1.id() == ty2.id() {
                 return (ty1.id(), ty1.id());
             }
+            let ty1_number = self.as_number(ty1.id());
+            let ty2_number = self.as_number(ty2.id());
             use TypeData::*;
-            match (ty1.data(), ty2.data()) {
-                (&UnknownNumber(num), Primitive(pt)) if pt.as_number() == Some(num) => (ty1.id(), ty2.id()),
-                (Primitive(pt), &UnknownNumber(num)) if pt.as_number() == Some(num) => (ty2.id(), ty1.id()),
-                (UnknownNumber(l), UnknownNumber(r)) if l == r => (ty1.id(), ty2.id()),
+            match (ty1.data(), ty1_number, ty2.data(), ty2_number) {
+                (&UnknownNumber(num), _, _, Some(ty2n)) if ty2n.kind() == num => (ty1.id(), ty2.id()),
+                (_, Some(ty1n), &UnknownNumber(num), _) if ty1n.kind() == num => (ty2.id(), ty1.id()),
+                (UnknownNumber(l), _, UnknownNumber(r), _) if l == r => (ty1.id(), ty2.id()),
                 _ => return (ty1.id(), ty2.id()),
             }
         };
@@ -1522,12 +1456,12 @@ impl PassImpl<'_> {
         if self.unknown_num_types.is_empty() {
             return;
         }
-        let i32 = self.primitive_type(PrimitiveType::I32);
-        let f64 = self.primitive_type(PrimitiveType::F64);
+        let i32 = self.std().lang_type(LangItem::Primitive(PrimitiveType::I32));
+        let f64 = self.std().lang_type(LangItem::Primitive(PrimitiveType::F64));
         for ty in self.unknown_num_types.drain() {
             let fallback = match self.check_data.type_(ty).data().as_unknown_number().unwrap() {
-                NumberType::Int => i32,
-                NumberType::Float => f64,
+                NumberKind::Int => i32,
+                NumberKind::Float => f64,
             };
             let typ = self.check_data.type_mut(ty);
             typ.data = Some(TypeData::Type(fallback));
@@ -1558,7 +1492,9 @@ impl PassImpl<'_> {
     ) -> Result<TypeId, ()> {
         let (idx, ty) = {
             let struct_ty = self.type_(struct_ty);
-            let ty_fields = if let TypeData::Struct(StructType { fields, ty_params: _ }) = struct_ty.data() {
+            let ty_fields = if self.std().as_primitive(struct_ty.id()).is_some() {
+                &[]
+            } else if let TypeData::Struct(StructType { fields, ty_params: _ }) = struct_ty.data() {
                 &fields[..]
             } else {
                 &[]
@@ -1697,13 +1633,12 @@ impl PassImpl<'_> {
                             self.display_type0(param, f)?;
                         }
                         write!(f, ")")?;
-                        if !matches!(self.type_(*result).data().as_primitive(), Some(PrimitiveType::Unit)) {
+                        if !matches!(self.std().as_lang_item(*result), Some(LangItem::Unit)) {
                             write!(f, " -> ")?;
                             self.display_type0(*result, f)?;
                         }
                         Ok(())
                     }
-                    &TypeData::Primitive(v) => write!(f, "{}", v),
                     TypeData::Struct(StructType { fields: field_tys, ty_params }) => {
                         if let Some(Struct { name, .. }) = hir.try_struct(self.discover_data(ty.node().0).parent_of(ty.node().1)) {
                             write!(f, "{}", name.value)?;
@@ -1784,8 +1719,8 @@ impl PassImpl<'_> {
                         }
                     }
                     &TypeData::UnknownNumber(v) => match v {
-                        NumberType::Int => write!(f, "<integer>"),
-                        NumberType::Float => write!(f, "<float>"),
+                        NumberKind::Int => write!(f, "<integer>"),
+                        NumberKind::Float => write!(f, "<float>"),
                     }
                 }
             }
@@ -1855,14 +1790,9 @@ impl PassImpl<'_> {
         let hir = self.hir(node.0);
         let kind = hir.node_kind(node.1).value;
         if kind == NodeKind::Struct {
-            let prim = if node.0.is_std() && !self.package_id.is_std() {
-                let cd = &self.packages[PackageId::std()].check_data;
-                let ty = cd.typing(node.1);
-                assert!(ty.0.is_std());
-                cd.type_(ty.1).data().as_primitive().is_some()
-            } else {
-                false
-            };
+            let prim = self.typing_global(node).ok()
+                .and_then(|ty| self.std().as_primitive(ty))
+                .is_some();
             if prim {
                 let name = self.discover_data(node.0).name(node.1, hir).unwrap();
                 return format!("primitive type `{}`", name.value);
@@ -1950,7 +1880,7 @@ impl PassImpl<'_> {
                 }
             } else {
                 if reso_ctx == ResoCtx::Import {
-                    self.primitive_type(PrimitiveType::Unit);
+                    self.std().lang_type(LangItem::Unit);
                     return Ok(None);
                 } else {
                     let ns_kind = reso_ctx.to_ns_kind().unwrap();
@@ -2013,7 +1943,6 @@ impl PassImpl<'_> {
 
         match self.type_(receiver_ty).data() {
             | TypeData::Struct(_)
-            | TypeData::Primitive(_)
             | TypeData::Fn(_)
             | TypeData::Var
             => {}
@@ -2098,7 +2027,6 @@ impl PassImpl<'_> {
 
         match self.type_(ty).data() {
             | TypeData::Struct(_)
-            | TypeData::Primitive(_)
             | TypeData::Fn(_)
             | TypeData::Var
             => {}
@@ -2171,7 +2099,7 @@ impl PassImpl<'_> {
             TypeData::Fn(FnType { params, result, unsafe_, ty_params: _ }) => {
                 assert_eq!(params.len(), 0);
                 let fn_def = self.hir.fn_def(node);
-                if !matches!(self.type_(*result).data(), TypeData::Primitive(PrimitiveType::Unit)) {
+                if !matches!(self.std().as_lang_item(self.type_(*result).id()), Some(LangItem::Unit)) {
                     self.error(fn_def.ret_ty.unwrap(),
                         "`main` function must have unit return type".into());
                 }
@@ -2205,6 +2133,15 @@ impl PassImpl<'_> {
             diag: self.diag,
             resolve_data: &self.resolve_data,
         }
+    }
+
+    fn std(&self) -> &Std {
+        self.check_data(PackageId::std()).std()
+    }
+
+    fn as_number(&self, ty: TypeId) -> Option<NumberType> {
+        self.std().as_lang_item(ty)
+            .and_then(|v| v.as_number())
     }
 }
 

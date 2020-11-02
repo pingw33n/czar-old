@@ -311,12 +311,6 @@ impl Llvm {
         }).unwrap().into()
     }
 
-    pub fn const_struct(&self, fields: &mut [DValueRef]) -> DValueRef {
-        NonNull::new(unsafe {
-            LLVMConstStructInContext(self.c.as_ptr(), fields.as_mut_ptr() as *mut _, fields.len() as u32, 0)
-        }).unwrap().into()
-    }
-
     pub fn const_string(&self, s: &str) -> DValueRef {
         NonNull::new(unsafe {
             LLVMConstStringInContext(self.c.as_ptr(), s.as_ptr() as *const i8, s.len() as u32, 1)

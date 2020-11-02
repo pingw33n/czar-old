@@ -70,5 +70,4 @@ pub module string {
     }
 }
 
-// Placeholder for HIR node.
-struct Unit {}
+type Unit = {};
