@@ -1295,7 +1295,7 @@ impl PassImpl<'_> {
             _ => false,
         };
 
-        let path = PathItem::from_hir_path(path, self.hir, self.discover_data);
+        let path = PathItem::from_hir_path_end(path, self.hir, self.discover_data);
 
         self.check_path_ty_args(&path, ty, fully_inferrable)
     }
@@ -1336,7 +1336,7 @@ impl PassImpl<'_> {
         }
         let mut err = false;
         let mut r = Vec::with_capacity(params.len());
-        let path = &PathItem::from_hir_path(path, self.hir, self.discover_data);
+        let path = &PathItem::from_hir_path_start(path, self.hir, self.discover_data);
         let args = Self::path_ty_args(path);
         if let Some(args) = args {
             assert_eq!(args.value.len(), params.len());

@@ -98,7 +98,7 @@ impl PathItem {
         }
     }
 
-    pub fn from_hir_path(
+    pub fn from_hir_path_end(
         path: NodeId /*Path|PathSegment|PathEndIdent|PathEndStar|PathEndEmpty*/,
         hir: &Hir,
         discover_data: &DiscoverData,
@@ -109,7 +109,7 @@ impl PathItem {
             let nk = hir.node_kind(n);
             match nk.value {
                 NodeKind::Path => {
-                    break hir.node_kind(discover_data.parent_of(n)).value == NodeKind::Use;
+                    break;
                 }
                 NodeKind::PathEndIdent => {
                     r.push(PathItem::from_hir(n, &hir.path_end_ident(n).item));
@@ -127,5 +127,13 @@ impl PathItem {
         };
         r.reverse();
         r
+    }
+
+    pub fn from_hir_path_start(
+        path: NodeId /*Path*/,
+        hir: &Hir,
+        discover_data: &DiscoverData,
+    ) -> Vec<Self> {
+        Self::from_hir_path_end(hir.find_flat_path_end(path), hir, discover_data)
     }
 }

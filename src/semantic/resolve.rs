@@ -418,7 +418,7 @@ impl Resolver<'_> {
     }
 
     fn make_path_items(&self, path: NodeId) -> Vec<PathItem2> {
-        let path_items = PathItem::from_hir_path(path, self.hir, self.discover_data);
+        let path_items = PathItem::from_hir_path_end(path, self.hir, self.discover_data);
         let mut r = path_items.into_iter()
             .map(PathItem2::PathItem)
             .collect::<Vec<_>>();
