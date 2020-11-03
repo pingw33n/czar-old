@@ -1,0 +1,44 @@
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:3:12
+3 |         a: S,
+               ~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:4:13
+4 |         b: S<>,
+                ~~
+
+error: wrong number of type arguments: expected 2, found 3
+  --> main.cz:6:13
+6 |         d: S<u32, bool, char>,
+                ~~~~~~~~~~~~~~~~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:17:12
+17 |         a: S1,
+                ~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:18:14
+18 |         b: S1<>,
+                  ~~
+
+error: wrong number of type arguments: expected 2, found 3
+  --> main.cz:20:14
+20 |         d: S1<u32, bool, char>,
+                  ~~~~~~~~~~~~~~~~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:24:12
+24 |         a: S4,
+                ~~
+
+error: wrong number of type arguments: expected 2, found 0
+  --> main.cz:25:14
+25 |         b: S4<>,
+                  ~~
+
+error: wrong number of type arguments: expected 2, found 3
+  --> main.cz:27:14
+27 |         d: S4<u32, bool, char>,
+                  ~~~~~~~~~~~~~~~~~

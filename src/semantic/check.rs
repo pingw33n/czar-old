@@ -152,7 +152,7 @@ pub struct FnType {
     pub unsafe_: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StructTypeField {
     /// Original index of the field as defined in HIR.
     /// Record struct type will have the field order normalized.
@@ -250,6 +250,14 @@ impl CheckData {
         assert!(incomplete_ty.data.replace(TypeData::Type(target_ty)).is_none());
     }
 
+    fn finish_struct_type(&mut self, incomplete_ty: LocalTypeId, fields: Vec<StructTypeField>) {
+        let incomplete_ty = self.type_mut(incomplete_ty);
+        let d = incomplete_ty.data.as_mut().unwrap();
+        let s = d.as_struct_mut().unwrap();
+        assert!(s.fields.is_empty());
+        s.fields = fields;
+    }
+
     fn update_inference_var(&mut self, id: LocalTypeId, target_ty: TypeId) {
         let ty = self.type_mut(id);
         assert!(matches!(ty.data.replace(TypeData::Type(target_ty)), Some(TypeData::Var)));
@@ -339,7 +347,7 @@ impl<'a> Check<'a> {
             unnamed_structs,
             hir: self.hir,
             diag: self.diag,
-            failed_typings: Default::default(),
+            typing_state: Default::default(),
             resolve_data: self.resolve_data,
             inference_ctxs: Vec::new(),
         };
@@ -348,15 +356,21 @@ impl<'a> Check<'a> {
         }
         let _ = imp.pre_check_impls();
         self.hir.traverse(imp);
-        if !imp.failed_typings.is_empty() {
-            let diag_empty = self.diag.borrow().reports().is_empty();
-            if diag_empty {
-                dbg!(self.package_id);
-                for node in &imp.failed_typings {
-                    dbg!(self.hir.node_kind(*node.0));
+        if cfg!(debug_assertions) {
+            let failed: Vec<_> = imp.typing_state.iter()
+                .filter(|&(_, &s)| s == TypingState::Failed)
+                .map(|(&n, _)| n)
+                .collect();
+            if !failed.is_empty() {
+                let diag_empty = self.diag.borrow().reports().is_empty();
+                if diag_empty {
+                    dbg!(self.package_id);
+                    for node in failed {
+                        dbg!(self.hir.node_kind(node));
+                    }
                 }
+                assert!(!diag_empty, "{:?}", self.package_id);
             }
-            assert!(!diag_empty, "{:?}", self.package_id);
         }
         imp.resolve_entry_point().map_err(|_| CheckError(()))?;
         if self.diag.borrow().error_count() > 0 {
@@ -449,6 +463,12 @@ impl InferenceCtx {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TypingState {
+    Incomplete,
+    Failed,
+}
+
 struct PassImpl<'a> {
     discover_data: &'a DiscoverData,
     check_data: &'a mut CheckData,
@@ -463,7 +483,7 @@ struct PassImpl<'a> {
     unnamed_structs: HashMap<UnnamedStructKey, TypeId>,
     hir: &'a Hir,
     diag: DiagRef<'a>,
-    failed_typings: NodeMap<()>,
+    typing_state: NodeMap<TypingState>,
     resolve_data: &'a ResolveData,
     inference_ctxs: Vec<InferenceCtx>,
 }
@@ -514,15 +534,19 @@ impl PassImpl<'_> {
         assert!(self.check_data.std.replace(Box::new(std)).is_none());
     }
 
+    fn typing_state(&self, node: NodeId) -> Option<TypingState> {
+        self.typing_state.get(&node).copied()
+    }
+
     fn ensure_opt_typing(&mut self, node: NodeId) -> Result<Option<TypeId>, ()> {
-        if self.failed_typings.contains_key(&node) {
+        if self.typing_state(node) == Some(TypingState::Failed) {
             return Err(());
         }
         let ty = if let Some(ty) = self.check_data.try_typing(node) {
             ty
         } else {
             self.hir.traverse_from(node, self);
-            if self.failed_typings.contains_key(&node) {
+            if self.typing_state(node) == Some(TypingState::Failed) {
                 return Err(());
             }
             if let Some(ty) = self.check_data.try_typing(node) {
@@ -590,14 +614,14 @@ impl PassImpl<'_> {
     }
 
     fn insert_typing(&mut self, node: NodeId, data: TypeData) -> TypeId {
-        debug_assert!(!self.failed_typings.contains_key(&node));
+        debug_assert_ne!(self.typing_state(node), Some(TypingState::Failed));
         let ty = self.insert_type(node, data);
         self.check_data.insert_typing(node, ty);
         ty
     }
 
     fn typing(&self, node: NodeId) -> Result<TypeId, ()> {
-        if self.failed_typings.contains_key(&node) {
+        if self.typing_state(node) == Some(TypingState::Failed) {
             return Err(());
         }
         let ty = self.check_data.typing(node);
@@ -612,22 +636,34 @@ impl PassImpl<'_> {
         }
     }
 
-    fn begin_typing(&mut self, node: NodeId) -> TypeId {
-        debug_assert!(!self.failed_typings.contains_key(&node));
-        let ty = self.check_data.insert_type((self.package_id, node), None);
+    fn begin_typing0(&mut self, node: NodeId, data: Option<TypeData>) -> TypeId {
+        let ty = self.check_data.insert_type((self.package_id, node), data);
         self.check_data.insert_typing(node, ty);
+        assert!(self.typing_state.insert(node, TypingState::Incomplete).is_none());
         ty
+    }
+
+    fn begin_typing(&mut self, node: NodeId) -> TypeId {
+        self.begin_typing0(node, None)
+    }
+
+    fn begin_struct_typing(&mut self, node: NodeId, ty_params: Vec<TypeId>) -> TypeId {
+        self.begin_typing0(node, Some(TypeData::Struct(StructType {
+            fields: Vec::new(),
+            ty_params
+        })))
     }
 
     fn insert_failed_typing(&mut self, node: NodeId) {
         assert!(!self.diag.borrow().reports().is_empty());
-        assert!(self.failed_typings.insert(node, ()).is_none());
+        assert!(matches!(self.typing_state.insert(node, TypingState::Failed),
+            None | Some(TypingState::Incomplete)));
     }
 
     fn finish_typing(&mut self, node: NodeId, ty: Result<TypeId, ()>) {
-        debug_assert!(!self.failed_typings.contains_key(&node));
+        assert!(matches!(self.typing_state.remove(&node), None | Some(TypingState::Incomplete)));
         let ty = match ty {
-            Ok(ty) => ty,
+            Ok(ty) => self.type_(ty).id(),
             Err(()) => {
                 self.insert_failed_typing(node);
                 return;
@@ -636,7 +672,14 @@ impl PassImpl<'_> {
         if let Some(incomplete_ty) = self.check_data.try_typing(node) {
             assert_eq!(incomplete_ty.0, self.package_id);
             debug_assert_eq!(self.check_data.type_(incomplete_ty.1).node(), (self.package_id, node));
-            self.check_data.finish_type(incomplete_ty.1, ty);
+            if self.hir.node_kind(node).value == NodeKind::Struct {
+                let StructType { fields, ty_params } = self.type_(ty).data().as_struct().unwrap();
+                assert!(ty_params.is_empty());
+                let fields = fields.clone();
+                self.check_data.finish_struct_type(incomplete_ty.1, fields);
+            } else {
+                self.check_data.finish_type(incomplete_ty.1, ty);
+            }
         } else {
             self.check_data.insert_typing(node, ty)
         }
@@ -714,7 +757,7 @@ impl PassImpl<'_> {
                 }));
             }
             NodeKind::Impl => {
-                self.finish_typing(ctx.node, Ok(self.std().lang_type(LangItem::Unit)));
+                self.check_data.insert_typing(ctx.node, self.std().lang_type(LangItem::Unit));
 
                 let hir::Impl {
                     ty_params,
@@ -810,9 +853,23 @@ impl PassImpl<'_> {
                         sign.display_with_name(&name.value)));
                 }
             }
-            | NodeKind::Struct
-            | NodeKind::TypeAlias
-            => {
+            NodeKind::Struct => {
+                let Struct { ty_params, .. } = self.hir.struct_(ctx.node);
+                let mut ty_param_tys = Vec::with_capacity(ty_params.len());
+                let mut err = false;
+                for &ty_param in ty_params {
+                    if let Ok(ty) = self.ensure_typing(ty_param) {
+                        ty_param_tys.push(ty);
+                    } else {
+                        err = true;
+                    }
+                }
+                if err {
+                    return Err(());
+                }
+                self.begin_struct_typing(ctx.node, ty_param_tys);
+            }
+            NodeKind::TypeAlias => {
                 self.begin_typing(ctx.node);
             }
             NodeKind::TypeParam => {
@@ -1014,7 +1071,7 @@ impl PassImpl<'_> {
             }
             NodeKind::Path => {
                 let segment = self.hir.path(ctx.node).segment;
-                if self.failed_typings.contains_key(&segment) {
+                if self.typing_state(segment) == Some(TypingState::Failed) {
                     return Err(())
                 } else if let Some(target) = self.check_data.try_target_of(segment) {
                     if self.check_data(target.0).is_lvalue(target.1) {
@@ -1050,7 +1107,7 @@ impl PassImpl<'_> {
             NodeKind::PathSegment => {
                 let suffix = &self.hir.path_segment(ctx.node).suffix;
                 if suffix.len() == 1 {
-                    if self.failed_typings.contains_key(&suffix[0]) {
+                    if self.typing_state(suffix[0]) == Some(TypingState::Failed) {
                         return Err(())
                     } else if let Some(target) = self.check_data.try_target_of(suffix[0]) {
                         self.check_data.insert_path_to_target(ctx.node, target);
@@ -1067,7 +1124,7 @@ impl PassImpl<'_> {
             }
             NodeKind::StructType => {
                 let fields = &self.hir.struct_type(ctx.node).fields;
-                let struct_ = self.hir.try_struct(self.discover_data.parent_of(ctx.node));
+                let struct_ = self.hir.node_kind(self.discover_data.parent_of(ctx.node)).value == NodeKind::Struct;
 
                 let mut seen_fields = HashSet::new();
                 let mut dup_fields = HashSet::new();
@@ -1083,7 +1140,7 @@ impl PassImpl<'_> {
                     }
                 }
 
-                if let Some(Struct { ty_params, .. }) = struct_ {
+                if struct_ {
                     let mut field_tys = Vec::with_capacity(fields.len());
                     let mut err = false;
                     for (def_idx, f) in fields.iter().enumerate() {
@@ -1100,21 +1157,12 @@ impl PassImpl<'_> {
                         }
                     }
 
-                    let mut ty_param_tys = Vec::with_capacity(ty_params.len());
-                    for &ty_param in ty_params {
-                        if let Ok(ty) = self.typing(ty_param) {
-                            ty_param_tys.push(ty);
-                        } else {
-                            err = true;
-                        }
-                    }
-
                     if err {
                         return Err(());
                     }
                     self.insert_type(ctx.node, TypeData::Struct(StructType {
                         fields: field_tys,
-                        ty_params: ty_param_tys,
+                        ty_params: Vec::new(),
                     }))
                 } else {
                     let mut field_tys = Vec::with_capacity(fields.len());
@@ -1219,7 +1267,8 @@ impl PassImpl<'_> {
                     assert!(seen_fields.len() < expected_field_count);
                     let mut missing_fields = Vec::new();
                     let ty = self.type_(ty);
-                    let struct_ty_def = self.hir.struct_type(ty.node);
+                    let ty_node = self.struct_ty_node(ty.node());
+                    let struct_ty_def = self.hir(ty_node.0).struct_type(ty_node.1);
                     if struct_ty_def.fields[0].name.is_some() {
                         for (i, f) in ty.data().as_struct().unwrap().fields.iter().enumerate() {
                             if seen_fields.contains(&(i as u32)) {
@@ -1536,20 +1585,18 @@ impl PassImpl<'_> {
     }
 
     fn has_complete_typing(&self, node: NodeId) -> Result<bool, ()> {
-        if self.failed_typings.contains_key(&node) {
-            return Err(());
+        match self.typing_state(node) {
+            Some(TypingState::Incomplete) => return Ok(false),
+            Some(TypingState::Failed) => return Err(()),
+            None => {}
         }
         let id = if let Some(v) = self.check_data.try_typing(node) {
             v
         } else {
             return Ok(false);
         };
-        Ok(if id.0 == self.package_id {
-            self.check_data.type_(id.1).data.is_some()
-        } else {
-            debug_assert!(self.type_(id).data.is_some());
-            true
-        })
+        debug_assert!(self.check_data(id.0).type_(id.1).data.is_some());
+        Ok(true)
     }
 
     fn resolve_struct_field(&mut self,
@@ -1567,13 +1614,14 @@ impl PassImpl<'_> {
                 &[]
             };
 
-            let struct_hir = self.hir(struct_ty.package_id);
             // TODO This is inefficient as the method is going to be called often for field accesses.
             let field_count;
             let field_names: HashMap<_, _> = if !ty_fields.is_empty() {
-                match struct_hir.node_kind(struct_ty.node).value {
+                let ty_node = self.struct_ty_node(struct_ty.node());
+                let struct_hir = self.hir(ty_node.0);
+                match struct_hir.node_kind(ty_node.1).value {
                     NodeKind::StructType => {
-                        let def_fields = &struct_hir.struct_type(struct_ty.node).fields;
+                        let def_fields = &struct_hir.struct_type(ty_node.1).fields;
                         field_count = def_fields.len();
                         ty_fields.iter().enumerate()
                             .filter_map(|(i, &StructTypeField { def_idx, .. })| {
@@ -1583,7 +1631,7 @@ impl PassImpl<'_> {
                             .collect()
                     }
                     NodeKind::StructValue => {
-                        let def_fields = &struct_hir.struct_value(struct_ty.node).fields;
+                        let def_fields = &struct_hir.struct_value(ty_node.1).fields;
                         field_count = def_fields.len();
                         ty_fields.iter().enumerate()
                             .filter_map(|(i, &StructTypeField { def_idx, .. })| {
@@ -1707,7 +1755,7 @@ impl PassImpl<'_> {
                         Ok(())
                     }
                     TypeData::Struct(StructType { fields: field_tys, ty_params }) => {
-                        if let Some(Struct { name, .. }) = hir.try_struct(self.discover_data(ty.node().0).parent_of(ty.node().1)) {
+                        if let Some(Struct { name, .. }) = hir.try_struct(ty.node().1) {
                             write!(f, "{}", name.value)?;
                             if !ty_params.is_empty() {
                                 write!(f, "<")?;
@@ -1746,6 +1794,7 @@ impl PassImpl<'_> {
                             }
                             write!(f, "}}")?;
                         } else {
+                            dbg!(hir.node_kind(ty.node().1));
                             let def_fields = &hir.struct_value(ty.node().1).fields;
                             // TODO can this be deduped with hir::StructType code above?
                             assert_eq!(def_fields.len(), field_tys.len());
@@ -2247,6 +2296,15 @@ impl PassImpl<'_> {
             None
         }
     }
+
+    fn struct_ty_node(&self, node: GlobalNodeId /*Struct|StructType|StructValue*/) -> GlobalNodeId /*StructType|StructValue*/ {
+        if let Some(s) = self.hir(node.0).try_struct(node.1) {
+            (node.0, s.ty)
+        } else {
+            debug_assert!(matches!(self.hir(node.0).node_kind(node.1).value, NodeKind::StructType | NodeKind::StructValue));
+            node
+        }
+    }
 }
 
 impl HirVisitor for PassImpl<'_> {
@@ -2259,7 +2317,9 @@ impl HirVisitor for PassImpl<'_> {
         }
 
         if self.has_complete_typing(ctx.node) == Ok(false) {
-            let _ = self.do_pre_typing(ctx);
+            if self.do_pre_typing(ctx).is_err() {
+                self.insert_failed_typing(ctx.node);
+            }
         }
     }
 
