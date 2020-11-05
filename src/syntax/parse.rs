@@ -1348,7 +1348,7 @@ impl<'a> ParserImpl<'a> {
 
     fn field_access_or_method_call(&mut self, receiver: NodeId) -> PResult<NodeId> {
         let field = self.lex.nth(0);
-        let field = match field.value {
+        let name = match field.value {
             Token::Ident => {
                 let ident = self.ident()?;
                 let (ty_args, _) = self.maybe_ty_args(false)?;
@@ -1356,7 +1356,7 @@ impl<'a> ParserImpl<'a> {
                     let callee = self.hir.insert_path_from_ident(ident, ty_args);
                     return self.fn_call(callee, Some(receiver));
                 }
-                ident.map(Field::Ident)
+                ident.map(FieldAccessName::Ident)
             }
             Token::Literal(lex::Literal::Int) => {
                 let IntLiteral { value, ty } = self.int_literal()?.value;
@@ -1369,18 +1369,18 @@ impl<'a> ParserImpl<'a> {
                 } else {
                     return self.error(field.span, "tuple field index is too big".into());
                 };
-                field.span.spanned(Field::Index(idx))
+                field.span.spanned(FieldAccessName::Index(idx))
             }
             _ => {
                 return self.error(field.span,
                     format!("expected field identifier or tuple field index, found `{}`", field.value));
             }
         };
-        let span = self.hir.node_kind(receiver).span.extended(field.span.end);
+        let span = self.hir.node_kind(receiver).span.extended(name.span.end);
         Ok(self.hir.insert_field_access(span.spanned(
             FieldAccess {
                 receiver,
-                field,
+                name,
             })))
     }
 

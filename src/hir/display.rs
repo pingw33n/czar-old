@@ -65,12 +65,12 @@ impl Display<'_> {
                 self.node(*ty, false, p)?;
             }
             NodeKind::FieldAccess => {
-                let FieldAccess { receiver, field } = self.hir.field_access(node);
+                let FieldAccess { receiver, name: field } = self.hir.field_access(node);
                 let excl = self.hir.try_literal(*receiver)
                     .map(|l| l.as_int().is_some() || l.as_float().is_some())
                     == Some(true) ||
                     self.hir.try_field_access(*receiver)
-                        .map(|f| f.field.value.as_index().is_some())
+                        .map(|f| f.name.value.as_index().is_some())
                         == Some(true);
                 self.expr_excl(*receiver, excl, p)?;
                 p.print('.')?;

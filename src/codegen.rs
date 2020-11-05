@@ -13,14 +13,14 @@ pub use llvm::OutputFormat;
 
 struct ExprCtx<'a> {
     package: &'a Package,
-    fn_: llvm::DValueRef,
-    allocas: &'a mut NodeMap<llvm::IValueRef>,
+    fn_: DValueRef,
+    allocas: &'a mut NodeMap<IValueRef>,
 }
 
 #[derive(Clone, Copy)]
 enum Value {
-    Direct(llvm::DValueRef),
-    Indirect(llvm::IValueRef),
+    Direct(DValueRef),
+    Indirect(IValueRef),
 }
 
 impl Value {
@@ -39,13 +39,13 @@ impl Value {
     }
 }
 
-impl From<llvm::DValueRef> for Value {
+impl From<DValueRef> for Value {
     fn from(v: DValueRef) -> Self {
         Self::Direct(v)
     }
 }
 
-impl From<llvm::IValueRef> for Value {
+impl From<IValueRef> for Value {
     fn from(v: IValueRef) -> Self {
         Self::Indirect(v)
     }
@@ -56,9 +56,9 @@ pub struct Codegen<'a> {
     bodyb: BuilderRef,
     headerb: BuilderRef,
     packages: &'a Packages,
-    fn_defs: HashMap<GlobalNodeId, llvm::DValueRef>,
+    fn_defs: HashMap<GlobalNodeId, DValueRef>,
     fn_body_todos: HashSet<GlobalNodeId>,
-    types: TypeMap<llvm::TypeRef>,
+    base_types: BaseTypeMap<TypeRef>,
 }
 
 impl<'a> Codegen<'a> {
@@ -73,7 +73,7 @@ impl<'a> Codegen<'a> {
             packages,
             fn_defs: HashMap::new(),
             fn_body_todos: HashSet::new(),
-            types: HashMap::new(),
+            base_types: HashMap::new(),
         }
     }
 
@@ -97,7 +97,7 @@ impl<'a> Codegen<'a> {
         self.emit(file, format)
     }
 
-    fn fn_def(&mut self, node: GlobalNodeId) -> llvm::DValueRef {
+    fn fn_def(&mut self, node: GlobalNodeId) -> DValueRef {
         if let Some(&v) = self.fn_defs.get(&node) {
             return v;
         }
@@ -179,7 +179,7 @@ impl<'a> Codegen<'a> {
                 let receiver = ctx.package.hir.field_access(node).receiver;
                 let receiver = self.expr(receiver, ctx);
                 let receiver = self.ensure_indirect(node, receiver, ctx);
-                let idx = ctx.package.check_data.struct_field(node);
+                let idx = ctx.package.check_data.struct_field_index(node);
                 self.bodyb.struct_gep(receiver, idx).into()
             }
             NodeKind::FnCall => {
@@ -269,6 +269,7 @@ impl<'a> Codegen<'a> {
                     &Op::Binary(BinaryOp { kind, left, right }) => {
                         let leftv = self.expr(left, ctx);
                         let rightv = self.expr(right, ctx).to_direct(self.bodyb);
+                        let left_ty = self.typing_hl((ctx.package.id, left));
                         use BinaryOpKind::*;
                         if kind.value == Assign {
                             self.bodyb.store(rightv, leftv.indirect());
@@ -277,9 +278,7 @@ impl<'a> Codegen<'a> {
                             let leftv = leftv.to_direct(self.bodyb);
                             match kind.value {
                                 Add => {
-                                    let left = self.unaliased_typing((ctx.package.id, left));
-                                    let lang_item = self.std().as_lang_item(left.id()).unwrap();
-                                    match lang_item.as_number().unwrap() {
+                                    match self.packages.as_number_type(left_ty).expect("todo") {
                                         NumberType::Float => self.bodyb.fadd(leftv, rightv),
                                         NumberType::Int { signed: _ } => self.bodyb.add(leftv, rightv),
                                     }
@@ -291,13 +290,10 @@ impl<'a> Codegen<'a> {
                                 | Lt
                                 | LtEq
                                 | NotEq => {
-                                    let left = self.unaliased_typing((ctx.package.id, left));
-                                    let lang_item = self.std().as_lang_item(left.id())
-                                        .expect("todo");
-                                    if lang_item == LangItem::Unit {
+                                    if self.packages.is_unit_type(left_ty) {
                                         self.bool_literal(true)
                                     } else {
-                                        match lang_item.as_number().expect("todo") {
+                                        match self.packages.as_number_type(left_ty).expect("todo") {
                                             NumberType::Float => {
                                                 use RealPredicate::*;
                                                 let pred = match kind.value {
@@ -328,29 +324,25 @@ impl<'a> Codegen<'a> {
                                     }
                                 },
                                 Sub => {
-                                    let left = self.unaliased_typing((ctx.package.id, left));
-                                    let lang_item = self.std().as_lang_item(left.id()).unwrap();
-                                    match lang_item.as_number().unwrap() {
+                                    match self.packages.as_number_type(left_ty).expect("todo") {
                                         NumberType::Float => self.bodyb.fsub(leftv, rightv),
                                         NumberType::Int { signed: _ } => self.bodyb.sub(leftv, rightv),
                                     }
                                 },
                                 Mul => {
-                                    let left = self.unaliased_typing((ctx.package.id, left));
-                                    let lang_item = self.std().as_lang_item(left.id()).unwrap();
-                                    match lang_item.as_number().unwrap() {
+                                    match self.packages.as_number_type(left_ty).expect("todo") {
                                         NumberType::Float => self.bodyb.fmul(leftv, rightv),
                                         NumberType::Int { signed: _ } => self.bodyb.mul(leftv, rightv),
                                     }
                                 },
                                 Div => {
-                                    self.div_or_rem(ctx.fn_, (ctx.package.id, left), rightv,
+                                    self.div_or_rem(ctx.fn_, left_ty, rightv,
                                         || self.bodyb.sdiv(leftv, rightv),
                                         || self.bodyb.udiv(leftv, rightv),
                                         || self.bodyb.fdiv(leftv, rightv))
                                 },
                                 Rem => {
-                                    self.div_or_rem(ctx.fn_, (ctx.package.id, left), rightv,
+                                    self.div_or_rem(ctx.fn_, left_ty, rightv,
                                         || self.bodyb.srem(leftv, rightv),
                                         || self.bodyb.urem(leftv, rightv),
                                         || self.bodyb.frem(leftv, rightv))
@@ -362,12 +354,11 @@ impl<'a> Codegen<'a> {
                     },
                     &Op::Unary(UnaryOp { kind, arg }) => {
                         let argv = self.expr(arg, ctx).to_direct(self.bodyb);
+                        let arg_ty = self.typing_hl((ctx.package.id, arg));
                         use UnaryOpKind::*;
                         match kind.value {
                             Neg => {
-                                let arg = self.unaliased_typing((ctx.package.id, arg));
-                                let lang_item = self.std().as_lang_item(arg.id()).unwrap();
-                                match lang_item.as_number().unwrap() {
+                                match self.packages.as_number_type(arg_ty).expect("todo") {
                                     NumberType::Float => self.bodyb.fneg(argv),
                                     NumberType::Int { signed: _ } => self.bodyb.neg(argv),
                                 }
@@ -379,11 +370,7 @@ impl<'a> Codegen<'a> {
             }
             NodeKind::Path => {
                 let reso = ctx.package.check_data.target_of(node);
-                let package = if reso.0 == ctx.package.id {
-                    ctx.package
-                } else {
-                    &self.packages[reso.0]
-                };
+                let package = &self.packages[reso.0];
                 if package.hir.node_kind(reso.1).value == NodeKind::FnDef {
                     self.fn_def(reso).into()
                 } else {
@@ -405,7 +392,7 @@ impl<'a> Codegen<'a> {
                     for &field in fields {
                         let value = ctx.package.hir.struct_value_field(field).value;
                         let field_val = self.expr(value, ctx).to_direct(self.bodyb);
-                        let idx = ctx.package.check_data.struct_field(field);
+                        let idx = ctx.package.check_data.struct_field_index(field);
                         let field_ptr = self.bodyb.struct_gep(struct_var, idx);
                         self.bodyb.store(field_val, field_ptr);
                     }
@@ -451,16 +438,13 @@ impl<'a> Codegen<'a> {
 
     fn div_or_rem(&self,
         fn_: DValueRef,
-        left: GlobalNodeId,
+        left_ty: TypeId,
         rightv: DValueRef,
         make_signed: impl FnOnce() -> DValueRef,
         make_unsigned: impl FnOnce() -> DValueRef,
         make_float: impl FnOnce() -> DValueRef,
     ) -> DValueRef {
-        let lang_item = self.std()
-            .as_lang_item(self.unaliased_typing(left).id())
-            .unwrap();
-        match lang_item.as_number().unwrap() {
+        match self.packages.as_number_type(left_ty).expect("todo") {
             NumberType::Float => make_float(),
             NumberType::Int { signed } => {
                 let panic_bb = self.llvm.append_new_bb(fn_, "__panic");
@@ -482,16 +466,16 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn bool_literal(&mut self, v: bool) -> llvm::DValueRef {
+    fn bool_literal(&mut self, v: bool) -> DValueRef {
         let v = if v { 1 } else { 0 };
         self.lang_type(LangItem::Primitive(PrimitiveType::Bool)).const_int(v)
     }
 
-    fn char_literal(&mut self, v: char) -> llvm::DValueRef {
+    fn char_literal(&mut self, v: char) -> DValueRef {
         self.lang_type(LangItem::Primitive(PrimitiveType::Char)).const_int(v as u128)
     }
 
-    fn string_literal(&mut self, v: &str) -> llvm::DValueRef {
+    fn string_literal(&mut self, v: &str) -> DValueRef {
         let g = self.llvm.add_global_const(self.llvm.const_string(v));
         let ptr = self.llvm.const_pointer_cast(g, self.llvm.pointer_type(self.llvm.int_type(8)));
         let len = self.lang_type(LangItem::Primitive(PrimitiveType::USize)).const_int(v.len() as u128);
@@ -499,91 +483,90 @@ impl<'a> Codegen<'a> {
         ty.const_struct(&mut [ptr, len])
     }
 
-    fn unit_literal(&mut self) -> llvm::DValueRef {
-        self.lang_type(LangItem::Unit).const_struct(&mut [])
+    fn unit_literal(&mut self) -> DValueRef {
+        self.type_(self.packages.std().check_data.lang().unit_type())
+            .const_struct(&mut [])
     }
 
-    fn unalias(&self, ty: TypeId) -> TypeId {
-        if let &TypeData::Type(ty) = self.packages[ty.0].check_data.type_(ty.1).data() {
-            self.unalias(ty)
-        } else {
-            ty
-        }
+    fn typing_hl(&self, node: GlobalNodeId) -> TypeId {
+        self.packages[node.0].check_data.typing(node.1)
     }
 
-    fn unaliased_typing(&self, node: GlobalNodeId) -> &Type {
-        let ty = self.packages[node.0].check_data.typing(node.1);
-        let unaliased = self.unalias(ty);
-        self.packages[unaliased.0].check_data.type_(unaliased.1)
-    }
-
-    fn typing(&mut self, node: GlobalNodeId) -> llvm::TypeRef {
+    fn typing(&mut self, node: GlobalNodeId) -> TypeRef {
         let ty = self.packages[node.0].check_data.typing(node.1);
         self.type_(ty)
     }
 
-    fn type_(&mut self, ty: TypeId) -> llvm::TypeRef {
-        if let Some(&v) = self.types.get(&ty) {
-            return v;
-        }
-        let unaliased = self.unalias(ty);
-        if let Some(&v) = self.types.get(&unaliased) {
-            assert!(self.types.insert(ty, v).is_none());
-            return v;
-        }
-        let ty_ll = match self.std().as_lang_item(unaliased) {
-            Some(LangItem::Primitive(prim_ty)) => self.make_prim_type(prim_ty),
-            // FIXME this won't be needed once there's a reference type in frontend.
-            Some(LangItem::String) => {
-                self.llvm.named_struct_type("String", &mut [
-                    self.llvm.pointer_type(self.llvm.int_type(8)),
-                    self.llvm.int_type(self.llvm.pointer_size_bits()),
-                ])
+    fn type_(&mut self, ty: TypeId) -> TypeRef {
+        if let Some(bty) = self.packages.base_type_of(ty) {
+            if let Some(&v) = self.base_types.get(&bty.id()) {
+                return v;
             }
-            | Some(LangItem::Unit)
-            | None
-            => {
-                let package = &self.packages[unaliased.0];
-                match package.check_data.type_(unaliased.1).data() {
-                    TypeData::Fn(FnType { params, ty_params, result, unsafe_: _, }) => {
-                        if !ty_params.is_empty() {
-                            todo!();
-                        }
-                        let param_tys = &mut Vec::with_capacity(params.len());
-                        for &param in params {
-                            param_tys.push(self.type_(param));
-                        }
-                        let res_ty = self.type_(*result);
-                        TypeRef::function(res_ty, param_tys)
+            let ty = self.make_base_type(bty);
+            assert!(self.base_types.insert(bty.id(), ty).is_none());
+            ty
+        } else {
+            let ty = self.packages.unwrap_type(ty);
+            match &ty.data {
+                TypeData::Fn(FnType { params, ty_params, result, unsafe_: _, }) => {
+                    if !ty_params.is_empty() {
+                        todo!();
                     }
-                    TypeData::Struct(check::StructType { fields, ty_params }) => {
-                        if !ty_params.is_empty() {
-                            todo!();
-                        }
-
-                        let package = &self.packages[unaliased.0];
-                        let node = package.check_data.type_(unaliased.1).node().1;
-                        let tys = &mut Vec::new();
-                        for &check::StructTypeField { ty, ..} in fields {
-                            tys.push(self.type_(ty));
-                        }
-                        let name = package.hir.try_struct(package.discover_data.parent_of(node))
-                            .map(|v| v.name.value.as_str())
-                            .unwrap_or_else(|| if fields.is_empty() { "__Unit" } else { "__Unnamed" });
-                        self.llvm.named_struct_type(name, tys)
+                    let param_tys = &mut Vec::with_capacity(params.len());
+                    for &param in params {
+                        param_tys.push(self.type_(param));
                     }
-                    TypeData::Var => todo!(),
-                    TypeData::Type(_) => unreachable!(),
+                    let res_ty = self.type_(*result);
+                    TypeRef::function(res_ty, param_tys)
                 }
+                TypeData::Struct(v) => self.make_struct_type(v),
+                TypeData::Var => todo!(),
+                | TypeData::Base(_)
+                | TypeData::Incomplete(_)
+                | TypeData::Instance(_)
+                => unreachable!()
             }
-        };
+        }
+    }
 
-        assert!(self.types.insert(ty, ty_ll).is_none());
-        if unaliased != ty {
-            assert!(self.types.insert(unaliased, ty_ll).is_none());
+    fn make_base_type(&mut self, bty: &BaseType) -> TypeRef {
+        if let Some(prim) = self.packages.std().check_data.lang().as_primitive(bty.id()) {
+            self.make_prim_type(prim)
+        } else if let Some(LangItem::String) = self.packages.std().check_data.lang().as_item(bty.id()) {
+            // FIXME this won't be needed once there's a reference type in frontend.
+            self.llvm.named_struct_type("String", &mut [
+                self.llvm.pointer_type(self.llvm.int_type(8)),
+                self.llvm.int_type(self.llvm.pointer_size_bits()),
+            ])
+        } else {
+            match &bty.data {
+                BaseTypeData::Struct(v) => self.make_base_struct_type(v),
+            }
+        }
+    }
+
+    fn make_base_struct_type(&mut self, bsty: &BaseStructType) -> TypeRef {
+        let BaseStructType { name, params, ty } = bsty;
+        if !params.is_empty() {
+            todo!();
         }
 
-        ty_ll
+        let fields = &mut self.make_struct_type0(ty);
+        self.llvm.named_struct_type(name, fields)
+    }
+
+    fn make_struct_type(&mut self, sty: &check::StructType) -> TypeRef {
+        let fields = &mut self.make_struct_type0(sty);
+        self.llvm.struct_type(fields)
+    }
+
+    fn make_struct_type0(&mut self, sty: &check::StructType) -> Vec<TypeRef> {
+        let check::StructType { fields } = sty;
+        let mut r = Vec::new();
+        for &check::StructTypeField { name: _, ty } in fields {
+            r.push(self.type_(ty));
+        }
+        r
     }
 
     fn make_prim_type(&self, prim_ty: PrimitiveType) -> TypeRef {
@@ -602,7 +585,7 @@ impl<'a> Codegen<'a> {
     }
 
     fn lang_type(&mut self, lang_item: LangItem) -> TypeRef {
-        self.type_(self.std().lang_type(lang_item))
+        self.type_(self.packages.std().check_data.lang().type_(lang_item))
     }
 
     fn alloca(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> IValueRef {
@@ -619,10 +602,6 @@ impl<'a> Codegen<'a> {
                 let val = self.headerb.alloca(name, ty);
                 val
             })
-    }
-
-    fn std(&self) -> &Std {
-        self.packages.std().check_data.std()
     }
 }
 

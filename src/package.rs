@@ -1,3 +1,5 @@
+pub mod check_data;
+
 use std::collections::HashMap;
 use std::ops::Index;
 use std::sync::Arc;
@@ -27,22 +29,12 @@ impl PackageId {
         Self(id)
     }
 
-    pub fn null() -> Self {
-        Self(u32::max_value())
-    }
-
     pub const fn std() -> Self {
         Self(0)
     }
 
     pub const fn is_std(self) -> bool {
         self.0 == Self::std().0
-    }
-}
-
-impl Default for PackageId {
-    fn default() -> Self {
-        Self::null()
     }
 }
 

@@ -159,7 +159,13 @@ macro_rules! node_ops {
     ($($insert:ident, $get:ident, $get_mut:ident, $try_get:ident, $try_get_mut:ident, $f:ident, $ty:ident;)*) => {
         $(
         pub fn $get(&self, id: NodeId) -> &$ty {
-            &self.$f[&id]
+            if let Some(v) = self.$try_get(id) {
+                v
+            } else if let Some(v) = self.try_node_kind(id) {
+                panic!("wrong kind of {:?} for `{}()`: {:?}", id, stringify!($get), v);
+            } else {
+                panic!("{:?} not found in this HIR tree", id);
+            }
         }
 
         pub fn $get_mut(&mut self, id: NodeId) -> &mut $ty {
@@ -216,7 +222,11 @@ impl Hir {
     }
 
     pub fn node_kind(&self, id: NodeId) -> S<NodeKind> {
-        self.nodes[id.0]
+        self.try_node_kind(id).unwrap()
+    }
+
+    pub fn try_node_kind(&self, id: NodeId) -> Option<S<NodeKind>> {
+        self.nodes.get(id.0).copied()
     }
 
     pub fn insert_path_from_ident(&mut self, ident: S<Ident>, ty_args: Option<S<Vec<NodeId>>>) -> NodeId {
@@ -760,13 +770,13 @@ pub enum PathAnchor {
     },
 }
 
-#[derive(Debug, EnumAsInner)]
-pub enum Field {
+#[derive(Clone, Debug, EnumAsInner, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum FieldAccessName {
     Ident(Ident),
     Index(u32),
 }
 
-impl fmt::Display for Field {
+impl fmt::Display for FieldAccessName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Ident(v) => f.write_str(v),
@@ -778,7 +788,7 @@ impl fmt::Display for Field {
 #[derive(Debug)]
 pub struct FieldAccess {
     pub receiver: NodeId,
-    pub field: S<Field>,
+    pub name: S<FieldAccessName>,
 }
 
 #[derive(Debug)]
@@ -800,6 +810,12 @@ pub enum VisRestrict {
 #[derive(Debug)]
 pub struct StructType {
     pub fields: Vec<StructTypeField>,
+}
+
+impl StructType {
+    pub fn is_tuple(&self) -> bool {
+        self.fields.first().map(|v| v.name.is_none()).unwrap_or(true)
+    }
 }
 
 #[derive(Debug)]

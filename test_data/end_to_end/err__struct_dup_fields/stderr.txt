@@ -53,17 +53,17 @@ error: field `a` is initialized multiple times
 15 |     S{x: 42, x: 100, x: "test", a: 42, a: true};
                                             ~
 
-error: field `x` is initialized multiple times
+error: field `x` is defined multiple times
   --> main.cz:16:13
 16 |     {x: 42, x: 100, x: "test", a: 42, a: true};
                  ~
 
-error: field `x` is initialized multiple times
+error: field `x` is defined multiple times
   --> main.cz:16:21
 16 |     {x: 42, x: 100, x: "test", a: 42, a: true};
                          ~
 
-error: field `a` is initialized multiple times
+error: field `a` is defined multiple times
   --> main.cz:16:39
 16 |     {x: 42, x: 100, x: "test", a: 42, a: true};
                                            ~
