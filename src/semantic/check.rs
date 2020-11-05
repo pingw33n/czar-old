@@ -876,21 +876,19 @@ impl PassImpl<'_> {
     }
 
     fn type_params(&self, ty: TypeId) -> &[TypeId] {
-        self.packages.walk_type_ctx(ty,
-            |ty| Some(match &ty.data {
-                &TypeData::Base(v) => match &self.base_type(v).data {
-                    BaseTypeData::Struct(v) => &v.params[..],
-                }
-                TypeData::Fn(v) => &v.ty_params[..],
-                TypeData::Incomplete(IncompleteType { params }) => &params[..],
-                TypeData::Instance(TypeInstance { ty: _, data }) => match data {
-                    TypeInstanceData::Args(_) => return None,
-                    TypeInstanceData::Params(params) => &params[..],
-                }
-                TypeData::Struct(_) => &[],
-                TypeData::Var => &[],
-            }),
-            self.cdctx()).unwrap()
+        match &self.type_(ty).data {
+            &TypeData::Base(v) => match &self.base_type(v).data {
+                BaseTypeData::Struct(v) => &v.params[..],
+            }
+            TypeData::Fn(v) => &v.ty_params[..],
+            TypeData::Incomplete(IncompleteType { params }) => &params[..],
+            TypeData::Instance(TypeInstance { ty: _, data }) => match data {
+                TypeInstanceData::Args(_) => &[],
+                TypeInstanceData::Params(params) => &params[..],
+            }
+            TypeData::Struct(_) => &[],
+            TypeData::Var => &[],
+        }
     }
 
     fn check_path_ty_args(&self, path: &[PathItem], ty: TypeId, fully_inferrable: bool) -> Result<()> {
