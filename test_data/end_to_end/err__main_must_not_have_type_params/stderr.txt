@@ -1,0 +1,4 @@
+error: `main` function must not have type parameters
+  --> main.cz:1:4
+1 | fn main<T>() {}
+       ~~~~

@@ -1,0 +1,4 @@
+error: expected named struct
+  --> main.cz:3:5
+3 |     t { x: 42 };
+        ~
