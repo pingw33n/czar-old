@@ -8,6 +8,7 @@ pub struct StructTypeField {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StructType {
+    pub base: Option<BaseTypeId>,
     pub fields: Vec<StructTypeField>,
 }
 
@@ -24,8 +25,6 @@ impl StructType {
 #[derive(Debug)]
 pub struct BaseStructType {
     pub name: Ident,
-    pub params: Vec<TypeId>,
-    pub ty: StructType,
 }
 
 impl PassImpl<'_> {
@@ -65,7 +64,8 @@ impl PassImpl<'_> {
         if unnamed_record {
             field_tys.sort_by(|a, b| a.name.cmp(&b.name));
         }
-        Ok(self.check_data.insert_type((self.package_id, node), TypeData::Struct(StructType {
+        Ok(self.insert_type((self.package_id, node), TypeData::Struct(StructType {
+            base: None,
             fields: field_tys,
         })))
     }
@@ -146,11 +146,10 @@ impl PassImpl<'_> {
             return Err(());
         }
 
-        let ty_args = self.build_path_ty_args(name, ty);
-
         let seen_fields = self.check_struct_value_fields(ty, fields);
 
-        let sty = self.any_struct_type(ty).unwrap();
+        let ty = self.normalize(ty);
+        let sty = self.type_(ty).data.as_struct().unwrap();
 
         let expected_field_count = sty.fields.len();
         if seen_fields.len() != expected_field_count {
@@ -180,16 +179,10 @@ impl PassImpl<'_> {
             }
         }
 
-        let ty_args = ty_args?;
-        if !ty_args.is_empty() {
-            todo!();
-        }
-
         Ok(ty)
     }
 
     fn check_unnamed_struct_value(&mut self, node: NodeId /*StructValue*/) -> Result<TypeId> {
-        dbg!(self.hir.node_kind(node));
         let fields = &self.hir.struct_value(node).fields;
         let mut err = false;
 
@@ -233,7 +226,8 @@ impl PassImpl<'_> {
             fields.push(field_ty);
         }
 
-        Ok(self.check_data.insert_type((self.package_id, node), TypeData::Struct(StructType {
+        Ok(self.insert_type((self.package_id, node), TypeData::Struct(StructType {
+            base: None,
             fields,
         })))
     }
@@ -243,8 +237,9 @@ impl PassImpl<'_> {
         field_node: NodeId,
         field_name: &S<FieldAccessName>,
     ) -> Result<TypeId> {
+        let struct_ty = self.normalize(struct_ty);
         let idx_and_ty = if_chain! {
-            if let Some(sty) = self.any_struct_type(struct_ty);
+            if let Some(sty) = self.type_(struct_ty).data.as_struct();
             if self.as_primitive(struct_ty).is_none();
             then {
                 // TODO Maybe optimize this.
@@ -265,25 +260,6 @@ impl PassImpl<'_> {
                 field_name.value, self.display_type(struct_ty)));
             Err(())
         }
-    }
-
-    pub fn any_struct_type(&self, ty: TypeId) -> Option<&StructType> {
-        self.packages.walk_type_ctx(ty,
-            |ty| match &ty.data {
-                TypeData::Struct(v) => Some(v),
-                &TypeData::Base(bty) => {
-                    let bty = self.base_type(bty);
-                    match &bty.data {
-                        BaseTypeData::Struct(v) => Some(&v.ty),
-                    }
-                }
-                | TypeData::Fn(_)
-                | TypeData::Incomplete(_)
-                | TypeData::Instance(_)
-                | TypeData::Var
-                => None,
-            },
-            self.cdctx())
     }
 
     pub fn is_unit_type(&self, ty: TypeId) -> bool {

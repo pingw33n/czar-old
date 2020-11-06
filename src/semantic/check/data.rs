@@ -13,6 +13,7 @@ pub struct CheckData {
     /// Impls defined in this package.
     pub(in super) impls: BaseTypeMap<Vec<Impl>>,
     pub(in super) entry_point: Option<NodeId>,
+    pub(in super) normalized_types: TypeMap<TypeId>,
 }
 
 impl CheckData {
@@ -28,6 +29,7 @@ impl CheckData {
             lvalues: Default::default(),
             impls: Default::default(),
             entry_point: None,
+            normalized_types: Default::default(),
         }
     }
 
@@ -43,14 +45,13 @@ impl CheckData {
         &mut self.base_types[id.0]
     }
 
-    pub(in super) fn insert_base_type(&mut self, node: GlobalNodeId, data: BaseTypeData) -> LocalBaseTypeId {
-        assert_eq!(node.0, self.package_id);
+    pub(in super) fn insert_base_type(&mut self, node: NodeId, data: BaseTypeData) -> LocalBaseTypeId {
         let e = self.base_types.vacant_entry();
         let id = LocalBaseTypeId(e.key());
         e.insert(BaseType {
-            package_id: node.0,
+            package_id: self.package_id,
+            node,
             id,
-            node: node.1,
             data,
         });
         id
@@ -125,5 +126,9 @@ impl CheckData {
 
     pub fn entry_point(&self) -> Option<NodeId> {
         self.entry_point
+    }
+
+    pub fn normalized_type(&self, ty: TypeId) -> TypeId {
+        self.normalized_types[&ty]
     }
 }

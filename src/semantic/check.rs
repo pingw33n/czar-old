@@ -46,7 +46,6 @@ impl BaseType {
     }
 }
 
-
 #[derive(Debug, EnumAsInner)]
 pub enum BaseTypeData {
     Struct(BaseStructType),
@@ -73,6 +72,7 @@ pub struct LocalTypeId(usize);
 pub type TypeId = (PackageId, LocalTypeId);
 
 pub type TypeMap<T> = HashMap<TypeId, T>;
+pub type TypeSet = HashSet<TypeId>;
 
 #[derive(Debug)]
 pub struct Type {
@@ -81,24 +81,62 @@ pub struct Type {
     pub data: TypeData,
 }
 
-impl Type {
-    pub fn id(&self) -> TypeId {
-        self.id
-    }
-
-    pub fn node(&self) -> GlobalNodeId {
-        self.node
-    }
+#[derive(Clone, Copy, Debug, EnumAsInner, Eq, Hash, PartialEq)]
+pub enum Var {
+    Inference(InferenceVar),
+    Param,
 }
 
 #[derive(Clone, Debug, EnumAsInner, Eq, Hash, PartialEq)]
 pub enum TypeData {
-    Base(BaseTypeId),
     Fn(FnType),
     Incomplete(IncompleteType),
     Instance(TypeInstance),
     Struct(StructType),
-    Var,
+    Var(Var),
+}
+
+impl TypeData {
+    pub fn base_type(&self) -> Option<BaseTypeId> {
+        match self {
+            Self::Struct(v) => v.base,
+            | Self::Fn(_)
+            | Self::Incomplete(_)
+            | Self::Instance(_)
+            | Self::Var(_)
+            => None,
+        }
+    }
+
+    pub fn type_params(&self) -> &[TypeId] {
+        match self {
+            Self::Fn(v) => &v.ty_params[..],
+            Self::Incomplete(IncompleteType { params }) => &params[..],
+            Self::Instance(TypeInstance { ty: _, data }) => match data {
+                TypeInstanceData::Args(_) => &[],
+                TypeInstanceData::Params(params) => &params[..],
+            }
+            Self::Struct(_) => &[],
+            Self::Var(_) => &[],
+        }
+    }
+
+    pub fn as_inference_var(&self) -> Option<InferenceVar> {
+        self.as_var()?.as_inference().copied()
+    }
+
+    /// Converts `Incomplete` into `Instance` carrying over the `params`.
+    fn finish(&mut self, ty: TypeId) {
+        let incomplete = std::mem::replace(self, Self::Instance(TypeInstance {
+            ty,
+            data: TypeInstanceData::Params(Vec::new()),
+        }));
+        let params = incomplete.into_incomplete().unwrap().params;
+        *self = Self::Instance(TypeInstance {
+            ty,
+            data: TypeInstanceData::Params(params),
+        });
+    }
 }
 
 #[derive(Clone, Debug, EnumAsInner, Eq, Hash, PartialEq)]
@@ -150,21 +188,18 @@ impl CheckData {
         node: NodeId,
         incomplete_ty: LocalTypeId,
         name: Ident,
-        struct_ty: StructType,
+        struct_ty: LocalTypeId,
     ) {
-        let package_id = self.package_id;
-        let id = self.insert_base_type((package_id, node), BaseTypeData::Struct(BaseStructType {
+        let id = self.insert_base_type(node, BaseTypeData::Struct(BaseStructType {
             name,
-            params: Vec::new(),
-            ty: struct_ty,
         }));
 
-        let incomplete_ty = &mut self.type_mut(incomplete_ty).data;
-        let old = std::mem::replace(incomplete_ty, TypeData::Base((package_id, id)));
+        // Set StructType::base
+        let pkg = self.package_id;
+        let structd = self.type_mut(struct_ty).data.as_struct_mut().unwrap();
+        structd.base = Some((pkg, id));
 
-        let params = old.into_incomplete().unwrap().params;
-        let s = self.base_type_mut(id).data.as_struct_mut().unwrap();
-        s.params = params;
+        self.type_mut(incomplete_ty).data.finish((pkg, struct_ty));
     }
 }
 
@@ -193,13 +228,12 @@ impl<'a> Check<'a> {
             package_kind: self.package_kind,
             packages: self.packages,
             reso_ctxs: Default::default(),
-            // unnamed_structs,
             hir: self.hir,
             diag: self.diag,
             typing_state: Default::default(),
             resolve_data: self.resolve_data,
             inference_ctxs: Vec::new(),
-            normalized_types: Default::default(),
+            type_data_cache: Default::default(),
         };
         if self.package_id.is_std() {
             imp.make_lang();
@@ -212,9 +246,6 @@ impl<'a> Check<'a> {
         // println!();
         // imp.dump_all_types();
 
-        for ty in imp.check_data.base_types() {
-            assert_eq!(ty.package_id, self.package_id);
-        }
         for ty in imp.check_data.types() {
             assert_eq!(ty.id.0, self.package_id);
         }
@@ -239,6 +270,9 @@ impl<'a> Check<'a> {
         if self.diag.borrow().error_count() > 0 {
             return Err(());
         }
+
+        // println!();
+        // imp.dump_all_types();
 
         imp.normalize_all();
 
@@ -289,7 +323,7 @@ struct PassImpl<'a> {
     typing_state: NodeMap<TypingState>,
     resolve_data: &'a ResolveData,
     inference_ctxs: Vec<InferenceCtx>,
-    normalized_types: HashMap<TypeData, TypeId>,
+    type_data_cache: HashMap<TypeData, TypeId>,
 }
 
 impl PassImpl<'_> {
@@ -314,7 +348,7 @@ impl PassImpl<'_> {
                 return Ok(None);
             }
         };
-        Ok(Some(self.type_(ty).id()))
+        Ok(Some(self.type_(ty).id))
     }
 
     fn ensure_typing(&mut self, node: NodeId) -> Result<TypeId> {
@@ -370,30 +404,21 @@ impl PassImpl<'_> {
         self.packages.base_type_ctx(id, self.cdctx())
     }
 
-    fn unwrap_type(&self, ty: TypeId) -> &Type {
-        self.packages.unwrap_type_ctx(ty, self.cdctx())
+    fn type_term(&self, ty: TypeId) -> &Type {
+        self.packages.type_term_ctx(ty, self.cdctx())
     }
 
     fn base_type_of(&self, id: TypeId) -> Option<&BaseType> {
         self.packages.base_type_of_ctx(id, self.cdctx())
     }
 
-    fn insert_base_type(&mut self, node: NodeId, data: BaseTypeData) -> TypeId {
-        let node = (self.package_id, node);
-        let base = self.check_data.insert_base_type(node, data);
-        self.check_data.insert_type(node, TypeData::Base((self.package_id, base)))
-    }
-
-    fn insert_base_typing(&mut self, node: NodeId, data: BaseTypeData) -> TypeId {
-        debug_assert_ne!(self.typing_state(node), Some(TypingState::Failed));
-        let ty = self.insert_base_type(node, data);
-        self.check_data.insert_typing(node, ty);
-        ty
+    fn insert_type(&mut self, node: GlobalNodeId, data: TypeData) -> TypeId {
+        self.check_data.insert_type(node, data)
     }
 
     fn insert_typing(&mut self, node: NodeId, data: TypeData) -> TypeId {
         debug_assert_ne!(self.typing_state(node), Some(TypingState::Failed));
-        let ty = self.check_data.insert_type((self.package_id, node), data);
+        let ty = self.insert_type((self.package_id, node), data);
         self.check_data.insert_typing(node, ty);
         ty
     }
@@ -414,7 +439,7 @@ impl PassImpl<'_> {
     }
 
     fn begin_typing(&mut self, node: NodeId, params: Vec<TypeId>) -> TypeId {
-        let ty = self.check_data.insert_type((self.package_id, node), TypeData::Incomplete(IncompleteType {
+        let ty = self.insert_type((self.package_id, node), TypeData::Incomplete(IncompleteType {
             params,
         }));
         self.check_data.insert_typing(node, ty);
@@ -439,13 +464,13 @@ impl PassImpl<'_> {
         };
         if let Some(incomplete_ty) = self.check_data.try_typing(node) {
             assert_eq!(incomplete_ty.0, self.package_id);
-            debug_assert_eq!(self.check_data.type_(incomplete_ty.1).node(), (self.package_id, node));
+            debug_assert_eq!(self.check_data.type_(incomplete_ty.1).node, (self.package_id, node));
             match self.hir.node_kind(node).value {
                 NodeKind::Struct => {
                     assert_eq!(ty.0, self.package_id);
                     let name = self.hir.struct_(node).name.value.clone();
-                    let struct_ty = self.type_(ty).data.as_struct().unwrap().clone(); // TODO maybe remove instead of cloning?
-                    self.check_data.finish_named_struct_type(node, incomplete_ty.1, name, struct_ty);
+                    // let struct_ty = self.type_(ty).data.as_struct().unwrap().clone(); // TODO maybe remove instead of cloning?
+                    self.check_data.finish_named_struct_type(node, incomplete_ty.1, name, ty.1);
                 }
                 NodeKind::TypeAlias => {
                     self.check_data.finish_type_alias(incomplete_ty.1, ty);
@@ -599,7 +624,7 @@ impl PassImpl<'_> {
                 self.begin_typing(ctx.node, Vec::new());
             }
             NodeKind::TypeParam => {
-                self.insert_typing(ctx.node, TypeData::Var);
+                self.insert_typing(ctx.node, TypeData::Var(Var::Param));
             }
             | NodeKind::Block
             | NodeKind::FieldAccess
@@ -699,7 +724,7 @@ impl PassImpl<'_> {
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = self.hir.if_expr(ctx.node);
                 if let Ok(actual_cond_ty) = self.typing(cond) {
-                    if actual_cond_ty != self.std().type_(LangItem::Primitive(PrimitiveType::Bool)) {
+                    if self.normalize(actual_cond_ty) != self.normalize(self.std().type_(LangItem::Primitive(PrimitiveType::Bool))) {
                         self.error(cond, format!(
                             "invalid type of `if` condition: expected `bool`, found `{}`",
                             self.display_type(actual_cond_ty)));
@@ -709,7 +734,9 @@ impl PassImpl<'_> {
                 if let Some(if_false) = if_false {
                     let if_false_ty = self.typing(if_false)?;
                     let (if_true_ty, if_false_ty) = self.unify(if_true_ty, if_false_ty);
-                    if self.normalize(if_true_ty) != self.normalize(if_false_ty) {
+                    let if_true_ty = self.normalize(if_true_ty);
+                    let if_false_ty = self.normalize(if_false_ty);
+                    if if_true_ty != if_false_ty {
                         self.error(ctx.node, format!("mismatching types of `if` arms: `{}`, `{}`",
                             self.display_type(if_true_ty),
                             self.display_type(if_false_ty)));
@@ -837,7 +864,7 @@ impl PassImpl<'_> {
             => {
                 let cond = self.hir.while_(ctx.node).cond;
                 if let Ok(actual_cond_ty) = self.typing(cond) {
-                    if actual_cond_ty != self.std().type_(LangItem::Primitive(PrimitiveType::Bool)) {
+                    if self.normalize(actual_cond_ty) != self.normalize(self.std().type_(LangItem::Primitive(PrimitiveType::Bool))) {
                         self.error(cond, format!(
                             "invalid type of `while` condition: expected `bool`, found `{}`",
                             self.display_type(actual_cond_ty)));
@@ -860,98 +887,6 @@ impl PassImpl<'_> {
         r
     }
 
-    fn check_path_node_ty_args(&self, path: NodeId /*PathEndIdent*/, ty: TypeId) -> Result<()> {
-        let path_start = self.discover_data.find_path_start(path, self.hir).unwrap();
-
-        let fully_inferrable = match self.hir.node_kind(self.discover_data.parent_of(path_start)).value {
-            | NodeKind::StructValue
-            | NodeKind::FnCall
-            => true,
-            _ => false,
-        };
-
-        let path = PathItem::from_hir_path_end(path, self.hir, self.discover_data);
-
-        self.check_path_ty_args(&path, ty, fully_inferrable)
-    }
-
-    fn type_params(&self, ty: TypeId) -> &[TypeId] {
-        match &self.type_(ty).data {
-            &TypeData::Base(v) => match &self.base_type(v).data {
-                BaseTypeData::Struct(v) => &v.params[..],
-            }
-            TypeData::Fn(v) => &v.ty_params[..],
-            TypeData::Incomplete(IncompleteType { params }) => &params[..],
-            TypeData::Instance(TypeInstance { ty: _, data }) => match data {
-                TypeInstanceData::Args(_) => &[],
-                TypeInstanceData::Params(params) => &params[..],
-            }
-            TypeData::Struct(_) => &[],
-            TypeData::Var => &[],
-        }
-    }
-
-    fn check_path_ty_args(&self, path: &[PathItem], ty: TypeId, fully_inferrable: bool) -> Result<()> {
-        assert!(!path.is_empty());
-        let args = Self::path_ty_args(path);
-
-        let mut err = false;
-        let param_count = self.type_params(ty).len();
-        if args.is_some() || !fully_inferrable {
-            let (arg_count, span) = args.map(|v| (v.value.len(), v.span))
-                .unwrap_or_else(|| (0, self.hir.node_kind(path.last().unwrap().node).span));
-            if arg_count != param_count {
-                if param_count == 0 {
-                    self.error_span(path[0].node, span, format!(
-                        "unexpected type arguments: type `{}` doesn't have type parameters",
-                        self.display_type(ty)));
-                } else {
-                    self.error_span(path[0].node, span, format!(
-                        "wrong number of type arguments: expected {}, found {}",
-                        param_count, arg_count));
-                }
-                err = true;
-            }
-        }
-        if err {
-            Err(())
-        } else {
-            Ok(())
-        }
-    }
-
-    fn build_path_ty_args(&mut self, path: NodeId /*Path*/, ty: TypeId) -> Result<Vec<TypeId>> {
-        let params = self.type_params(ty);
-        if params.is_empty() {
-            return Ok(Vec::new());
-        }
-        let mut err = false;
-        let mut r = Vec::with_capacity(params.len());
-        let path = &PathItem::from_hir_path_start(path, self.hir, self.discover_data);
-        let args = Self::path_ty_args(path);
-        if let Some(args) = args {
-            assert_eq!(args.value.len(), params.len());
-            for &arg in args.value {
-                // TODO check for any type `_`
-                if let Ok(ty) = self.typing(arg) {
-                    r.push(ty);
-                } else {
-                    err = true;
-                }
-            }
-        } else {
-            let node = path.last().unwrap().node;
-            for _ in 0..params.len() {
-                r.push(self.new_inference_var(node, InferenceVar::Any));
-            }
-        }
-        if err {
-            Err(())
-        } else {
-            Ok(r)
-        }
-    }
-
     fn has_complete_typing(&self, node: NodeId) -> Result<bool> {
         match self.typing_state(node) {
             Some(TypingState::Incomplete) => return Ok(false),
@@ -965,15 +900,6 @@ impl PassImpl<'_> {
         };
         debug_assert!(self.type_(id).data.as_incomplete().is_none());
         Ok(true)
-    }
-
-    fn fn_type(&self, ty: TypeId) -> Option<(TypeId, &FnType)> {
-        self.packages.walk_type_ctx(ty, |ty| if let TypeData::Fn(v) = &ty.data {
-                Some((ty.id, v))
-            } else {
-                None
-            },
-            self.cdctx())
     }
 
     fn error(&self, node: NodeId, text: String) {
@@ -1007,9 +933,6 @@ impl PassImpl<'_> {
 
     fn display_type1(&self, ty: &Type, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &ty.data {
-            &TypeData::Base(bty) => match &self.base_type(bty).data {
-                BaseTypeData::Struct(bsty) => self.display_base_struct_type(bsty, f),
-            }
             TypeData::Fn(FnType { params, ty_params, result, unsafe_ }) => {
                 if *unsafe_ {
                     write!(f, "unsafe ")?;
@@ -1040,16 +963,20 @@ impl PassImpl<'_> {
                 Ok(())
             }
             TypeData::Struct(sty) => self.display_struct_type(sty, f),
-            TypeData::Var => {
-                if let Some(tp) = self.hir(ty.node.0).try_type_param(ty.node.1) {
-                    write!(f, "{}", tp.name.value)
-                } else {
-                    match self.inference_var(ty.id()).unwrap() {
-                        InferenceVar::Any => write!(f, "<?T'{}>", (ty.id.1).0),
-                        InferenceVar::Number(n) => match n {
-                            NumberKind::Float => write!(f, "<float>"),
-                            NumberKind::Int => write!(f, "<integer>"),
+            &TypeData::Var(var) => {
+                match var {
+                    Var::Inference(ivar) => {
+                        match ivar {
+                            InferenceVar::Any => write!(f, "<?T'{}>", (ty.id.1).0),
+                            InferenceVar::Number(n) => match n {
+                                NumberKind::Float => write!(f, "<float>"),
+                                NumberKind::Int => write!(f, "<integer>"),
+                            }
                         }
+                    }
+                    Var::Param => {
+                        let name = &self.hir(ty.node.0).type_param(ty.node.1).name.value;
+                        write!(f, "{}", name)
                     }
                 }
             }
@@ -1059,37 +986,26 @@ impl PassImpl<'_> {
     }
 
     fn display_struct_type(&self, ty: &StructType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let StructType { fields } = ty;
-        write!(f, "{{")?;
-        for (i, StructTypeField { name, ty }) in fields.iter().enumerate() {
-            if i > 0 {
-                write!(f, ", ")?;
-            }
-            if let FieldAccessName::Ident(name) = name {
-                write!(f, "{}: ", name)?;
-            }
-            self.display_type0(*ty, f)?;
-        }
-        if ty.is_tuple() && fields.len() == 1 {
-            write!(f, ",")?;
-        }
-        write!(f, "}}")
-    }
-
-    fn display_base_struct_type(&self, ty: &BaseStructType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let BaseStructType { name, params, ty: _ } = ty;
-        write!(f, "{}", name)?;
-        if !params.is_empty() {
-            write!(f, "<")?;
-            for (i, &param) in params.iter().enumerate() {
+        if let Some(base) = ty.base {
+            let BaseStructType { name } = self.base_type(base).data.as_struct().unwrap();
+            write!(f, "{}", name)
+        } else {
+            let StructType { base: _, fields } = ty;
+            write!(f, "{{")?;
+            for (i, StructTypeField { name, ty }) in fields.iter().enumerate() {
                 if i > 0 {
                     write!(f, ", ")?;
                 }
-                self.display_type0(param, f)?;
+                if let FieldAccessName::Ident(name) = name {
+                    write!(f, "{}: ", name)?;
+                }
+                self.display_type0(*ty, f)?;
             }
-            write!(f, ">")?;
+            if ty.is_tuple() && fields.len() == 1 {
+                write!(f, ",")?;
+            }
+            write!(f, "}}")
         }
-        Ok(())
     }
 
     fn check_fn_call(&mut self, ctx: &HirVisitorCtx) -> Result<TypeId> {
@@ -1100,20 +1016,18 @@ impl PassImpl<'_> {
         } = self.hir.fn_call(ctx.node);
         let (fn_def_node, res_ty) = match *kind {
             FnCallKind::Free => {
-                let callee_ty = self.type_(self.typing(*callee)?);
+                let callee_ty = self.typing(*callee)?;
+                let callee_ty = self.normalize(callee_ty);
+                let callee_ty = self.type_(callee_ty);
                 let ty = if let Some(v) = callee_ty.data.as_fn() {
                     v.result
                 } else {
                     self.error(*callee, format!(
                         "invalid callee type: expected function, found `{}`",
-                        self.display_type(callee_ty.id())));
+                        self.display_type(callee_ty.id)));
                     return Err(());
                 };
-                let fn_def_node = callee_ty.node();
-                let ty_args = self.build_path_ty_args(*callee, ty)?;
-                if !ty_args.is_empty() {
-                    todo!();
-                }
+                let fn_def_node = callee_ty.node;
                 (fn_def_node, ty)
             }
             FnCallKind::Method => {
@@ -1175,7 +1089,7 @@ impl PassImpl<'_> {
         let receiver = fnc.args[0].value;
         let receiver_ty = self.ensure_typing(receiver)?;
 
-        if self.inference_var(receiver_ty).is_some() {
+        if self.type_term(receiver_ty).data.as_inference_var().is_some() {
             self.error(receiver, "can't infer type".into());
             return Err(());
         }
@@ -1257,7 +1171,7 @@ impl PassImpl<'_> {
 
         let ty = self.ensure_typing_global(type_)?;
 
-        debug_assert!(self.try_inference_var(ty).is_none());
+        debug_assert!(self.type_(ty).data.as_inference_var().is_none());
 
         let mut err = self.check_path_ty_args(&path[..1], ty, true).is_err();
 
@@ -1317,9 +1231,7 @@ impl PassImpl<'_> {
         self.check_data.entry_point = Some(node);
 
         let ty = self.typing(node)?;
-        let (id, fn_) = self.fn_type(ty).unwrap();
-        let (pkg, node) = self.type_(id).node();
-        assert_eq!(pkg, self.package_id);
+        let fn_ = self.type_term(ty).data.as_fn().unwrap();
         assert_eq!(fn_.params.len(), 0);
         let fn_def = self.hir.fn_def(node);
         if !self.is_unit_type(fn_.result) {

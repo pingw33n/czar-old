@@ -17,7 +17,7 @@ impl NumberType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, EnumAsInner, Eq, Hash, PartialEq)]
 pub enum NumberKind {
     Float,
     Int,
@@ -190,7 +190,7 @@ impl PassImpl<'_> {
 
     pub fn as_any_number(&self, ty: TypeId) -> Option<NumberKind> {
         self.packages.as_number_type_ctx(ty, self.cdctx()).map(|v| v.kind())
-            .or_else(|| self.try_inference_var(self.unwrap_type(ty).id())
-                .and_then(|v| v.as_number()).copied())
+            .or_else(|| self.type_(self.type_term(ty).id).data.as_inference_var()
+                .and_then(|v| v.as_number().copied()))
     }
 }

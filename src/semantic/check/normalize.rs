@@ -1,8 +1,14 @@
 use super::{*, StructType};
 
+#[derive(Default)]
+struct Ctx {
+    vars: TypeMap<TypeId>,
+    depends_on_inference_vars: bool,
+}
+
 impl PassImpl<'_> {
     pub fn normalize(&mut self, ty: TypeId) -> TypeId {
-        self.normalize0(ty, Vec::new(), Vec::new())
+        self.normalize0(ty, &mut Ctx::default())
     }
 
     pub fn normalize_all(&mut self) {
@@ -12,60 +18,72 @@ impl PassImpl<'_> {
         }
     }
 
-    fn normalize0(&mut self, ty: TypeId, args: Vec<TypeId>, params: Vec<TypeId>) -> TypeId {
-        let typ = self.type_(ty);
-        let node = typ.node();
-        let data = match typ.data.clone() {
+    fn normalize0(&mut self, ty: TypeId, ctx: &mut Ctx) -> TypeId {
+        if let Some(&ty) = self.check_data.normalized_types.get(&ty) {
+            return ty;
+        }
 
-            TypeData::Base(_) => {
-                assert!(params.is_empty());
-                debug_assert_eq!(args.len(), self.type_params(ty).len());
-                if args.is_empty() {
-                    return ty;
-                } else {
-                    TypeData::Instance(TypeInstance {
-                        ty,
-                        data: TypeInstanceData::Args(args),
-                    })
-                }
-            }
-            TypeData::Fn(v) => {
-                assert!(params.is_empty());
-                TypeData::Fn(self.normalize_fn(v, args))
-            },
+        let norm_ty = self.normalize1(ty, ctx);
+
+        if !ctx.depends_on_inference_vars {
+            assert!(self.check_data.normalized_types.insert(ty, norm_ty).is_none());
+            self.check_data.normalized_types.insert(norm_ty, norm_ty);
+        }
+
+        norm_ty
+    }
+
+    fn normalize1(&mut self, ty: TypeId, ctx: &mut Ctx) -> TypeId {
+        let ty = self.type_(ty);
+        let node = ty.node;
+        let next = match &ty.data {
             TypeData::Incomplete(_) => unreachable!(),
             TypeData::Instance(TypeInstance {
                 ty,
                 data,
             }) => {
-                return match data {
-                    TypeInstanceData::Args(mut iargs) => {
-                        for iarg in &mut iargs {
-                            if let Some(i) = params.iter().position(|&p| p == *iarg) {
-                                *iarg = args[i];
-                            }
-                        }
-                        self.normalize0(ty, iargs, Vec::new())
+                match data {
+                    TypeInstanceData::Args(args) => {
+                        let ty = self.type_(*ty);
+                        self.bind_vars(ty.data.type_params(), args, ctx);
                     }
-                    TypeInstanceData::Params(iparams) => {
-                        assert!(params.is_empty());
-                        assert_eq!(args.len(), iparams.len());
-                        self.normalize0(ty, args, iparams)
+                    TypeInstanceData::Params(_) => {}
+                }
+                Some(*ty)
+            }
+            TypeData::Var(kind) => {
+                match kind {
+                    Var::Inference(_) => {
+                        debug_assert!(!ctx.vars.contains_key(&ty.id));
+                        assert_eq!(ty.id.0, self.package_id);
+                        ctx.depends_on_inference_vars = true;
+                        return ty.id;
                     }
+                    Var::Param => return ctx.vars.get(&ty.id).copied().unwrap_or(ty.id),
                 }
             }
+            | TypeData::Fn(_)
+            | TypeData::Struct(_)
+            => None,
+        };
+        if let Some(next) = next {
+            return self.normalize0(next, ctx);
+        }
+
+        let data = match ty.data.clone() {
+            TypeData::Fn(v) => {
+                TypeData::Fn(self.normalize_fn(v.clone(), ctx))
+            }
             TypeData::Struct(v) => {
-                assert!(params.is_empty());
-                TypeData::Struct(self.normalize_struct(v, args))
+                TypeData::Struct(self.normalize_struct(v.clone(), ctx))
             }
-            TypeData::Var => {
-                assert!(params.is_empty());
-                assert!(args.is_empty());
-                return ty;
-            }
+            | TypeData::Incomplete(_)
+            | TypeData::Instance(_)
+            | TypeData::Var(_)
+            => unreachable!(),
         };
 
-        match self.normalized_types.entry(data) {
+        match self.type_data_cache.entry(data) {
             hash_map::Entry::Occupied(e) => {
                 *e.get()
             }
@@ -76,13 +94,21 @@ impl PassImpl<'_> {
         }
     }
 
-    fn normalize_many(&mut self, tys: &mut [TypeId]) {
+    fn normalize_many(&mut self, tys: &mut [TypeId], ctx: &mut Ctx) {
         for ty in tys {
-            *ty = self.normalize(*ty);
+            *ty = self.normalize0(*ty, ctx);
         }
     }
 
-    fn normalize_fn(&mut self, mut fn_: FnType, args: Vec<TypeId>) -> FnType {
+    fn bind_vars(&self, params: &[TypeId], args: &[TypeId], ctx: &mut Ctx) {
+        assert_eq!(args.len(), params.len());
+        for (&param, &arg) in params.iter().zip(args.iter()) {
+            assert_ne!(param, arg);
+            assert!(ctx.vars.insert(param, arg).is_none());
+        }
+    }
+
+    fn normalize_fn(&mut self, mut fn_: FnType, ctx: &mut Ctx) -> FnType {
         let FnType {
             params,
             ty_params,
@@ -90,24 +116,21 @@ impl PassImpl<'_> {
             unsafe_: _,
         } = &mut fn_;
 
-        assert_eq!(args.len(), ty_params.len());
-
-        self.normalize_many(params);
-        self.normalize_many(ty_params);
-        *result = self.normalize(*result);
+        self.normalize_many(params, ctx);
+        self.normalize_many(ty_params, ctx);
+        *result = self.normalize0(*result, ctx);
 
         fn_
     }
 
-    fn normalize_struct(&mut self, mut sty: StructType, args: Vec<TypeId>) -> StructType {
+    fn normalize_struct(&mut self, mut sty: StructType, ctx: &mut Ctx) -> StructType {
         let StructType {
+            base: _,
             fields,
         } = &mut sty;
 
-        assert!(args.is_empty());
-
         for field in fields {
-            field.ty = self.normalize(field.ty);
+            field.ty = self.normalize0(field.ty, ctx);
         }
 
         sty

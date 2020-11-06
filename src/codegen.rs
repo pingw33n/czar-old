@@ -498,15 +498,17 @@ impl<'a> Codegen<'a> {
     }
 
     fn type_(&mut self, ty: TypeId) -> TypeRef {
-        if let Some(bty) = self.packages.base_type_of(ty) {
-            if let Some(&v) = self.base_types.get(&bty.id()) {
+        let ty = self.packages[ty.0].check_data.normalized_type(ty);
+        let ty = self.packages.type_(ty);
+        if let Some(bty) = ty.data.base_type() {
+            if let Some(&v) = self.base_types.get(&bty) {
                 return v;
             }
-            let ty = self.make_base_type(bty);
+            let bty = self.packages.base_type(bty);
+            let ty = self.make_base_type(ty, bty);
             assert!(self.base_types.insert(bty.id(), ty).is_none());
             ty
         } else {
-            let ty = self.packages.unwrap_type(ty);
             match &ty.data {
                 TypeData::Fn(FnType { params, ty_params, result, unsafe_: _, }) => {
                     if !ty_params.is_empty() {
@@ -520,16 +522,15 @@ impl<'a> Codegen<'a> {
                     TypeRef::function(res_ty, param_tys)
                 }
                 TypeData::Struct(v) => self.make_struct_type(v),
-                TypeData::Var => todo!(),
-                | TypeData::Base(_)
+                TypeData::Var(_) => todo!(),
                 | TypeData::Incomplete(_)
                 | TypeData::Instance(_)
-                => unreachable!()
+                => unreachable!("{:?}", ty),
             }
         }
     }
 
-    fn make_base_type(&mut self, bty: &BaseType) -> TypeRef {
+    fn make_base_type(&mut self, ty: &Type, bty: &BaseType) -> TypeRef {
         if let Some(prim) = self.packages.std().check_data.lang().as_primitive(bty.id()) {
             self.make_prim_type(prim)
         } else if let Some(LangItem::String) = self.packages.std().check_data.lang().as_item(bty.id()) {
@@ -540,18 +541,14 @@ impl<'a> Codegen<'a> {
             ])
         } else {
             match &bty.data {
-                BaseTypeData::Struct(v) => self.make_base_struct_type(v),
+                BaseTypeData::Struct(v) => self.make_base_struct_type(ty.data.as_struct().unwrap(), v),
             }
         }
     }
 
-    fn make_base_struct_type(&mut self, bsty: &BaseStructType) -> TypeRef {
-        let BaseStructType { name, params, ty } = bsty;
-        if !params.is_empty() {
-            todo!();
-        }
-
-        let fields = &mut self.make_struct_type0(ty);
+    fn make_base_struct_type(&mut self, sty: &check::StructType, bsty: &BaseStructType) -> TypeRef {
+        let BaseStructType { name } = bsty;
+        let fields = &mut self.make_struct_type0(sty);
         self.llvm.named_struct_type(name, fields)
     }
 
@@ -561,7 +558,7 @@ impl<'a> Codegen<'a> {
     }
 
     fn make_struct_type0(&mut self, sty: &check::StructType) -> Vec<TypeRef> {
-        let check::StructType { fields } = sty;
+        let check::StructType { base: _, fields } = sty;
         let mut r = Vec::new();
         for &check::StructTypeField { name: _, ty } in fields {
             r.push(self.type_(ty));

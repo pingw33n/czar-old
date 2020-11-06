@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, EnumAsInner)]
+#[derive(Clone, Copy, Debug, EnumAsInner, Eq, Hash, PartialEq)]
 pub enum InferenceVar {
     Any,
     Number(NumberKind),
@@ -8,20 +8,16 @@ pub enum InferenceVar {
 
 #[derive(Default)]
 pub struct InferenceCtx {
-    vars: HashMap<LocalTypeId, InferenceVar>,
+    vars: HashSet<LocalTypeId>,
 }
 
 impl InferenceCtx {
-    fn insert(&mut self, id: LocalTypeId, var: InferenceVar) {
-        assert!(self.vars.insert(id, var).is_none());
-    }
-
-    fn get(&self, id: LocalTypeId) -> Option<&InferenceVar> {
-        self.vars.get(&id)
+    fn insert(&mut self, id: LocalTypeId) {
+        assert!(self.vars.insert(id));
     }
 
     fn remove(&mut self, id: LocalTypeId) {
-        assert!(self.vars.remove(&id).is_some())
+        assert!(self.vars.remove(&id))
     }
 }
 
@@ -37,30 +33,29 @@ impl CheckData {
 }
 
 impl PassImpl<'_> {
-    pub fn new_inference_var(&mut self, node: NodeId, var: InferenceVar) -> TypeId {
-        let ty = self.check_data.insert_type((self.package_id, node), TypeData::Var);
-        self.inference_ctx_mut().insert(ty.1, var);
+    pub fn new_inference_var(&mut self, node: NodeId, kind: InferenceVar) -> TypeId {
+        let ty = self.insert_type((self.package_id, node), TypeData::Var(Var::Inference(kind)));
+        self.inference_ctx_mut().insert(ty.1);
         ty
     }
 
     fn try_unify(&mut self, src: TypeId, dst: TypeId) -> bool {
-        let src = self.unwrap_type(src).id();
-        let src_var = self.inference_var(src);
-        let dst_var = self.inference_var(dst);
+        let src = self.type_term(src).id;
+        let src_var = self.type_(src).data.as_inference_var();
+        let dst_var = self.type_(dst).data.as_inference_var();
         let can = match (src_var, dst_var) {
             (Some(InferenceVar::Any), None) => true,
-            (Some(&InferenceVar::Number(src_num)), None)
+            (Some(InferenceVar::Number(src_num)), None)
                 if Some(src_num) == self.as_any_number(dst)
                 => true,
-            (Some(&InferenceVar::Number(src_num)), Some(&InferenceVar::Number(dst_num)))
+            (Some(InferenceVar::Number(src_num)), Some(InferenceVar::Number(dst_num)))
                 if src_num == dst_num
                 => true,
             _ => false,
         };
         if can {
             assert_eq!(src.0, self.package_id);
-            self.check_data.finish_inference_var(src.1, dst, );
-            self.inference_ctx_mut().remove(src.1);
+            self.finish_inference_var(src.1, dst);
             true
         } else {
             false
@@ -68,17 +63,6 @@ impl PassImpl<'_> {
     }
 
     pub fn unify(&mut self, ty1: TypeId, ty2: TypeId) -> (TypeId, TypeId) {
-        // if ty1 == ty2 {
-        //     return (ty1, ty2);
-        // }
-        // let ty1 = self.type_(ty1).id();
-        // if ty1 == ty2 {
-        //     return (ty2, ty2);
-        // }
-        // let ty2 = self.type_(ty2).id();
-        // if ty1 == ty2 {
-        //     return (ty1, ty1);
-        // }
         if self.try_unify(ty1, ty2) {
             (ty2, ty2)
         } else if self.try_unify(ty2, ty1) {
@@ -93,13 +77,13 @@ impl PassImpl<'_> {
     }
 
     pub fn finish_inference(&mut self) {
-        for (id, var) in self.inference_ctxs.pop().unwrap().vars {
-            match var {
+        for id in self.inference_ctx().vars.iter().copied().collect::<Vec<_>>() {
+            match self.type_((self.package_id, id)).data.as_inference_var().unwrap() {
                 InferenceVar::Any => {
                     let ty = self.type_((self.package_id, id));
                     assert!(ty.data.as_var().is_some());
-                    assert_eq!(ty.node().0, self.package_id);
-                    self.error(ty.node().1, "can't infer type".into());
+                    assert_eq!(ty.node.0, self.package_id);
+                    self.error(ty.node.1, "can't infer type".into());
                 }
                 InferenceVar::Number(n) => {
                     let fallback = match n {
@@ -107,10 +91,15 @@ impl PassImpl<'_> {
                         NumberKind::Float => PrimitiveType::F64,
                     };
                     let fallback = self.std().type_(LangItem::Primitive(fallback));
-                    self.check_data.finish_inference_var(id, fallback);
+                    self.finish_inference_var(id, fallback);
                 }
             }
         }
+    }
+
+    fn finish_inference_var(&mut self, var: LocalTypeId, ty: TypeId) {
+        self.check_data.finish_inference_var(var, ty);
+        self.inference_ctx_mut().remove(var);
     }
 
     fn try_inference_ctx(&self) -> Option<&InferenceCtx> {
@@ -123,23 +112,5 @@ impl PassImpl<'_> {
 
     fn inference_ctx_mut(&mut self) -> &mut InferenceCtx {
         self.inference_ctxs.last_mut().unwrap()
-    }
-
-    pub fn try_inference_var(&self, ty: TypeId) -> Option<&InferenceVar> {
-        let ctx = self.try_inference_ctx()?;
-        if ty.0 == self.package_id {
-            ctx.get(ty.1)
-        } else {
-            None
-        }
-    }
-
-    pub fn inference_var(&self, ty: TypeId) -> Option<&InferenceVar> {
-        let ctx = self.inference_ctx();
-        if ty.0 == self.package_id {
-            ctx.get(ty.1)
-        } else {
-            None
-        }
     }
 }

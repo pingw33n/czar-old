@@ -1,4 +1,16 @@
-error: associated item `foo` not found for type `S3<S3, T>`
+error: can't infer type
+  --> main.cz
+
+error: can't infer type
+  --> main.cz
+
+error: can't infer type
+  --> main.cz
+
+error: can't infer type
+  --> main.cz
+
+error: associated item `foo` not found for type `S3`
   --> main.cz:4:9
 4 |     S3::foo;
             ~~~
@@ -8,12 +20,12 @@ error: wrong number of type arguments: expected 2, found 0
 5 |     S3<>::foo;
           ~~
 
-error: associated item `foo` not found for type `S3<S3, T>`
+error: associated item `foo` not found for type `S3`
   --> main.cz:5:11
 5 |     S3<>::foo;
               ~~~
 
-error: associated item `foo` not found for type `S3<S3, T>`
+error: associated item `foo` not found for type `S3`
   --> main.cz:6:20
 6 |     S3<u32, bool>::foo;
                        ~~~
@@ -23,7 +35,7 @@ error: wrong number of type arguments: expected 2, found 1
 7 |     S3<u32>::foo;
           ~~~~~
 
-error: associated item `foo` not found for type `S3<S3, T>`
+error: associated item `foo` not found for type `S3`
   --> main.cz:7:14
 7 |     S3<u32>::foo;
                  ~~~
@@ -33,7 +45,7 @@ error: wrong number of type arguments: expected 2, found 3
 8 |     S3<u32, bool, char>::foo;
           ~~~~~~~~~~~~~~~~~
 
-error: associated item `foo` not found for type `S3<S3, T>`
+error: associated item `foo` not found for type `S3`
   --> main.cz:8:26
 8 |     S3<u32, bool, char>::foo;
                              ~~~
@@ -103,12 +115,12 @@ error: wrong number of type arguments: expected 1, found 2
 26 |     S3<u32, char, bool>::foo<u32, i32>();
                                  ~~~~~~~~~~
 
-error: associated function `bar::()` not found for type `S3<S3, T>`
+error: associated function `bar::()` not found for type `S3`
   --> main.cz:27:9
 27 |     S3::bar<>();
              ~~~
 
-error: associated function `bar::()` not found for type `S3<S3, T>`
+error: associated function `bar::()` not found for type `S3`
   --> main.cz:28:9
 28 |     S3::bar<u32, i32>();
              ~~~

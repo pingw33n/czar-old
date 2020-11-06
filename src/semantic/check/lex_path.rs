@@ -167,8 +167,7 @@ impl PassImpl<'_> {
         self.check_data.insert_path_to_target(path, (pkg, node));
         Ok(if pkg == self.package_id {
             if let Some(ty) = self.ensure_opt_typing(node)? {
-                self.check_path_node_ty_args(path, ty)?;
-                ty
+                self.check_path_node_ty_args(path, ty)?
             } else {
                 self.error_span(path, span, format!(
                     "expected type, found {}", self.describe_named((pkg, node))));
@@ -177,5 +176,90 @@ impl PassImpl<'_> {
         } else {
             self.packages[pkg].check_data.typing(node)
         })
+    }
+
+    fn check_path_node_ty_args(&mut self, path: NodeId /*PathEndIdent*/, ty: TypeId) -> Result<TypeId> {
+        let path_start = self.discover_data.find_path_start(path, self.hir).unwrap();
+
+        let fully_inferrable = match self.hir.node_kind(self.discover_data.parent_of(path_start)).value {
+            | NodeKind::StructValue
+            | NodeKind::FnCall
+            => true,
+            _ => false,
+        };
+
+        let path = PathItem::from_hir_path_end(path, self.hir, self.discover_data);
+
+        self.check_path_ty_args(&path, ty, fully_inferrable)
+    }
+
+    pub fn check_path_ty_args(&mut self, path: &[PathItem], ty: TypeId, fully_inferrable: bool) -> Result<TypeId> {
+        assert!(!path.is_empty());
+        let args = Self::path_ty_args(path);
+
+        let mut err = false;
+        let param_count = self.type_(ty).data.type_params().len();
+        if args.is_some() || !fully_inferrable {
+            let (arg_count, span) = args.map(|v| (v.value.len(), v.span))
+                .unwrap_or_else(|| (0, self.hir.node_kind(path.last().unwrap().node).span));
+            if arg_count != param_count {
+                if param_count == 0 {
+                    self.error_span(path[0].node, span, format!(
+                        "unexpected type arguments: type `{}` doesn't have type parameters",
+                        self.display_type(ty)));
+                } else {
+                    self.error_span(path[0].node, span, format!(
+                        "wrong number of type arguments: expected {}, found {}",
+                        param_count, arg_count));
+                }
+                err = true;
+            }
+        }
+        if err {
+            return Err(());
+        }
+        let ty_args = self.build_path_ty_args(path, ty)?;
+
+        let ty = if !ty_args.is_empty() {
+            self.insert_type((self.package_id, path.last().unwrap().node), TypeData::Instance(TypeInstance {
+                ty,
+                data: TypeInstanceData::Args(ty_args),
+            }))
+        } else {
+            ty
+        };
+
+        Ok(ty)
+    }
+
+    fn build_path_ty_args(&mut self, path: &[PathItem], ty: TypeId) -> Result<Vec<TypeId>> {
+        let params = self.type_(ty).data.type_params();
+        if params.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut err = false;
+        let mut r = Vec::with_capacity(params.len());
+        let args = Self::path_ty_args(path);
+        if let Some(args) = args {
+            assert_eq!(args.value.len(), params.len());
+            for &arg in args.value {
+                // TODO check for any type `_`
+                if let Ok(ty) = self.typing(arg) {
+                    r.push(ty);
+                } else {
+                    err = true;
+                }
+            }
+        } else {
+            let node = path.last().unwrap().node;
+            for _ in 0..params.len() {
+                r.push(self.new_inference_var(node, InferenceVar::Any));
+            }
+        }
+        if err {
+            Err(())
+        } else {
+            Ok(r)
+        }
     }
 }

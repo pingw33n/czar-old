@@ -9,14 +9,14 @@ impl PassImpl<'_> {
             Neg => {
                 let ok =
                     // Any number.
-                    self.as_any_number(arg_ty.id()).is_some();
+                    self.as_any_number(arg_ty.id).is_some();
                 if !ok {
                     self.error_span(node, kind.span, format!(
                         "unary operation `{}` can't be applied to type `{}`",
-                        kind.value, self.display_type(arg_ty.id())));
+                        kind.value, self.display_type(arg_ty.id)));
                     return Err(());
                 }
-                arg_ty.id()
+                arg_ty.id
             }
             _ => todo!(),
         };

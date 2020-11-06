@@ -31,24 +31,24 @@ impl PassImpl<'_> {
             => {
                 let left_ty = self.type_(left_ty);
                 let right_ty = self.type_(right_ty);
-                let lli = self.as_lang_item(left_ty.id());
-                let rli = self.as_lang_item(right_ty.id());
+                let lli = self.as_lang_item(left_ty.id);
+                let rli = self.as_lang_item(right_ty.id);
                 let ok =
                     // Any primitive.
                     matches!((lli, rli), (Some(LangItem::Primitive(l)), Some(LangItem::Primitive(r))) if l == r)
                     // Unit
-                    || self.is_unit_type(left_ty.id()) && self.is_unit_type(right_ty.id())
+                    || self.is_unit_type(left_ty.id) && self.is_unit_type(right_ty.id)
                     // String
                     || matches!(lli, Some(v) if lli == rli && matches!(v, LangItem::String))
                     // Any number.
-                    || matches!((self.as_any_number(left_ty.id()), self.as_any_number(right_ty.id())),
+                    || matches!((self.as_any_number(left_ty.id), self.as_any_number(right_ty.id)),
                         (Some(l), Some(r)) if l == r);
                 if !ok {
                     self.error_span(node, kind.span, format!(
                         "binary operation `{}` can't be applied to types `{}`, `{}`",
                         kind.value,
-                        self.display_type(left_ty.id()),
-                        self.display_type(right_ty.id())));
+                        self.display_type(left_ty.id),
+                        self.display_type(right_ty.id)));
                 }
                 self.std().type_(LangItem::Primitive(PrimitiveType::Bool))
             },
@@ -62,17 +62,17 @@ impl PassImpl<'_> {
                 let right_ty = self.type_(right_ty);
                 let ok =
                     // Any number.
-                    matches!((self.as_any_number(left_ty.id()), self.as_any_number(right_ty.id())),
+                    matches!((self.as_any_number(left_ty.id), self.as_any_number(right_ty.id)),
                         (Some(l), Some(r)) if l == r);
                 if !ok {
                     self.error_span(node, kind.span, format!(
                         "binary operation `{}` can't be applied to types `{}`, `{}`",
                         kind.value,
-                        self.display_type(left_ty.id()),
-                        self.display_type(right_ty.id())));
+                        self.display_type(left_ty.id),
+                        self.display_type(right_ty.id)));
                     return Err(());
                 }
-                left_ty.id()
+                left_ty.id
             }
             _ => todo!("{:?}", kind),
         };
