@@ -31,10 +31,9 @@ impl PassImpl<'_> {
         let mut s = String::new();
         write!(s, "{:12} {:32} ", self.type_id_str(ty.id), self.node_kind_str(ty.node)).unwrap();
         match &ty.data {
-            TypeData::Fn(FnType { params, ty_params, result, unsafe_ }) => {
-                write!(s, "Fn(params: {}, ty_params: {}, result: {}, unsafe: {})",
+            TypeData::Fn(FnType { params, result, unsafe_ }) => {
+                write!(s, "Fn(params: {}, result: {}, unsafe: {})",
                     self.type_list_str(params),
-                    self.type_list_str(ty_params),
                     self.type_id_str(*result),
                     unsafe_).unwrap();
             }

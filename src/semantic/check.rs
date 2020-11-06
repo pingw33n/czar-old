@@ -54,7 +54,6 @@ pub enum BaseTypeData {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct FnType {
     pub params: Vec<TypeId>,
-    pub ty_params: Vec<TypeId>,
     pub result: TypeId,
     pub unsafe_: bool,
 }
@@ -110,14 +109,15 @@ impl TypeData {
 
     pub fn type_params(&self) -> &[TypeId] {
         match self {
-            Self::Fn(v) => &v.ty_params[..],
             Self::Incomplete(IncompleteType { params }) => &params[..],
             Self::Instance(TypeInstance { ty: _, data }) => match data {
                 TypeInstanceData::Args(_) => &[],
                 TypeInstanceData::Params(params) => &params[..],
             }
-            Self::Struct(_) => &[],
-            Self::Var(_) => &[],
+            | Self::Fn(_)
+            | Self::Struct(_)
+            | Self::Var(_)
+            => &[],
         }
     }
 
@@ -528,12 +528,16 @@ impl PassImpl<'_> {
 
                 let ty_params = self.ensure_typing_many(ty_params);
 
-                self.insert_typing(ctx.node, TypeData::Fn(FnType {
-                    params: params?,
-                    ty_params: ty_params?,
-                    result: result?,
-                    unsafe_: unsafe_.is_some(),
-                }));
+                let ty = self.check_data.insert_type((self.package_id, ctx.node),
+                    TypeData::Fn(FnType {
+                        params: params?,
+                        result: result?,
+                        unsafe_: unsafe_.is_some(),
+                    }));
+                self.insert_typing(ctx.node, TypeData::Instance(TypeInstance {
+                        ty,
+                        data: TypeInstanceData::Params(ty_params?),
+                    }));
             }
             NodeKind::Impl => {
                 let unit_ty = self.std().unit_type();
@@ -933,22 +937,11 @@ impl PassImpl<'_> {
 
     fn display_type1(&self, ty: &Type, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &ty.data {
-            TypeData::Fn(FnType { params, ty_params, result, unsafe_ }) => {
+            TypeData::Fn(FnType { params, result, unsafe_ }) => {
                 if *unsafe_ {
                     write!(f, "unsafe ")?;
                 }
-                write!(f, "fn")?;
-                if !ty_params.is_empty() {
-                    write!(f, "<")?;
-                    for (i, &ty_param) in ty_params.iter().enumerate() {
-                        if i > 0 {
-                            write!(f, ", ")?;
-                        }
-                        self.display_type0(ty_param, f)?;
-                    }
-                    write!(f, ">")?;
-                }
-                write!(f, "(")?;
+                write!(f, "fn(")?;
                 for (i, &param) in params.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -1032,7 +1025,7 @@ impl PassImpl<'_> {
             }
             FnCallKind::Method => {
                 let (fn_def, fn_ty) = self.resolve_method_call(ctx.node)?;
-                let res_ty = self.type_(fn_ty).data.as_fn().unwrap().result;
+                let res_ty = self.type_term(fn_ty).data.as_fn().unwrap().result;
                 (fn_def, res_ty)
             }
         };

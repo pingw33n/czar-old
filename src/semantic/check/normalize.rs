@@ -111,13 +111,11 @@ impl PassImpl<'_> {
     fn normalize_fn(&mut self, mut fn_: FnType, ctx: &mut Ctx) -> FnType {
         let FnType {
             params,
-            ty_params,
             result,
             unsafe_: _,
         } = &mut fn_;
 
         self.normalize_many(params, ctx);
-        self.normalize_many(ty_params, ctx);
         *result = self.normalize0(*result, ctx);
 
         fn_

@@ -510,10 +510,7 @@ impl<'a> Codegen<'a> {
             ty
         } else {
             match &ty.data {
-                TypeData::Fn(FnType { params, ty_params, result, unsafe_: _, }) => {
-                    if !ty_params.is_empty() {
-                        todo!();
-                    }
+                TypeData::Fn(FnType { params, result, unsafe_: _, }) => {
                     let param_tys = &mut Vec::with_capacity(params.len());
                     for &param in params {
                         param_tys.push(self.type_(param));
