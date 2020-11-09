@@ -1,6 +1,6 @@
 mod llvm;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map, HashMap, HashSet};
 
 use crate::hir::*;
 use crate::package::{Package, Packages, GlobalNodeId, PackageId};
@@ -58,7 +58,8 @@ pub struct Codegen<'a> {
     packages: &'a Packages,
     fn_defs: HashMap<GlobalNodeId, DValueRef>,
     fn_body_todos: HashSet<GlobalNodeId>,
-    base_types: BaseTypeMap<TypeRef>,
+    types: TypeMap<TypeRef>,
+    base_types: HashMap<(BaseTypeId, TypeRef), TypeRef>,
 }
 
 impl<'a> Codegen<'a> {
@@ -73,6 +74,7 @@ impl<'a> Codegen<'a> {
             packages,
             fn_defs: HashMap::new(),
             fn_body_todos: HashSet::new(),
+            types: HashMap::new(),
             base_types: HashMap::new(),
         }
     }
@@ -499,15 +501,14 @@ impl<'a> Codegen<'a> {
 
     fn type_(&mut self, ty: TypeId) -> TypeRef {
         let ty = self.packages[ty.0].check_data.normalized_type(ty);
+        if let Some(&v) = self.types.get(&ty) {
+            return v;
+        }
         let ty = self.packages.type_(ty);
-        if let Some(bty) = ty.data.base_type() {
-            if let Some(&v) = self.base_types.get(&bty) {
-                return v;
-            }
+
+        let ty_ll = if let Some(bty) = ty.data.base_type() {
             let bty = self.packages.base_type(bty);
-            let ty = self.make_base_type(ty, bty);
-            assert!(self.base_types.insert(bty.id(), ty).is_none());
-            ty
+            self.make_base_type(ty, bty)
         } else {
             match &ty.data {
                 TypeData::Fn(FnType { params, result, unsafe_: _, }) => {
@@ -524,29 +525,43 @@ impl<'a> Codegen<'a> {
                 | TypeData::Instance(_)
                 => unreachable!("{:?}", ty),
             }
-        }
+        };
+        assert!(self.types.insert(ty.id, ty_ll).is_none());
+        ty_ll
     }
 
     fn make_base_type(&mut self, ty: &Type, bty: &BaseType) -> TypeRef {
         if let Some(prim) = self.packages.std().check_data.lang().as_primitive(bty.id()) {
             self.make_prim_type(prim)
-        } else if let Some(LangItem::String) = self.packages.std().check_data.lang().as_item(bty.id()) {
-            // FIXME this won't be needed once there's a reference type in frontend.
-            self.llvm.named_struct_type("String", &mut [
-                self.llvm.pointer_type(self.llvm.int_type(8)),
-                self.llvm.int_type(self.llvm.pointer_size_bits()),
-            ])
         } else {
             match &bty.data {
-                BaseTypeData::Struct(v) => self.make_base_struct_type(ty.data.as_struct().unwrap(), v),
+                BaseTypeData::Struct(v) => self.make_base_struct_type(ty.data.as_struct().unwrap(), bty.id(), v),
             }
         }
     }
 
-    fn make_base_struct_type(&mut self, sty: &check::StructType, bsty: &BaseStructType) -> TypeRef {
+    fn make_base_struct_type(&mut self, sty: &check::StructType, bty: BaseTypeId, bsty: &BaseStructType) -> TypeRef {
         let BaseStructType { name } = bsty;
-        let fields = &mut self.make_struct_type0(sty);
-        self.llvm.named_struct_type(name, fields)
+        let fields = &mut if let Some(LangItem::String) = self.packages.std().check_data.lang().as_item(bty) {
+            // FIXME this won't be needed once there's a reference type in frontend.
+            vec![
+                self.llvm.pointer_type(self.llvm.int_type(8)),
+                self.llvm.int_type(self.llvm.pointer_size_bits()),
+            ]
+        } else {
+            self.make_struct_type0(sty)
+        };
+        let shape = self.llvm.struct_type(fields);
+        match self.base_types.entry((bty, shape)) {
+            hash_map::Entry::Occupied(e) => {
+                *e.get()
+            }
+            hash_map::Entry::Vacant(e) => {
+                let ty = self.llvm.named_struct_type(name, fields);
+                e.insert(ty);
+                ty
+            }
+        }
     }
 
     fn make_struct_type(&mut self, sty: &check::StructType) -> TypeRef {

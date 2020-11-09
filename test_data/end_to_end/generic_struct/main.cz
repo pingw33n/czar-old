@@ -1,0 +1,29 @@
+fn main() {
+    struct S1<T> {
+        v: T,
+    }
+
+    struct S2<T, U> {
+        v1: T,
+        v2: U,
+    }
+
+    struct S3<T, U> {
+        {t: T, u: U},
+    }
+
+    print_i32(S1 { v: 42 }.v); println();
+    prints(S1 { v: "test" }.v); println();
+
+    let s = S3<S2<S1<String>, {f1: bool, f2: u32}>, String> {{
+        t: S2 {
+            v1: S1 { v: "s1" },
+            v2: {f1: true, f2: 42u32},
+        },
+        u: "u",
+    }};
+    prints(s.0.t.v1.v); println();
+    print_bool(s.0.t.v2.f1); println();
+    print_u32(s.0.t.v2.f2); println();
+    prints(s.0.u); println();
+}

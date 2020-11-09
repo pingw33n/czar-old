@@ -44,7 +44,9 @@ impl PassImpl<'_> {
         let src_var = self.type_(src).data.as_inference_var();
         let dst_var = self.type_(dst).data.as_inference_var();
         let can = match (src_var, dst_var) {
-            (Some(InferenceVar::Any), None) => true,
+            | (Some(InferenceVar::Any), None)
+            | (Some(InferenceVar::Any), Some(InferenceVar::Number(_)))
+            => true,
             (Some(InferenceVar::Number(src_num)), None)
                 if Some(src_num) == self.as_any_number(dst)
                 => true,

@@ -34,7 +34,7 @@ impl From<NonNull<LLVMBasicBlock>> for BasicBlockRef {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 #[repr(transparent)]
 pub struct TypeRef(NonNull<LLVMType>);
 
@@ -55,7 +55,7 @@ impl TypeRef {
         }).unwrap().into()
     }
 
-    pub fn const_struct(&self, fields: &mut [DValueRef]) -> DValueRef {
+    pub fn const_struct(self, fields: &mut [DValueRef]) -> DValueRef {
         NonNull::new(unsafe {
             LLVMConstNamedStruct(self.as_ptr(), fields.as_mut_ptr() as *mut _, fields.len() as u32)
         }).unwrap().into()
@@ -65,6 +65,39 @@ impl TypeRef {
         NonNull::new(unsafe {
             LLVMFunctionType(ret_ty.as_ptr(), param_tys.as_mut_ptr() as *mut _, param_tys.len() as u32, 0)
         }).unwrap().into()
+    }
+
+    pub fn print_struct(self) -> Option<String> {
+        use std::fmt::Write;
+        unsafe {
+            let p = self.as_ptr();
+            if LLVMGetTypeKind(p) == LLVMTypeKind::LLVMStructTypeKind {
+                let mut s = String::new();
+                s.push_str("struct ");
+                let name = LLVMGetStructName(p);
+                if !name.is_null() {
+                    let name = CStr::from_ptr(name).to_str().unwrap();
+                    write!(s, "{} ", name).unwrap();
+                };
+                s.push_str("{");
+
+                let count = LLVMCountStructElementTypes(p);
+                let mut tys = Vec::new();
+                tys.resize(count as usize, ptr::null_mut());
+                LLVMGetStructElementTypes(p, tys.as_mut_ptr());
+                for (i, &ty) in tys.iter().enumerate() {
+                    if i > 0 {
+                        s.push_str(", ");
+                    }
+                    write!(s, "{}: {}", i, Self(NonNull::new(ty).unwrap())).unwrap();
+                }
+
+                s.push_str("}");
+                Some(s)
+            } else {
+                None
+            }
+        }
     }
 }
 

@@ -3,7 +3,7 @@ use super::{*, StructType};
 #[derive(Default)]
 struct Ctx {
     vars: TypeMap<TypeId>,
-    depends_on_inference_vars: bool,
+    parameterized: bool,
 }
 
 impl PassImpl<'_> {
@@ -25,7 +25,7 @@ impl PassImpl<'_> {
 
         let norm_ty = self.normalize1(ty, ctx);
 
-        if !ctx.depends_on_inference_vars {
+        if !ctx.parameterized {
             assert!(self.check_data.normalized_types.insert(ty, norm_ty).is_none());
             self.check_data.normalized_types.insert(norm_ty, norm_ty);
         }
@@ -52,14 +52,20 @@ impl PassImpl<'_> {
                 Some(*ty)
             }
             TypeData::Var(kind) => {
+                ctx.parameterized = true;
                 match kind {
                     Var::Inference(_) => {
                         debug_assert!(!ctx.vars.contains_key(&ty.id));
                         assert_eq!(ty.id.0, self.package_id);
-                        ctx.depends_on_inference_vars = true;
                         return ty.id;
                     }
-                    Var::Param => return ctx.vars.get(&ty.id).copied().unwrap_or(ty.id),
+                    Var::Param => {
+                        if let Some(&ty) = ctx.vars.get(&ty.id) {
+                            Some(ty)
+                        } else {
+                            return ty.id;
+                        }
+                    }
                 }
             }
             | TypeData::Fn(_)
