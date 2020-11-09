@@ -4,3 +4,8 @@ s1
 true
 42
 u
+
+4242
+false
+f2
+uu

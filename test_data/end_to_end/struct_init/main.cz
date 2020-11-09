@@ -56,7 +56,7 @@ fn unnamed_tuple() {
         println();
     }
 
-    let tuple1 = {11i32, "hello", "world"};
+    let tuple1 = {11, "hello", "world"};
     let tuple2 = new(12345, "foo", "bar");
     print("tuple1", tuple1);
     print("tuple2", tuple2);
@@ -83,7 +83,7 @@ fn record() {
     }
 
     let rec1 = new(42, s: {"first", "second"});
-    let rec2 = {int: 100i32, s1: "200", s2: "300"};
+    let rec2 = {int: 100, s1: "200", s2: "300"};
     print("rec1", rec1);
     print("rec2", rec2);
 

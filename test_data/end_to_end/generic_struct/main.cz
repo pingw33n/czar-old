@@ -26,4 +26,17 @@ fn main() {
     print_bool(s.0.t.v2.f1); println();
     print_u32(s.0.t.v2.f2); println();
     prints(s.0.u); println();
+
+    println();
+    let s = S3 {{
+        t: S2 {
+            v1: S1 { v: 4242 },
+            v2: {f1: false, f2: "f2"},
+        },
+        u: "uu",
+    }};
+    print_i32(s.0.t.v1.v); println();
+    print_bool(s.0.t.v2.f1); println();
+    prints(s.0.t.v2.f2); println();
+    prints(s.0.u); println();
 }

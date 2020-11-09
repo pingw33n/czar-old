@@ -39,7 +39,7 @@ impl PassImpl<'_> {
         ty
     }
 
-    fn try_unify(&mut self, src: TypeId, dst: TypeId) -> bool {
+    fn unify_var(&mut self, src: TypeId, dst: TypeId) -> bool {
         let src = self.type_term(src).id;
         let src_var = self.type_(src).data.as_inference_var();
         let dst_var = self.type_(dst).data.as_inference_var();
@@ -64,14 +64,41 @@ impl PassImpl<'_> {
         }
     }
 
-    pub fn unify(&mut self, ty1: TypeId, ty2: TypeId) -> (TypeId, TypeId) {
-        if self.try_unify(ty1, ty2) {
+    fn unify0(&mut self, ty1: TypeId, ty2: TypeId) -> (TypeId, TypeId) {
+        if ty1 == ty2 {
+            return (ty1, ty2);
+        }
+        if self.unify_var(ty1, ty2) {
             (ty2, ty2)
-        } else if self.try_unify(ty2, ty1) {
+        } else if self.unify_var(ty2, ty1) {
             (ty1, ty1)
         } else {
+            match (&self.type_(ty1).data, &self.type_(ty2).data) {
+                (TypeData::Struct(StructType { base: base1, fields: fields1 }),
+                    TypeData::Struct(StructType { base: base2, fields: fields2 }))
+                    if base1.is_some() && base1 == base2
+                        || base1.is_none() && base2.is_none()
+                        && fields1.len() == fields2.len()
+                        && fields1.iter().zip(fields2.iter())
+                            .all(|(s, d)| s.name == d.name)
+                => {
+                    let fields: Vec<_> = fields1.iter().zip(fields2.iter())
+                        .map(|(s, d)| (s.ty, d.ty))
+                        .collect();
+                    for (ty1, ty2) in fields {
+                        self.unify0(ty1, ty2);
+                    }
+                }
+                _ => {},
+            }
             (ty1, ty2)
         }
+    }
+
+    pub fn unify(&mut self, ty1: TypeId, ty2: TypeId) -> (TypeId, TypeId) {
+        let ty1 = self.normalize(ty1);
+        let ty2 = self.normalize(ty2);
+        self.unify0(ty1, ty2)
     }
 
     pub fn begin_inference(&mut self) {
