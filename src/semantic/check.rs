@@ -697,17 +697,10 @@ impl PassImpl<'_> {
         let ty = match ctx.kind {
             NodeKind::Block => {
                 if let Some(&expr) = self.hir.block(ctx.node).exprs.last() {
-                    use NodeKind::*;
-                    match self.hir.node_kind(expr).value {
-                        | Impl
-                        | Loop
-                        | FnDef
-                        | Module
-                        | Struct
-                        | Use
-                        | While
-                        => self.std().unit_type(),
-                        _ => self.typing(expr)?
+                    if self.hir.node_kind(expr).value.is_def() {
+                        self.std().unit_type()
+                    } else {
+                        self.typing(expr)?
                     }
                 } else {
                     self.std().unit_type()

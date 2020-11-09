@@ -1,0 +1,38 @@
+fn impl_() {
+    struct S {}
+    impl S {}
+}
+
+fn fn_def() {
+    fn f() {}
+}
+
+fn module_() {
+    module m {}
+}
+
+fn struct_() {
+    struct S {}
+}
+
+fn type_alias() {
+    type T = u32;
+}
+
+fn use_() {
+    use std::u32;
+}
+
+fn while_() {
+    while false {}
+}
+
+fn main() {
+    print_bool(impl_() == {}); println();
+    print_bool(fn_def() == {}); println();
+    print_bool(module_() == {}); println();
+    print_bool(struct_() == {}); println();
+    print_bool(type_alias() == {}); println();
+    print_bool(use_() == {}); println();
+    print_bool(while_() == {}); println();
+}

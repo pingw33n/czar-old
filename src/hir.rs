@@ -74,6 +74,45 @@ impl NodeKind {
             _ => false,
         }
     }
+
+    pub fn is_def(self) -> bool {
+        use NodeKind::*;
+        match self {
+            | Impl
+            | FnDef
+            | Module
+            | Struct
+            | TypeAlias
+            | Use
+            => true,
+
+            | Block
+            | BlockFlowCtl
+            | Cast
+            | FieldAccess
+            | FnCall
+            | FnDefParam
+            | IfExpr
+            | Let
+            | LetDef
+            | Literal
+            | Loop
+            | Op
+            | Path
+            | PathEndEmpty
+            | PathEndIdent
+            | PathEndStar
+            | PathSegment
+            | Range
+            | StructType
+            | StructValue
+            | StructValueField
+            | TyExpr
+            | TypeParam
+            | While
+            => false,
+        }
+    }
 }
 
 pub type NodeMap<T> = HashMap<NodeId, T>;
