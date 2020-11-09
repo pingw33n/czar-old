@@ -752,6 +752,7 @@ fn creates_scope(kind: NodeKind) -> bool {
         | Impl
         | Module
         | Struct
+        | TypeAlias
         => true,
 
         | BlockFlowCtl
@@ -775,7 +776,6 @@ fn creates_scope(kind: NodeKind) -> bool {
         | StructValue
         | StructValueField
         | TyExpr
-        | TypeAlias
         | TypeParam
         | Use
         | While

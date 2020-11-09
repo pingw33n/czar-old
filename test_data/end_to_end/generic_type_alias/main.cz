@@ -1,0 +1,20 @@
+fn main() {
+    struct Struct<T>{T}
+    type MyStruct<T> = Struct<T>;
+    type MyStructString = MyStruct<String>;
+
+    print_i32(MyStruct { 42 }.0); println();
+    prints(MyStructString { "test" }.0); println();
+
+    struct Struct2<T, U> { t: T, u: U }
+    type MyStruct_String_T<T> = Struct2<String, T>;
+    type MyStruct_String_bool = MyStruct_String_T<bool>;
+
+    let s = MyStruct_String_T { t: "test2", u: 4242 };
+    prints(s.t); println();
+    print_i128(s.u); println();
+
+    let s = MyStruct_String_bool { t: "test3", u: true };
+    prints(s.t); println();
+    print_bool(s.u); println();
+}

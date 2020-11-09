@@ -1,0 +1,6 @@
+42
+test
+test2
+4242
+test3
+true

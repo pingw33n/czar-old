@@ -625,7 +625,9 @@ impl PassImpl<'_> {
                 self.begin_typing(ctx.node, ty_params);
             }
             NodeKind::TypeAlias => {
-                self.begin_typing(ctx.node, Vec::new());
+                let TypeAlias { vis: _, name: _, ty_params, ty: _ } = self.hir.type_alias(ctx.node);
+                let ty_params = self.ensure_typing_many(ty_params)?;
+                self.begin_typing(ctx.node, ty_params);
             }
             NodeKind::TypeParam => {
                 self.insert_typing(ctx.node, TypeData::Var(Var::Param));
@@ -850,10 +852,7 @@ impl PassImpl<'_> {
                 }
             }
             NodeKind::TypeAlias => {
-                let hir::TypeAlias { vis: _, name: _, ty_params, ty } = self.hir.type_alias(ctx.node);
-                if !ty_params.is_empty() {
-                    todo!();
-                }
+                let hir::TypeAlias { vis: _, name: _, ty_params: _, ty } = self.hir.type_alias(ctx.node);
                 self.typing(*ty)?
             }
             NodeKind::Use => self.std().unit_type(),
