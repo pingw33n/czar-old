@@ -102,7 +102,7 @@ impl CheckData {
         self.entry_point
     }
 
-    pub fn normalized_type(&self, ty: TypeId) -> TypeId {
-        self.normalized_types[&ty]
+    pub fn try_normalized_type(&self, ty: TypeId) -> Option<TypeId> {
+        self.normalized_types.get(&ty).copied()
     }
 }

@@ -1,14 +1,20 @@
 use super::{*, StructType};
 
+const MAX_LEVEL: u32 = u32::max_value();
+
 #[derive(Default)]
 struct Ctx {
-    vars: TypeMap<TypeId>,
-    parameterized: bool,
+    vars: TypeMap<(TypeId, u32)>,
+    cur_level: u32,
+    min_level: u32,
 }
 
 impl PassImpl<'_> {
     pub fn normalize(&mut self, ty: TypeId) -> TypeId {
-        self.normalize0(ty, &mut Ctx::default())
+        self.normalize0(ty, &mut Ctx {
+            min_level: MAX_LEVEL,
+            ..Default::default()
+        })
     }
 
     pub fn normalize_all(&mut self) {
@@ -23,12 +29,16 @@ impl PassImpl<'_> {
             return ty;
         }
 
+        ctx.cur_level += 1;
         let norm_ty = self.normalize1(ty, ctx);
-
-        if !ctx.parameterized {
+        if ctx.min_level >= ctx.cur_level && !matches!(&self.type_(ty).data,
+            TypeData::Instance(TypeInstance { data: TypeInstanceData::Params(v), .. }) if !v.is_empty())
+        {
             assert!(self.check_data.normalized_types.insert(ty, norm_ty).is_none());
             self.check_data.normalized_types.insert(norm_ty, norm_ty);
         }
+
+        ctx.cur_level -= 1;
 
         norm_ty
     }
@@ -52,17 +62,19 @@ impl PassImpl<'_> {
                 Some(*ty)
             }
             TypeData::Var(kind) => {
-                ctx.parameterized = true;
                 match kind {
                     Var::Inference(_) => {
                         debug_assert!(!ctx.vars.contains_key(&ty.id));
                         assert_eq!(ty.id.0, self.package_id);
+                        ctx.min_level = 0;
                         return ty.id;
                     }
                     Var::Param => {
-                        if let Some(&ty) = ctx.vars.get(&ty.id) {
+                        if let Some(&(ty, level)) = ctx.vars.get(&ty.id) {
+                            ctx.min_level = ctx.min_level.min(level);
                             Some(ty)
                         } else {
+                            ctx.min_level = 0;
                             return ty.id;
                         }
                     }
@@ -100,17 +112,11 @@ impl PassImpl<'_> {
         }
     }
 
-    fn normalize_many(&mut self, tys: &mut [TypeId], ctx: &mut Ctx) {
-        for ty in tys {
-            *ty = self.normalize0(*ty, ctx);
-        }
-    }
-
     fn bind_vars(&self, params: &[TypeId], args: &[TypeId], ctx: &mut Ctx) {
         assert_eq!(args.len(), params.len());
         for (&param, &arg) in params.iter().zip(args.iter()) {
             assert_ne!(param, arg);
-            assert!(ctx.vars.insert(param, arg).is_none());
+            assert!(ctx.vars.insert(param, (arg, ctx.cur_level)).is_none());
         }
     }
 
@@ -121,7 +127,9 @@ impl PassImpl<'_> {
             unsafe_: _,
         } = &mut fn_;
 
-        self.normalize_many(params, ctx);
+        for param in params {
+            *param = self.normalize0(*param, ctx);
+        }
         *result = self.normalize0(*result, ctx);
 
         fn_

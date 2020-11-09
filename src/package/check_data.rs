@@ -33,6 +33,10 @@ impl Packages {
         Ctx::check_data(ctx, id.0, self).type_(id.1)
     }
 
+    pub fn typing(&self, node: GlobalNodeId) -> TypeId {
+        Ctx::check_data(None, node.0, self).typing(node.1)
+    }
+
     pub fn type_term(&self, ty: TypeId) -> &Type {
         self.type_term_ctx(ty, None)
     }

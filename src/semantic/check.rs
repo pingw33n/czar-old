@@ -954,33 +954,31 @@ impl PassImpl<'_> {
             kind,
             args,
         } = self.hir.fn_call(ctx.node);
-        let (fn_def_node, res_ty) = match *kind {
+        let (fn_def_node, fn_ty) = match *kind {
             FnCallKind::Free => {
                 let callee_ty = self.typing(*callee)?;
                 let callee_ty = self.normalize(callee_ty);
+                self.dump_all_types();
                 let callee_ty = self.type_(callee_ty);
-                let ty = if let Some(v) = callee_ty.data.as_fn() {
-                    v.result
-                } else {
+                if callee_ty.data.as_fn().is_none() {
                     self.error(*callee, format!(
                         "invalid callee type: expected function, found `{}`",
                         self.display_type(callee_ty.id)));
                     return Err(());
                 };
-                let fn_def_node = callee_ty.node;
-                (fn_def_node, ty)
+                (callee_ty.node, callee_ty.id)
             }
             FnCallKind::Method => {
                 let (fn_def, fn_ty) = self.resolve_method_call(ctx.node)?;
-                let res_ty = self.type_term(fn_ty).data.as_fn().unwrap().result;
-                (fn_def, res_ty)
+                let fn_ty = self.normalize(fn_ty);
+                (fn_def, fn_ty)
             }
         };
 
-        let params = self.hir(fn_def_node.0).fn_def(fn_def_node.1).params.clone();
+        let params = self.type_(fn_ty).data.as_fn().unwrap().params.clone();
         assert_eq!(args.len(), params.len());
 
-        for (arg, &param) in args
+        for (arg, &param_ty) in args
             .iter()
             .zip(params.iter())
         {
@@ -989,9 +987,10 @@ impl PassImpl<'_> {
             } else {
                 continue;
             };
-            let param_ty = self.check_data(fn_def_node.0).typing(param);
             let (arg_ty, param_ty) = self.unify(arg_ty, param_ty);
             if self.normalize(arg_ty) != self.normalize(param_ty) {
+                dbg!(arg_ty, param_ty);
+
                 let hir = self.hir(fn_def_node.0);
                 let name = &hir.fn_def(fn_def_node.1).name.value;
                 self.error(arg.value, format!(
@@ -1000,6 +999,8 @@ impl PassImpl<'_> {
                     param=self.display_type(param_ty), arg=self.display_type(arg_ty)));
             }
         }
+
+        let res_ty = self.type_(fn_ty).data.as_fn().unwrap().result;
 
         Ok(res_ty)
     }

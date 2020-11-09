@@ -56,8 +56,8 @@ pub struct Codegen<'a> {
     bodyb: BuilderRef,
     headerb: BuilderRef,
     packages: &'a Packages,
-    fn_defs: HashMap<GlobalNodeId, DValueRef>,
-    fn_body_todos: HashSet<GlobalNodeId>,
+    fn_defs: HashMap<(GlobalNodeId, TypeRef), DValueRef>,
+    fn_body_todos: HashSet<(GlobalNodeId, TypeRef)>,
     types: TypeMap<TypeRef>,
     defined_types: HashMap<(GlobalNodeId, TypeRef), TypeRef>,
 }
@@ -84,9 +84,9 @@ impl<'a> Codegen<'a> {
 
         self.fn_def((package_id, entry_point));
 
-        while let Some(&node) = self.fn_body_todos.iter().next() {
-            self.fn_body(node);
-            assert!(self.fn_body_todos.remove(&node));
+        while let Some(&(node, ty_args)) = self.fn_body_todos.iter().next() {
+            self.fn_body(node, ty_args);
+            assert!(self.fn_body_todos.remove(&(node, ty_args)));
         }
     }
 
@@ -100,11 +100,12 @@ impl<'a> Codegen<'a> {
     }
 
     fn fn_def(&mut self, node: GlobalNodeId) -> DValueRef {
-        if let Some(&v) = self.fn_defs.get(&node) {
+        let ty = self.packages.typing(node);
+        let ty = self.packages.type_(ty);
+        let ty_args = self.unit_literal().type_();
+        if let Some(&v) = self.fn_defs.get(&(node, ty_args)) {
             return v;
         }
-
-        let ty = self.typing(node);
 
         let package = &self.packages[node.0];
         let name = if package.check_data.entry_point() == Some(node.1) {
@@ -112,18 +113,19 @@ impl<'a> Codegen<'a> {
         } else {
             package.hir.fn_def(node.1).name.value.as_str()
         };
-        let fn_ = self.llvm.add_function(&name, ty);
-        assert!(self.fn_defs.insert(node, fn_).is_none());
-        assert!(self.fn_body_todos.insert(node));
+        let ty_ll = self.type_(ty.id);
+        let fn_ = self.llvm.add_function(&name, ty_ll);
+        assert!(self.fn_defs.insert((node, ty_args), fn_).is_none());
+        assert!(self.fn_body_todos.insert((node, ty_args)));
 
         fn_
     }
 
-    fn fn_body(&mut self, fn_def: GlobalNodeId) {
+    fn fn_body(&mut self, fn_def: GlobalNodeId, ty_args: TypeRef) {
         let package = &self.packages[fn_def.0];
         let FnDef { params, body, .. } = package.hir.fn_def(fn_def.1);
         if let Some(body) = *body {
-            let fn_ = self.fn_defs[&fn_def];
+            let fn_ = self.fn_defs[&(fn_def, ty_args)];
             self.llvm.append_new_bb(fn_, "header");
 
             let allocas = &mut HashMap::new();
@@ -500,7 +502,13 @@ impl<'a> Codegen<'a> {
     }
 
     fn type_(&mut self, ty: TypeId) -> TypeRef {
-        let ty = self.packages[ty.0].check_data.normalized_type(ty);
+        dbg!(ty);
+        let ty = self.packages[ty.0].check_data.try_normalized_type(ty)
+            .unwrap_or_else(|| {
+                let ty = self.packages.type_term(ty);
+                assert!(ty.data.as_fn().is_some());
+                ty.id
+            });
         if let Some(&v) = self.types.get(&ty) {
             return v;
         }
