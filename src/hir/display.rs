@@ -513,13 +513,17 @@ impl Display<'_> {
             }
             NodeKind::TypeAlias => {
                 let TypeAlias { vis, name, ty_params, ty } = self.hir.type_alias(node);
-                self.vis(vis, p)?;
-                p.print_sep("type ")?;
-                p.print(&name.value)?;
-                self.ty_params(ty_params, p)?;
-                p.print(" = ")?;
-                self.node(*ty, false, p)?;
-                p.println(";")?;
+                if name.value.is_self_upper() {
+                    self.node(*ty, false, p)?;
+                } else {
+                    self.vis(vis, p)?;
+                    p.print_sep("type ")?;
+                    p.print(&name.value)?;
+                    self.ty_params(ty_params, p)?;
+                    p.print(" = ")?;
+                    self.node(*ty, false, p)?;
+                    p.println(";")?;
+                }
             }
             NodeKind::TypeParam => unreachable!(),
             NodeKind::Use => {

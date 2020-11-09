@@ -706,13 +706,6 @@ impl HirVisitor for Build<'_> {
                     self.insert_name(NsKind::Value, name, param);
                 }
             }
-            NodeKind::Impl => {
-                let for_ = self.hir.impl_(ctx.node).for_;
-                let for_path_end = self.hir.find_flat_path_end(for_);
-                let span = self.hir.node_kind(for_).span;
-                self.insert_import(span.spanned(Ident::self_upper()), for_path_end);
-                self.data.impls.push(ctx.node);
-            }
             NodeKind::TypeParam => {
                 let name = self.hir.type_param(ctx.node).name.clone();
                 self.insert_name(NsKind::Type, name, ctx.node);

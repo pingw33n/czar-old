@@ -1563,6 +1563,14 @@ impl<'a> ParserImpl<'a> {
             (None, sym1)
         };
 
+        let span = self.hir.node_kind(for_).span;
+        let for_ = self.hir.insert_type_alias(span.spanned(TypeAlias {
+            vis: None,
+            name: span.spanned(Ident::self_upper()),
+            ty_params: Vec::new(),
+            ty: for_,
+        }));
+
         if self.lex.maybe(Token::BlockOpen(lex::Block::Brace)).is_none() {
             let tok = self.lex.nth(0);
             return self.error(tok.span,
