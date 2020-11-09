@@ -74,10 +74,10 @@ impl PassImpl<'_> {
             (ty1, ty1)
         } else {
             match (&self.type_(ty1).data, &self.type_(ty2).data) {
-                (TypeData::Struct(StructType { base: base1, fields: fields1 }),
-                    TypeData::Struct(StructType { base: base2, fields: fields2 }))
-                    if base1.is_some() && base1 == base2
-                        || base1.is_none() && base2.is_none()
+                (TypeData::Struct(StructType { def: def1, fields: fields1 }),
+                    TypeData::Struct(StructType { def: def2, fields: fields2 }))
+                    if def1.is_some() && def1 == def2
+                        || def1.is_none() && def2.is_none()
                         && fields1.len() == fields2.len()
                         && fields1.iter().zip(fields2.iter())
                             .all(|(s, d)| s.name == d.name)

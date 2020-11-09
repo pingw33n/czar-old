@@ -26,30 +26,7 @@ use resolve::{self, Resolution, ResolutionKind, Resolver, ResolveData};
 use inference::{InferenceCtx, InferenceVar};
 pub use data::CheckData;
 pub use lang::{LangItem, Lang, NumberKind, NumberType, PrimitiveType};
-pub use structs::{BaseStructType, StructType, StructTypeField};
-
-#[derive(Debug)]
-pub struct BaseType {
-    pub package_id: PackageId,
-    pub id: LocalBaseTypeId,
-    pub node: NodeId,
-    pub data: BaseTypeData,
-}
-
-impl BaseType {
-    pub fn id(&self) -> BaseTypeId {
-        (self.package_id, self.id)
-    }
-
-    pub fn node(&self) -> GlobalNodeId {
-        (self.package_id, self.node)
-    }
-}
-
-#[derive(Debug, EnumAsInner)]
-pub enum BaseTypeData {
-    Struct(BaseStructType),
-}
+pub use structs::{StructType, StructTypeField};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct FnType {
@@ -57,13 +34,6 @@ pub struct FnType {
     pub result: TypeId,
     pub unsafe_: bool,
 }
-
-#[derive(Clone, Copy, Eq, Debug, Hash, PartialEq)]
-pub struct LocalBaseTypeId(usize);
-
-pub type BaseTypeId = (PackageId, LocalBaseTypeId);
-
-pub type BaseTypeMap<T> = HashMap<BaseTypeId, T>;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct LocalTypeId(usize);
@@ -96,9 +66,9 @@ pub enum TypeData {
 }
 
 impl TypeData {
-    pub fn base_type(&self) -> Option<BaseTypeId> {
+    pub fn def(&self) -> Option<GlobalNodeId> {
         match self {
-            Self::Struct(v) => v.base,
+            Self::Struct(v) => v.def,
             | Self::Fn(_)
             | Self::Incomplete(_)
             | Self::Instance(_)
@@ -187,17 +157,12 @@ impl CheckData {
     fn finish_named_struct_type(&mut self,
         node: NodeId,
         incomplete_ty: LocalTypeId,
-        name: Ident,
         struct_ty: LocalTypeId,
     ) {
-        let id = self.insert_base_type(node, BaseTypeData::Struct(BaseStructType {
-            name,
-        }));
-
-        // Set StructType::base
+        // Set StructType::def
         let pkg = self.package_id;
         let structd = self.type_mut(struct_ty).data.as_struct_mut().unwrap();
-        structd.base = Some((pkg, id));
+        structd.def = Some((pkg, node));
 
         self.type_mut(incomplete_ty).data.finish((pkg, struct_ty));
     }
@@ -400,16 +365,8 @@ impl PassImpl<'_> {
         self.packages.type_ctx(id, self.cdctx())
     }
 
-    fn base_type(&self, id: BaseTypeId) -> &BaseType {
-        self.packages.base_type_ctx(id, self.cdctx())
-    }
-
     fn type_term(&self, ty: TypeId) -> &Type {
         self.packages.type_term_ctx(ty, self.cdctx())
-    }
-
-    fn base_type_of(&self, id: TypeId) -> Option<&BaseType> {
-        self.packages.base_type_of_ctx(id, self.cdctx())
     }
 
     fn insert_type(&mut self, node: GlobalNodeId, data: TypeData) -> TypeId {
@@ -468,9 +425,7 @@ impl PassImpl<'_> {
             match self.hir.node_kind(node).value {
                 NodeKind::Struct => {
                     assert_eq!(ty.0, self.package_id);
-                    let name = self.hir.struct_(node).name.value.clone();
-                    // let struct_ty = self.type_(ty).data.as_struct().unwrap().clone(); // TODO maybe remove instead of cloning?
-                    self.check_data.finish_named_struct_type(node, incomplete_ty.1, name, ty.1);
+                    self.check_data.finish_named_struct_type(node, incomplete_ty.1, ty.1);
                 }
                 NodeKind::TypeAlias => {
                     self.check_data.finish_type_alias(incomplete_ty.1, ty);
@@ -560,13 +515,13 @@ impl PassImpl<'_> {
                 assert_eq!(self.reso_ctxs.pop().unwrap(), ResoCtx::Type);
                 let struct_ty = struct_ty?;
 
-                let base_ty = if let Some(base_ty) = self.base_type_of(struct_ty) {
-                    if base_ty.package_id != self.package_id {
+                let def = if let Some(def) = self.type_term(struct_ty).data.def() {
+                    if def.0 != self.package_id {
                         self.error(*for_,
                             "cannot define inherent `impl` for a type from outside of this package".into());
                         err = true;
                     }
-                    base_ty.id()
+                    def
                 } else {
                     self.error(*for_,
                         "can't define inherent `impl` on a type parameter".into());
@@ -574,7 +529,7 @@ impl PassImpl<'_> {
                 };
 
                 let mut dup_errs = Vec::new();
-                let impl_ = &mut self.check_data.impls.entry(base_ty)
+                let impl_ = &mut self.check_data.impls.entry(def)
                     .or_insert_with(|| vec![Default::default()])
                     [0];
                 for &item in items {
@@ -971,11 +926,11 @@ impl PassImpl<'_> {
     }
 
     fn display_struct_type(&self, ty: &StructType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(base) = ty.base {
-            let BaseStructType { name } = self.base_type(base).data.as_struct().unwrap();
+        if let Some(def) = ty.def {
+            let name = &self.hir(def.0).struct_(def.1).name.value;
             write!(f, "{}", name)
         } else {
-            let StructType { base: _, fields } = ty;
+            let StructType { def: _, fields } = ty;
             write!(f, "{{")?;
             for (i, StructTypeField { name, ty }) in fields.iter().enumerate() {
                 if i > 0 {
@@ -1108,12 +1063,12 @@ impl PassImpl<'_> {
             discover_data: &DiscoverData,
             check_data: &CheckData,
         | -> Result<Option<GlobalNodeId>> {
-            let base_ty = if let Some(v) = self.base_type_of(ty) {
+            let def = if let Some(v) = self.type_term(ty).data.def() {
                 v
             } else {
                 return Ok(None)
             };
-            if let Some(impls) = check_data.impls.get(&base_ty.id()) {
+            if let Some(impls) = check_data.impls.get(&def) {
                 assert!(!impls.is_empty());
                 if impls.len() > 1 {
                     todo!();

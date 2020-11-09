@@ -88,7 +88,7 @@ impl LangItem {
 
 pub struct Lang {
     lang_item_to_type: HashMap<LangItem, LocalTypeId>,
-    type_to_lang_item: HashMap<LocalBaseTypeId, LangItem>,
+    node_to_lang_item: HashMap<NodeId, LangItem>,
     unit_type: LocalTypeId,
 }
 
@@ -97,16 +97,16 @@ impl Lang {
         (PackageId::std(), self.lang_item_to_type[&ty])
     }
 
-    pub fn as_item(&self, ty: BaseTypeId) -> Option<LangItem> {
-        if ty.0.is_std() {
-            self.type_to_lang_item.get(&ty.1).copied()
+    pub fn as_item(&self, node: GlobalNodeId) -> Option<LangItem> {
+        if node.0.is_std() {
+            self.node_to_lang_item.get(&node.1).copied()
         } else {
             None
         }
     }
 
-    pub fn as_primitive(&self, ty: BaseTypeId) -> Option<PrimitiveType> {
-        self.as_item(ty).and_then(|v| v.as_primitive().copied())
+    pub fn as_primitive(&self, node: GlobalNodeId) -> Option<PrimitiveType> {
+        self.as_item(node).and_then(|v| v.as_primitive().copied())
     }
 
     pub fn unit_type(&self) -> TypeId {
@@ -119,7 +119,7 @@ impl PassImpl<'_> {
         assert!(self.package_id.is_std());
 
         let mut lang_item_to_type = HashMap::new();
-        let mut type_to_lang_item = HashMap::new();
+        let mut node_to_lang_item = HashMap::new();
 
         {
             use LangItem::*;
@@ -148,9 +148,9 @@ impl PassImpl<'_> {
 
                 assert!(lang_item_to_type.insert(lang_item, ty).is_none());
 
-                let (pkg, base_ty) = self.base_type_of((PackageId::std(), ty)).unwrap().id();
+                let (pkg, node) = self.type_term((PackageId::std(), ty)).data.def().unwrap();
                 assert!(pkg.is_std());
-                assert!(type_to_lang_item.insert(base_ty, lang_item).is_none());
+                assert!(node_to_lang_item.insert(node, lang_item).is_none());
             }
         }
 
@@ -158,8 +158,8 @@ impl PassImpl<'_> {
 
         assert!(self.check_data.lang.replace(Box::new(Lang {
             lang_item_to_type,
-            type_to_lang_item,
-            unit_type: unit_type,
+            node_to_lang_item,
+            unit_type,
         })).is_none());
     }
 

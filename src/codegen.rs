@@ -59,7 +59,7 @@ pub struct Codegen<'a> {
     fn_defs: HashMap<GlobalNodeId, DValueRef>,
     fn_body_todos: HashSet<GlobalNodeId>,
     types: TypeMap<TypeRef>,
-    base_types: HashMap<(BaseTypeId, TypeRef), TypeRef>,
+    defined_types: HashMap<(GlobalNodeId, TypeRef), TypeRef>,
 }
 
 impl<'a> Codegen<'a> {
@@ -75,7 +75,7 @@ impl<'a> Codegen<'a> {
             fn_defs: HashMap::new(),
             fn_body_todos: HashSet::new(),
             types: HashMap::new(),
-            base_types: HashMap::new(),
+            defined_types: HashMap::new(),
         }
     }
 
@@ -506,76 +506,63 @@ impl<'a> Codegen<'a> {
         }
         let ty = self.packages.type_(ty);
 
-        let ty_ll = if let Some(bty) = ty.data.base_type() {
-            let bty = self.packages.base_type(bty);
-            self.make_base_type(ty, bty)
-        } else {
-            match &ty.data {
-                TypeData::Fn(FnType { params, result, unsafe_: _, }) => {
-                    let param_tys = &mut Vec::with_capacity(params.len());
-                    for &param in params {
-                        param_tys.push(self.type_(param));
-                    }
-                    let res_ty = self.type_(*result);
-                    TypeRef::function(res_ty, param_tys)
+        let ty_ll = match &ty.data {
+            TypeData::Fn(FnType { params, result, unsafe_: _, }) => {
+                let param_tys = &mut Vec::with_capacity(params.len());
+                for &param in params {
+                    param_tys.push(self.type_(param));
                 }
-                TypeData::Struct(v) => self.make_struct_type(v),
-                TypeData::Var(_) => todo!(),
-                | TypeData::Incomplete(_)
-                | TypeData::Instance(_)
-                => unreachable!("{:?}", ty),
+                let res_ty = self.type_(*result);
+                TypeRef::function(res_ty, param_tys)
             }
+            TypeData::Struct(v) => self.make_struct_type(v),
+            TypeData::Var(_) => todo!(),
+            | TypeData::Incomplete(_)
+            | TypeData::Instance(_)
+            => unreachable!("{:?}", ty),
         };
         assert!(self.types.insert(ty.id, ty_ll).is_none());
         ty_ll
     }
 
-    fn make_base_type(&mut self, ty: &Type, bty: &BaseType) -> TypeRef {
-        if let Some(prim) = self.packages.std().check_data.lang().as_primitive(bty.id()) {
-            self.make_prim_type(prim)
-        } else {
-            match &bty.data {
-                BaseTypeData::Struct(v) => self.make_base_struct_type(ty.data.as_struct().unwrap(), bty.id(), v),
-            }
-        }
-    }
-
-    fn make_base_struct_type(&mut self, sty: &check::StructType, bty: BaseTypeId, bsty: &BaseStructType) -> TypeRef {
-        let BaseStructType { name } = bsty;
-        let fields = &mut if let Some(LangItem::String) = self.packages.std().check_data.lang().as_item(bty) {
-            // FIXME this won't be needed once there's a reference type in frontend.
-            vec![
-                self.llvm.pointer_type(self.llvm.int_type(8)),
-                self.llvm.int_type(self.llvm.pointer_size_bits()),
-            ]
-        } else {
-            self.make_struct_type0(sty)
-        };
-        let shape = self.llvm.struct_type(fields);
-        match self.base_types.entry((bty, shape)) {
-            hash_map::Entry::Occupied(e) => {
-                *e.get()
-            }
-            hash_map::Entry::Vacant(e) => {
-                let ty = self.llvm.named_struct_type(name, fields);
-                e.insert(ty);
-                ty
-            }
-        }
-    }
-
     fn make_struct_type(&mut self, sty: &check::StructType) -> TypeRef {
-        let fields = &mut self.make_struct_type0(sty);
-        self.llvm.struct_type(fields)
+        let check::StructType { def, fields } = sty;
+        if let Some(def) = *def {
+            if let Some(prim) = self.packages.std().check_data.lang().as_primitive(def) {
+                return self.make_prim_type(prim);
+            } else if let Some(LangItem::String) = self.packages.std().check_data.lang().as_item(def) {
+                // FIXME this won't be needed once there's a reference type in frontend.
+                let fields = &mut vec![
+                    self.llvm.pointer_type(self.llvm.int_type(8)),
+                    self.llvm.int_type(self.llvm.pointer_size_bits()),
+                ];
+                return self.make_struct_type0(Some(def), fields);
+            }
+        }
+        let field_tys = &mut Vec::with_capacity(fields.len());
+        for &check::StructTypeField { name: _, ty } in fields {
+            field_tys.push(self.type_(ty));
+        }
+        self.make_struct_type0(*def, field_tys)
     }
 
-    fn make_struct_type0(&mut self, sty: &check::StructType) -> Vec<TypeRef> {
-        let check::StructType { base: _, fields } = sty;
-        let mut r = Vec::new();
-        for &check::StructTypeField { name: _, ty } in fields {
-            r.push(self.type_(ty));
+    fn make_struct_type0(&mut self, def: Option<GlobalNodeId>, fields: &mut [TypeRef]) -> TypeRef {
+        let shape = self.llvm.struct_type(fields);
+        if let Some(def) = def {
+            match self.defined_types.entry((def, shape)) {
+                hash_map::Entry::Occupied(e) => {
+                    *e.get()
+                }
+                hash_map::Entry::Vacant(e) => {
+                    let name = &self.packages[def.0].hir.struct_(def.1).name.value;
+                    let ty = self.llvm.named_struct_type(name, fields);
+                    e.insert(ty);
+                    ty
+                }
+            }
+        } else {
+            shape
         }
-        r
     }
 
     fn make_prim_type(&self, prim_ty: PrimitiveType) -> TypeRef {

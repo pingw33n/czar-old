@@ -4,25 +4,9 @@ use super::{*, StructType};
 
 impl PassImpl<'_> {
     pub fn dump_all_types(&self) {
-        for ty in self.check_data.base_types() {
-            println!("{}", self.dump_base_type(ty.id()));
-        }
         for ty in self.check_data.types() {
             println!("{}", self.dump_type(ty.id));
         }
-    }
-
-    #[must_use]
-    pub fn dump_base_type(&self, ty: BaseTypeId) -> String {
-        let ty = self.base_type(ty);
-        let mut s = String::new();
-        write!(s, "{:12} ", self.base_type_id_str(ty.id())).unwrap();
-        match &ty.data {
-            BaseTypeData::Struct(BaseStructType { name }) => {
-                write!(s, "Struct(name: {})", name).unwrap();
-            }
-        }
-        s
     }
 
     #[must_use]
@@ -82,10 +66,6 @@ impl PassImpl<'_> {
         format!("{}.{}", self.package_name(id.0), id.1.0)
     }
 
-    fn base_type_id_str(&self, id: BaseTypeId) -> String {
-        format!("{}.B{}", self.package_name(id.0), id.1.0)
-    }
-
     fn node_kind_str(&self, node: GlobalNodeId) -> String {
         let nk = self.hir(node.0).node_kind(node.1);
         format!("{}.{:?} @{}..{}", self.package_name(node.0), nk.value, nk.span.start, nk.span.end)
@@ -118,9 +98,15 @@ impl PassImpl<'_> {
     }
 
     fn struct_type_str(&self, v: &StructType) -> String {
-        let StructType { base, fields } = v;
-        format!("Struct(base: {:?}, fields: {})",
-            base.map(|bty| self.base_type_id_str(bty)),
+        let StructType { def, fields } = v;
+        let def = if let &Some(def) = def {
+            let name = &self.hir(def.0).struct_(def.1).name.value;
+            format!("def: `{}` {}, ", name, self.node_kind_str(def))
+        } else {
+            "".into()
+        };
+        format!("Struct({}fields: {})",
+            def,
             self.struct_fields_str(fields))
     }
 }

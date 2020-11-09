@@ -129,7 +129,7 @@ impl PassImpl<'_> {
 
     fn normalize_struct(&mut self, mut sty: StructType, ctx: &mut Ctx) -> StructType {
         let StructType {
-            base: _,
+            def: _,
             fields,
         } = &mut sty;
 

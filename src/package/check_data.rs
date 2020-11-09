@@ -33,23 +33,6 @@ impl Packages {
         Ctx::check_data(ctx, id.0, self).type_(id.1)
     }
 
-    pub fn base_type(&self, id: BaseTypeId) -> &BaseType {
-        self.base_type_ctx(id, None)
-    }
-
-    pub fn base_type_ctx<'a>(&'a self, id: BaseTypeId, ctx: Option<Ctx<'a>>) -> &'a BaseType {
-       Ctx::check_data(ctx, id.0, self).base_type(id.1)
-    }
-
-    pub fn base_type_of(&self, id: TypeId) -> Option<&BaseType> {
-        self.base_type_of_ctx(id, None)
-    }
-
-    pub fn base_type_of_ctx<'a>(&'a self, id: TypeId, ctx: Option<Ctx<'a>>) -> Option<&'a BaseType> {
-        self.type_term_ctx(id, ctx).data.base_type()
-            .map(|v| self.base_type_ctx(v, ctx))
-    }
-
     pub fn type_term(&self, ty: TypeId) -> &Type {
         self.type_term_ctx(ty, None)
     }
@@ -75,12 +58,8 @@ impl Packages {
     }
 
     pub fn as_lang_item_ctx(&self, ty: TypeId, ctx: Option<Ctx>) -> Option<LangItem> {
-        let bty = self.type_term_ctx(ty, ctx).data.base_type()?;
-        if bty.0.is_std() {
-            Ctx::check_data(ctx, PackageId::std(), self).lang().as_item(bty)
-        } else {
-            None
-        }
+        let def = self.type_term_ctx(ty, ctx).data.def()?;
+        Ctx::check_data(ctx, PackageId::std(), self).lang().as_item(def)
     }
 
     pub fn as_primitive_ctx(&self, ty: TypeId, ctx: Option<Ctx>) -> Option<PrimitiveType> {

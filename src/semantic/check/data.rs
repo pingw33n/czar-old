@@ -2,7 +2,6 @@ use super::{*, Impl};
 
 pub struct CheckData {
     pub(in super) package_id: PackageId,
-    base_types: Slab<BaseType>,
     types: Slab<Type>,
     typings: NodeMap<TypeId>,
     pub(in super) lang: Option<Box<Lang>>,
@@ -11,7 +10,7 @@ pub struct CheckData {
     pub(in super) struct_field_index: NodeMap<u32>,
     lvalues: NodeMap<()>,
     /// Impls defined in this package.
-    pub(in super) impls: BaseTypeMap<Vec<Impl>>,
+    pub(in super) impls: HashMap<GlobalNodeId, Vec<Impl>>,
     pub(in super) entry_point: Option<NodeId>,
     pub(in super) normalized_types: TypeMap<TypeId>,
 }
@@ -20,7 +19,6 @@ impl CheckData {
     pub fn new(package_id: PackageId) -> Self {
         Self {
             package_id,
-            base_types: Default::default(),
             types: Default::default(),
             typings: Default::default(),
             lang: None,
@@ -31,30 +29,6 @@ impl CheckData {
             entry_point: None,
             normalized_types: Default::default(),
         }
-    }
-
-    pub fn base_types<'a>(&'a self) -> impl Iterator<Item=&'a BaseType> + 'a {
-        self.base_types.iter().map(|(_, v)| v)
-    }
-
-    pub fn base_type(&self, id: LocalBaseTypeId) -> &BaseType {
-        &self.base_types[id.0]
-    }
-
-    pub fn base_type_mut(&mut self, id: LocalBaseTypeId) -> &mut BaseType {
-        &mut self.base_types[id.0]
-    }
-
-    pub(in super) fn insert_base_type(&mut self, node: NodeId, data: BaseTypeData) -> LocalBaseTypeId {
-        let e = self.base_types.vacant_entry();
-        let id = LocalBaseTypeId(e.key());
-        e.insert(BaseType {
-            package_id: self.package_id,
-            node,
-            id,
-            data,
-        });
-        id
     }
 
     pub fn types<'a>(&'a self) -> impl Iterator<Item=&'a Type> + 'a {
