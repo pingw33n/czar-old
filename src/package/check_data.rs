@@ -50,7 +50,9 @@ impl Packages {
                 | TypeData::Struct(_)
                 | TypeData::Var(_)
                 => break ty,
-                &TypeData::Instance(TypeInstance { ty, data: _ }) => {
+                | &TypeData::Ctor(TypeCtor { ty, params: _ })
+                | &TypeData::Instance(TypeInstance { ty, args: _ })
+                => {
                     id = ty;
                 }
             }

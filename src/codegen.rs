@@ -502,7 +502,6 @@ impl<'a> Codegen<'a> {
     }
 
     fn type_(&mut self, ty: TypeId) -> TypeRef {
-        dbg!(ty);
         let ty = self.packages[ty.0].check_data.try_normalized_type(ty)
             .unwrap_or_else(|| {
                 let ty = self.packages.type_term(ty);
@@ -525,6 +524,7 @@ impl<'a> Codegen<'a> {
             }
             TypeData::Struct(v) => self.make_struct_type(v),
             TypeData::Var(_) => todo!(),
+            | TypeData::Ctor(_)
             | TypeData::Incomplete(_)
             | TypeData::Instance(_)
             => unreachable!("{:?}", ty),

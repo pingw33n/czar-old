@@ -15,6 +15,9 @@ impl PassImpl<'_> {
         let mut s = String::new();
         write!(s, "{:12} {:32} ", self.type_id_str(ty.id), self.node_kind_str(ty.node)).unwrap();
         match &ty.data {
+            TypeData::Ctor(TypeCtor { ty, params }) => {
+                write!(s, "Ctor(ty: {}, params: {})", self.type_id_str(*ty), self.type_list_str(params)).unwrap();
+            }
             TypeData::Fn(FnType { params, result, unsafe_ }) => {
                 write!(s, "Fn(params: {}, result: {}, unsafe: {})",
                     self.type_list_str(params),
@@ -24,13 +27,8 @@ impl PassImpl<'_> {
             TypeData::Incomplete(IncompleteType { params }) => {
                 write!(s, "Incomplete(params: {})", self.type_list_str(params)).unwrap();
             }
-            TypeData::Instance(TypeInstance { ty, data }) => {
-                write!(s, "Instance(ty: {}, ", self.type_id_str(*ty)).unwrap();
-                match data {
-                    TypeInstanceData::Args(v) => write!(s, " args: {}", self.type_list_str(v)).unwrap(),
-                    TypeInstanceData::Params(v) => write!(s, " params: {}", self.type_list_str(v)).unwrap(),
-                }
-                s.push_str(")");
+            TypeData::Instance(TypeInstance { ty, args }) => {
+                write!(s, "Instance(ty: {}, args: {})", self.type_id_str(*ty), self.type_list_str(args)).unwrap();
             }
             TypeData::Struct(v) => {
                 write!(s, "{}", self.struct_type_str(v)).unwrap();

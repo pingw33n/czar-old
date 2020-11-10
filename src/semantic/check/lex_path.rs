@@ -220,14 +220,11 @@ impl PassImpl<'_> {
         }
         let ty_args = self.build_path_ty_args(path, ty)?;
 
-        let ty = if !ty_args.is_empty() {
-            self.insert_type((self.package_id, path.last().unwrap().node), TypeData::Instance(TypeInstance {
+        let ty = self.insert_type((self.package_id, path.last().unwrap().node),
+            TypeData::Instance(TypeInstance {
                 ty,
-                data: TypeInstanceData::Args(ty_args),
-            }))
-        } else {
-            ty
-        };
+                args: ty_args,
+            }));
 
         Ok(ty)
     }

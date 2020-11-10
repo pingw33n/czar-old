@@ -58,6 +58,7 @@ pub enum Var {
 
 #[derive(Clone, Debug, EnumAsInner, Eq, Hash, PartialEq)]
 pub enum TypeData {
+    Ctor(TypeCtor),
     Fn(FnType),
     Incomplete(IncompleteType),
     Instance(TypeInstance),
@@ -69,6 +70,7 @@ impl TypeData {
     pub fn def(&self) -> Option<GlobalNodeId> {
         match self {
             Self::Struct(v) => v.def,
+            | Self::Ctor(_)
             | Self::Fn(_)
             | Self::Incomplete(_)
             | Self::Instance(_)
@@ -79,11 +81,9 @@ impl TypeData {
 
     pub fn type_params(&self) -> &[TypeId] {
         match self {
+            Self::Ctor(TypeCtor { ty: _, params }) => &params[..],
             Self::Incomplete(IncompleteType { params }) => &params[..],
-            Self::Instance(TypeInstance { ty: _, data }) => match data {
-                TypeInstanceData::Args(_) => &[],
-                TypeInstanceData::Params(params) => &params[..],
-            }
+            Self::Instance(TypeInstance { ty: _, args: _ }) => &[],
             | Self::Fn(_)
             | Self::Struct(_)
             | Self::Var(_)
@@ -95,35 +95,34 @@ impl TypeData {
         self.as_var()?.as_inference().copied()
     }
 
-    /// Converts `Incomplete` into `Instance` carrying over the `params`.
+    /// Converts `Incomplete` into `Ctor` carrying over the `params`.
     fn finish(&mut self, ty: TypeId) {
-        let incomplete = std::mem::replace(self, Self::Instance(TypeInstance {
+        let incomplete = std::mem::replace(self, Self::Ctor(TypeCtor {
             ty,
-            data: TypeInstanceData::Params(Vec::new()),
+            params: Vec::new(),
         }));
         let params = incomplete.into_incomplete().unwrap().params;
-        *self = Self::Instance(TypeInstance {
+        *self = Self::Ctor(TypeCtor {
             ty,
-            data: TypeInstanceData::Params(params),
+            params,
         });
     }
-}
-
-#[derive(Clone, Debug, EnumAsInner, Eq, Hash, PartialEq)]
-pub enum TypeInstanceData {
-    /// Arguments of the instantiated type.
-    /// E.g. `String` and `u32` in `HashMap<String, u32>`.
-    Args(Vec<TypeId>),
-
-    /// Parameters of this type instance.
-    /// E.g. `T` in `type Foo<T> = String`.
-    Params(Vec<TypeId>),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TypeInstance {
     pub ty: TypeId,
-    pub data: TypeInstanceData,
+    /// Arguments of the instantiated type.
+    /// E.g. `String` and `u32` in `HashMap<String, u32>`.
+    pub args: Vec<TypeId>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct TypeCtor {
+    pub ty: TypeId,
+    /// Parameters of the type constructor.
+    /// E.g. `T` in `type Foo<T> = String`.
+    pub params: Vec<TypeId>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -145,13 +144,12 @@ struct Impl {
 impl CheckData {
     fn finish_type_alias(&mut self, incomplete_ty: LocalTypeId, ty: TypeId) {
         let incomplete_ty = &mut self.type_mut(incomplete_ty).data;
-        let old = std::mem::replace(incomplete_ty, TypeData::Instance(TypeInstance {
+        let old = std::mem::replace(incomplete_ty, TypeData::Ctor(TypeCtor {
             ty,
-            data: TypeInstanceData::Params(Vec::new()),
+            params: Vec::new(),
         }));
-        let v = incomplete_ty.as_instance_mut().unwrap();
-        let v = v.data.as_params_mut().unwrap();
-        *v = old.into_incomplete().unwrap().params;
+        let v = incomplete_ty.as_ctor_mut().unwrap();
+        v.params = old.into_incomplete().unwrap().params;
     }
 
     fn finish_named_struct_type(&mut self,
@@ -489,10 +487,12 @@ impl PassImpl<'_> {
                         result: result?,
                         unsafe_: unsafe_.is_some(),
                     }));
-                self.insert_typing(ctx.node, TypeData::Instance(TypeInstance {
-                        ty,
-                        data: TypeInstanceData::Params(ty_params?),
-                    }));
+
+                let ty_params = ty_params?;
+                self.insert_typing(ctx.node, TypeData::Ctor(TypeCtor {
+                    ty,
+                    params: ty_params,
+                }));
             }
             NodeKind::Impl => {
                 let unit_ty = self.std().unit_type();
@@ -921,7 +921,9 @@ impl PassImpl<'_> {
                 }
             }
             TypeData::Incomplete(_) => write!(f, "<incomplete>"),
-            &TypeData::Instance(TypeInstance { ty, data: _ }) => self.display_type0(ty, f),
+            | &TypeData::Ctor(TypeCtor { ty, params: _ })
+            | &TypeData::Instance(TypeInstance { ty, args: _ })
+            => self.display_type0(ty, f),
         }
     }
 
@@ -958,7 +960,6 @@ impl PassImpl<'_> {
             FnCallKind::Free => {
                 let callee_ty = self.typing(*callee)?;
                 let callee_ty = self.normalize(callee_ty);
-                self.dump_all_types();
                 let callee_ty = self.type_(callee_ty);
                 if callee_ty.data.as_fn().is_none() {
                     self.error(*callee, format!(
@@ -989,8 +990,6 @@ impl PassImpl<'_> {
             };
             let (arg_ty, param_ty) = self.unify(arg_ty, param_ty);
             if self.normalize(arg_ty) != self.normalize(param_ty) {
-                dbg!(arg_ty, param_ty);
-
                 let hir = self.hir(fn_def_node.0);
                 let name = &hir.fn_def(fn_def_node.1).name.value;
                 self.error(arg.value, format!(

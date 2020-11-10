@@ -24,9 +24,9 @@ impl InferenceCtx {
 impl CheckData {
     fn finish_inference_var(&mut self, var: LocalTypeId, ty: TypeId) {
         let vard = &mut self.type_mut(var).data;
-        let old = std::mem::replace(vard, TypeData::Instance(TypeInstance {
+        let old = std::mem::replace(vard, TypeData::Ctor(TypeCtor {
             ty,
-            data: TypeInstanceData::Params(Vec::new()),
+            params: Vec::new(),
         }));
         assert!(old.as_var().is_some());
     }

@@ -32,7 +32,7 @@ impl PassImpl<'_> {
         ctx.cur_level += 1;
         let norm_ty = self.normalize1(ty, ctx);
         if ctx.min_level >= ctx.cur_level && !matches!(&self.type_(ty).data,
-            TypeData::Instance(TypeInstance { data: TypeInstanceData::Params(v), .. }) if !v.is_empty())
+            TypeData::Ctor(TypeCtor { params, .. }) if !params.is_empty())
         {
             assert!(self.check_data.normalized_types.insert(ty, norm_ty).is_none());
             self.check_data.normalized_types.insert(norm_ty, norm_ty);
@@ -47,19 +47,12 @@ impl PassImpl<'_> {
         let ty = self.type_(ty);
         let node = ty.node;
         let next = match &ty.data {
+            &TypeData::Ctor(TypeCtor {ty, params: _}) => Some(ty),
             TypeData::Incomplete(_) => unreachable!(),
-            TypeData::Instance(TypeInstance {
-                ty,
-                data,
-            }) => {
-                match data {
-                    TypeInstanceData::Args(args) => {
-                        let ty = self.type_(*ty);
-                        self.bind_vars(ty.data.type_params(), args, ctx);
-                    }
-                    TypeInstanceData::Params(_) => {}
-                }
-                Some(*ty)
+            TypeData::Instance(TypeInstance {ty, args}) => {
+                let ty = self.type_(*ty);
+                self.bind_vars(ty.data.type_params(), args, ctx);
+                Some(ty.id)
             }
             TypeData::Var(kind) => {
                 match kind {
@@ -95,6 +88,7 @@ impl PassImpl<'_> {
             TypeData::Struct(v) => {
                 TypeData::Struct(self.normalize_struct(v.clone(), ctx))
             }
+            | TypeData::Ctor(_)
             | TypeData::Incomplete(_)
             | TypeData::Instance(_)
             | TypeData::Var(_)
