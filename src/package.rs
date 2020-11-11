@@ -18,7 +18,7 @@ pub enum PackageKind {
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(PackageId::std().0 + 1);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct PackageId(u32);
 

@@ -26,6 +26,7 @@ use resolve::{self, Resolution, ResolutionKind, Resolver, ResolveData};
 use inference::{InferenceCtx, InferenceVar};
 pub use data::CheckData;
 pub use lang::{LangItem, Lang, NumberKind, NumberType, PrimitiveType};
+pub use normalize::NormalizedType;
 pub use structs::{StructType, StructTypeField};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -35,7 +36,7 @@ pub struct FnType {
     pub unsafe_: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LocalTypeId(usize);
 
 pub type TypeId = (PackageId, LocalTypeId);
@@ -970,12 +971,11 @@ impl PassImpl<'_> {
                 (callee_ty.node, callee_ty.id)
             }
             FnCallKind::Method => {
-                let (fn_def, fn_ty) = self.resolve_method_call(ctx.node)?;
-                let fn_ty = self.normalize(fn_ty);
-                (fn_def, fn_ty)
+                self.resolve_method_call(ctx.node)?
             }
         };
 
+        let fn_ty = self.normalize(fn_ty);
         let params = self.type_(fn_ty).data.as_fn().unwrap().params.clone();
         assert_eq!(args.len(), params.len());
 
@@ -1034,13 +1034,14 @@ impl PassImpl<'_> {
             return Err(());
         }
 
-        let mut err = false;
-
         let sign = FnParamsSignature::from_call(fn_call, self.hir);
-        let r = if let Some(fn_def) = self.resolve_impl_fn(receiver_ty, &name.value, &sign) {
+        if let Some(fn_def) = self.resolve_impl_fn(receiver_ty, &name.value, &sign) {
             self.check_data.insert_path_to_target(fnc.callee, fn_def);
             let fn_ty = self.ensure_typing_global(fn_def)?;
-            err |= self.check_path_ty_args(&[PathItem::from_hir(path_end_node, path_end_item)], fn_ty, true).is_err();
+            let fn_ty  = self.check_path_ty_args(&[PathItem::from_hir(path_end_node, path_end_item)], fn_ty, true)?;
+
+            self.check_data.insert_typing(fnc.callee, fn_ty);
+
             Ok((fn_def, fn_ty))
         } else {
             self.error(fnc.callee, format!(
@@ -1048,13 +1049,7 @@ impl PassImpl<'_> {
                 sign.display_with_name(&name.value),
                 self.display_type(receiver_ty)));
             Err(())
-        };
-        if err {
-            Err(())
-        } else {
-            r
         }
-
     }
 
     fn resolve_impl_fn(&self, ty: TypeId, name: &Ident, sign: &FnParamsSignature) -> Option<GlobalNodeId> {

@@ -1,0 +1,23 @@
+fn main() {
+    struct S<T, U> {T, U}
+
+    fn f<T>(_ v: T) -> T { v }
+    fn f2<T, U>(_ t: T, _ u: U) -> S<T, U> { S{t, f(u)} }
+    fn f3<T>(_ v: T) -> T {
+        let r = f2("test", v).1;
+        r
+    }
+
+    print_i32(f(42)); println();
+    prints(f("test")); println();
+    print_i32(f(4200) + f(42)); println();
+
+    let s = f2("test2", 424242);
+    prints(s.0); println();
+    print_i32(s.1); println();
+
+    let r = f3("test3");
+    prints(r); println();
+    let r = f3(42) + f3(42);
+    print_i32(r); println();
+}

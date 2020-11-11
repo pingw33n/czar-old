@@ -3,7 +3,7 @@ use super::{*, Impl};
 pub struct CheckData {
     pub(in super) package_id: PackageId,
     types: Slab<Type>,
-    typings: NodeMap<TypeId>,
+    pub(in super) typings: NodeMap<TypeId>,
     pub(in super) lang: Option<Box<Lang>>,
     path_to_target: NodeMap<GlobalNodeId>,
     /// Maps `FieldAccess` and `StructValueField` nodes to the field index on the struct type.
@@ -12,7 +12,7 @@ pub struct CheckData {
     /// Impls defined in this package.
     pub(in super) impls: HashMap<GlobalNodeId, Vec<Impl>>,
     pub(in super) entry_point: Option<NodeId>,
-    pub(in super) normalized_types: TypeMap<TypeId>,
+    pub(in super) normalized_types: TypeMap<NormalizedType>,
 }
 
 impl CheckData {
@@ -102,7 +102,7 @@ impl CheckData {
         self.entry_point
     }
 
-    pub fn try_normalized_type(&self, ty: TypeId) -> Option<TypeId> {
-        self.normalized_types.get(&ty).copied()
+    pub fn normalized_type(&self, ty: TypeId) -> &NormalizedType {
+        &self.normalized_types[&ty]
     }
 }
