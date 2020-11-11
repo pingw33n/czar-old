@@ -20,4 +20,7 @@ fn main() {
     prints(r); println();
     let r = f3(42) + f3(42);
     print_i32(r); println();
+
+    let x = 12.345;
+    print_f32(f<f32>(x)); println();
 }

@@ -259,12 +259,6 @@ impl<'a> Codegen<'a> {
             NodeKind::FnCall => {
                 let fnc = ctx.package.hir.fn_call(node);
 
-                let ty_args = fnc.callee_path_item(&ctx.package.hir).1.ty_args.as_ref()
-                    .map(|v| v.value.len()).unwrap_or(0);
-                if ty_args != 0 {
-                    todo!();
-                }
-
                 let callee = self.expr(fnc.callee, ctx).to_direct(self.bodyb);
                 let args_ll = &mut Vec::new();
                 for &FnCallArg { value, .. } in &fnc.args {
