@@ -117,7 +117,7 @@ impl PassImpl<'_> {
                 continue;
             };
 
-            let (actual_ty, expected_ty) = self.unify(actual_ty, expected_ty);
+            self.unify(actual_ty, expected_ty);
             if self.normalize(expected_ty) != self.normalize(actual_ty) {
                 let text = format!(
                     "mismatching types in struct `{struct_ty}` field `{field}`: expected `{exp}`, found `{act}`",

@@ -64,14 +64,12 @@ impl PassImpl<'_> {
         }
     }
 
-    fn unify0(&mut self, ty1: TypeId, ty2: TypeId) -> (TypeId, TypeId) {
+    fn unify0(&mut self, ty1: TypeId, ty2: TypeId) {
         if ty1 == ty2 {
-            return (ty1, ty2);
+            return;
         }
         if self.unify_var(ty1, ty2) {
-            (ty2, ty2)
         } else if self.unify_var(ty2, ty1) {
-            (ty1, ty1)
         } else {
             match (&self.type_(ty1).data, &self.type_(ty2).data) {
                 (TypeData::Struct(StructType { def: def1, fields: fields1 }),
@@ -91,14 +89,13 @@ impl PassImpl<'_> {
                 }
                 _ => {},
             }
-            (ty1, ty2)
         }
     }
 
-    pub fn unify(&mut self, ty1: TypeId, ty2: TypeId) -> (TypeId, TypeId) {
+    pub fn unify(&mut self, ty1: TypeId, ty2: TypeId) {
         let ty1 = self.normalize(ty1);
         let ty2 = self.normalize(ty2);
-        self.unify0(ty1, ty2)
+        self.unify0(ty1, ty2);
     }
 
     pub fn begin_inference(&mut self) {

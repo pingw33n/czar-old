@@ -634,7 +634,7 @@ impl PassImpl<'_> {
                 };
                 if let Some(body) = *body {
                     let actual_ret_ty = self.typing(body)?;
-                    let (actual_ret_ty, expected_ret_ty) = self.unify(actual_ret_ty, expected_ret_ty);
+                    self.unify(actual_ret_ty, expected_ret_ty);
                     if self.normalize(actual_ret_ty) != self.normalize(expected_ret_ty) {
                         let node = self.hir.block(body).exprs.last()
                             .copied().unwrap_or(body);
@@ -688,10 +688,8 @@ impl PassImpl<'_> {
                 let if_true_ty = self.typing(if_true)?;
                 if let Some(if_false) = if_false {
                     let if_false_ty = self.typing(if_false)?;
-                    let (if_true_ty, if_false_ty) = self.unify(if_true_ty, if_false_ty);
-                    let if_true_ty = self.normalize(if_true_ty);
-                    let if_false_ty = self.normalize(if_false_ty);
-                    if if_true_ty != if_false_ty {
+                    self.unify(if_true_ty, if_false_ty);
+                    if self.normalize(if_true_ty) != self.normalize(if_false_ty) {
                         self.error(ctx.node, format!("mismatching types of `if` arms: `{}`, `{}`",
                             self.display_type(if_true_ty),
                             self.display_type(if_false_ty)));
@@ -709,15 +707,14 @@ impl PassImpl<'_> {
                 if let Some(ty) = ty {
                     let ty = self.typing(ty)?;
                     if let Some(init) = init {
-                        let (exp, act) = self.unify(ty, self.typing(init)?);
-                        if self.normalize(act) != self.normalize(exp) {
+                        let init_ty = self.typing(init)?;
+                        self.unify(ty, init_ty);
+                        if self.normalize(init_ty) != self.normalize(ty) {
                             self.error(init, format!("mismatching types: expected `{}`, found `{}`",
-                                self.display_type(exp), self.display_type(act)));
+                                self.display_type(ty), self.display_type(init_ty)));
                         }
-                        act
-                    } else {
-                        ty
                     }
+                    ty
                 } else if let Some(init) = init {
                     self.typing(init)?
                 } else {
@@ -988,7 +985,7 @@ impl PassImpl<'_> {
             } else {
                 continue;
             };
-            let (arg_ty, param_ty) = self.unify(arg_ty, param_ty);
+            self.unify(arg_ty, param_ty);
             if self.normalize(arg_ty) != self.normalize(param_ty) {
                 let hir = self.hir(fn_def_node.0);
                 let name = &hir.fn_def(fn_def_node.1).name.value;

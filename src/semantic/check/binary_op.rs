@@ -3,7 +3,9 @@ use super::*;
 impl PassImpl<'_> {
     pub fn check_binary_op(&mut self, op: BinaryOp, node: NodeId) -> Result<TypeId> {
         let BinaryOp { kind, left, right } = op;
-        let (left_ty, right_ty) = self.unify(self.typing(left)?, self.typing(right)?);
+        let left_ty = self.typing(left)?;
+        let right_ty = self.typing(right)?;
+        self.unify(left_ty, right_ty);
 
         use BinaryOpKind::*;
         let ty = match kind.value {
@@ -11,9 +13,7 @@ impl PassImpl<'_> {
                 if !self.check_data.is_lvalue(left) {
                     self.error(left, "can't assign to this expression".into());
                 } else {
-                    let left_ty = self.normalize(left_ty);
-                    let right_ty = self.normalize(right_ty);
-                    if left_ty != right_ty {
+                    if self.normalize(left_ty) != self.normalize(right_ty) {
                         self.error(right, format!(
                             "mismatching types: expected `{}`, found `{}`",
                             self.display_type(left_ty),
