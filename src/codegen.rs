@@ -12,18 +12,18 @@ use llvm::*;
 pub use llvm::OutputFormat;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct GenericCtxId(TypeRef);
+struct GenericEnvId(TypeRef);
 
-struct GenericCtx {
-    id: GenericCtxId,
-    vars: TypeMap<TypeId>,
+struct GenericEnv {
+    id: GenericEnvId,
+    vars: TypeVarMap,
 }
 
 struct ExprCtx<'a> {
     package: &'a Package,
     fn_: DValueRef,
     allocas: &'a mut NodeMap<IValueRef>,
-    gctx: &'a GenericCtx,
+    genv: &'a GenericEnv,
 }
 
 #[derive(Clone, Copy)]
@@ -60,7 +60,8 @@ impl From<IValueRef> for Value {
     }
 }
 
-type DefMonoId = (GlobalNodeId, GenericCtxId);
+type TopLevelMonoId = (GlobalNodeId, GenericEnvId);
+type MonoId = (TypeId, GenericEnvId);
 
 #[derive(Clone, Copy)]
 struct FnDecl {
@@ -68,7 +69,7 @@ struct FnDecl {
 }
 
 struct FnMonoRequest {
-    ty_vars: TypeMap<TypeId>,
+    genv_vars: TypeVarMap,
 }
 
 pub struct Codegen<'a> {
@@ -76,10 +77,10 @@ pub struct Codegen<'a> {
     bodyb: BuilderRef,
     headerb: BuilderRef,
     packages: &'a Packages,
-    fn_decls: HashMap<DefMonoId, FnDecl>,
-    fn_mono_reqs: HashMap<DefMonoId, FnMonoRequest>,
-    types: HashMap<(TypeId, GenericCtxId), TypeRef>,
-    defined_types: HashMap<DefMonoId, TypeRef>,
+    fn_decls: HashMap<TopLevelMonoId, FnDecl>,
+    fn_mono_reqs: HashMap<TopLevelMonoId, FnMonoRequest>,
+    types: HashMap<MonoId, TypeRef>,
+    defined_types: HashMap<TopLevelMonoId, TypeRef>,
 }
 
 impl<'a> Codegen<'a> {
@@ -101,9 +102,9 @@ impl<'a> Codegen<'a> {
 
     pub fn lower(&mut self, package_id: PackageId) {
         let entry_point = self.packages[package_id].check_data.entry_point().unwrap();
+        let node = self.packages.underlying_type(entry_point).data.def().unwrap();
 
-        let node = (package_id, entry_point);
-        self.fn_def(node, self.packages.typing(node), &self.default_gctx());
+        self.fn_def(node, entry_point, &self.default_genv());
 
         while let Some(&fnid) = self.fn_mono_reqs.keys().next() {
             let req = self.fn_mono_reqs.remove(&fnid).unwrap();
@@ -120,73 +121,58 @@ impl<'a> Codegen<'a> {
         self.emit(file, format)
     }
 
-    fn default_gctx(&self) -> GenericCtx {
-        GenericCtx {
-            id: GenericCtxId(self.llvm.struct_type(&mut [])),
-            vars: HashMap::new(),
+    fn default_genv(&self) -> GenericEnv {
+        GenericEnv {
+            id: GenericEnvId(self.llvm.struct_type(&mut [])),
+            vars: TypeVarMap::default(),
         }
     }
 
-    fn normalize(&self, ty: TypeId) -> &NormalizedType {
+    fn normalized(&self, ty: TypeId) -> TypeId {
         self.packages[ty.0].check_data.normalized_type(ty)
     }
 
-    fn resolve_ty_vars(&self, ty: TypeId, gctx: &GenericCtx) -> TypeMap<TypeId> {
-        let ty_vars = &self.normalize(ty).vars;
-        let mut r = HashMap::with_capacity(ty_vars.len());
-        for (&id, &v) in ty_vars {
-            assert!(matches!(self.packages.type_(id).data, TypeData::Var(Var::Param)));
-            let vty = self.normalize(v).ty;
-            let vty = self.packages.type_(vty);
-            let v = if let TypeData::Var(_) = &vty.data {
-                gctx.vars[&vty.id]
-            } else {
-                vty.id
-            };
-            assert!(r.insert(id, v).is_none());
-        }
-        r
-    }
-
-    fn make_generic_ctx_id(&mut self, ty_vars: &TypeMap<TypeId>) -> GenericCtxId {
-        let mut ty_vars: Vec<_> = ty_vars.iter().map(|(&k, &v)| (k, v)).collect();
+    fn make_genv_id(&mut self, ty_vars: &TypeVarMap, genv: &GenericEnv) -> GenericEnvId {
+        let mut ty_vars: Vec<_> = ty_vars.iter().collect();
         ty_vars.sort_by_key(|&(k, _)| k);
-        let mut gctx_id = Vec::with_capacity(ty_vars.len());
+        let mut genv_id = Vec::with_capacity(ty_vars.len());
         for (_, ty) in ty_vars {
-            gctx_id.push(self.type_(ty, &self.default_gctx()));
+            genv_id.push(self.type_(ty, genv));
         }
-        GenericCtxId(self.make_struct_type0(None, &mut gctx_id))
+        GenericEnvId(self.make_struct_type0(None, &mut genv_id))
     }
 
-    fn fn_def(&mut self, fn_def: GlobalNodeId, ty: TypeId, gctx: &GenericCtx) -> DValueRef {
-        let ty_vars = self.resolve_ty_vars(ty, gctx);
-        let gctx_id = self.make_generic_ctx_id(&ty_vars);
+    fn fn_def(&mut self, fn_def: GlobalNodeId, ty: TypeId, genv: &GenericEnv) -> DValueRef {
+        let ty = self.normalized(ty);
+        let mut genv_vars = self.packages.type_(ty).data.as_generic_env().map(|v| v.vars.clone()).unwrap_or_default();
+        genv_vars.replace_iter(genv.vars.iter());
+        let genv_id = self.make_genv_id(&genv_vars, genv);
 
-        let miid = (fn_def, gctx_id);
-        if let Some(&v) = self.fn_decls.get(&miid) {
+        let mid = (fn_def, genv_id);
+        if let Some(&v) = self.fn_decls.get(&mid) {
             return v.ll;
         }
 
         let package = &self.packages[fn_def.0];
-        let name = if package.check_data.entry_point() == Some(fn_def.1) {
+        let name = if package.check_data.entry_point() == Some(ty) {
             "__main"
         } else {
             package.hir.fn_def(fn_def.1).name.value.as_str()
         };
         let ty = self.packages.type_(ty);
-        let ty_ll = self.type_(ty.id, gctx);
+        let ty_ll = self.type_(ty.id, genv);
         let fn_ = self.llvm.add_function(&name, ty_ll);
-        assert!(self.fn_decls.insert(miid, FnDecl {
+        assert!(self.fn_decls.insert(mid, FnDecl {
             ll: fn_,
         }).is_none());
-        assert!(self.fn_mono_reqs.insert(miid, FnMonoRequest {
-            ty_vars,
+        assert!(self.fn_mono_reqs.insert(mid, FnMonoRequest {
+            genv_vars,
         }).is_none());
 
         fn_
     }
 
-    fn mono_fn(&mut self, id: DefMonoId, req: FnMonoRequest) {
+    fn mono_fn(&mut self, id: TopLevelMonoId, req: FnMonoRequest) {
         let fn_def = id.0;
         let package = &self.packages[fn_def.0];
         let FnDef { params, body, .. } = package.hir.fn_def(fn_def.1);
@@ -199,9 +185,9 @@ impl<'a> Codegen<'a> {
                 package,
                 fn_,
                 allocas,
-                gctx: &GenericCtx {
+                genv: &GenericEnv {
                     id: id.1,
-                    vars: req.ty_vars,
+                    vars: req.genv_vars,
                 },
             };
 
@@ -321,11 +307,11 @@ impl<'a> Codegen<'a> {
                     &Literal::Char(v) => self.char_literal(v),
                     Literal::String(v) => self.string_literal(v),
                     &Literal::Int(IntLiteral { value, .. }) => {
-                        let ty = self.typing((ctx.package.id, node), ctx.gctx);
+                        let ty = self.typing((ctx.package.id, node), ctx.genv);
                         ty.const_int(value)
                     },
                     &Literal::Float(FloatLiteral { value, .. }) => {
-                        let ty = self.typing((ctx.package.id, node), ctx.gctx);
+                        let ty = self.typing((ctx.package.id, node), ctx.genv);
                         ty.const_real(value)
                     },
                     Literal::Unit => self.unit_literal(),
@@ -440,13 +426,13 @@ impl<'a> Codegen<'a> {
                 let reso = ctx.package.check_data.target_of(node);
                 let package = &self.packages[reso.0];
                 if package.hir.node_kind(reso.1).value == NodeKind::FnDef {
-                    self.fn_def(reso, ctx.package.check_data.typing(node), ctx.gctx).into()
+                    self.fn_def(reso, ctx.package.check_data.typing(node), ctx.genv).into()
                 } else {
                     self.expr(reso.1, &mut ExprCtx {
                         package,
                         fn_: ctx.fn_,
                         allocas: ctx.allocas,
-                        gctx: ctx.gctx,
+                        genv: ctx.genv,
                     })
                 }
             }
@@ -454,7 +440,7 @@ impl<'a> Codegen<'a> {
                 let StructValue { fields, .. } = ctx.package.hir.struct_value(node);
                 if fields.is_empty() {
                     let ty = ctx.package.check_data.typing(node);
-                    let ty = self.type_(ty, ctx.gctx);
+                    let ty = self.type_(ty, ctx.genv);
                     ty.const_struct(&mut []).into()
                 } else {
                     let struct_var = self.alloca(node, "struct_init", ctx); // TODO use actual type name
@@ -553,46 +539,46 @@ impl<'a> Codegen<'a> {
     }
 
     fn unit_literal(&mut self) -> DValueRef {
-        self.type_(self.packages.std().check_data.lang().unit_type(), &self.default_gctx())
+        self.type_(self.packages.std().check_data.lang().unit_type(), &self.default_genv())
             .const_struct(&mut [])
     }
 
-    fn typing(&mut self, node: GlobalNodeId, gctx: &GenericCtx) -> TypeRef {
+    fn typing(&mut self, node: GlobalNodeId, genv: &GenericEnv) -> TypeRef {
         let ty = self.packages[node.0].check_data.typing(node.1);
-        self.type_(ty, gctx)
+        self.type_(ty, genv)
     }
 
-    fn type_(&mut self, ty: TypeId, gctx: &GenericCtx) -> TypeRef {
-        let ty = self.normalize(ty).ty;
-        if let Some(&v) = self.types.get(&(ty, gctx.id)) {
+    fn type_(&mut self, ty: TypeId, genv: &GenericEnv) -> TypeRef {
+        let ty = self.normalized(ty);
+        if let Some(&v) = self.types.get(&(ty, genv.id)) {
             return v;
         }
-        let ty = self.packages.type_(ty);
-
-        let ty_ll = match &ty.data {
-            TypeData::Fn(FnType { params, result, unsafe_: _, }) => {
+        let uty = self.packages.underlying_type(ty);
+        let ty_ll = match &uty.data {
+            TypeData::Fn(FnType { def: _, params, result, unsafe_: _, }) => {
                 let param_tys = &mut Vec::with_capacity(params.len());
                 for &param in params {
-                    param_tys.push(self.type_(param, gctx));
+                    param_tys.push(self.type_(param, genv));
                 }
-                let res_ty = self.type_(*result, gctx);
+                let res_ty = self.type_(*result, genv);
                 TypeRef::function(res_ty, param_tys)
             }
-            TypeData::Struct(v) => self.make_struct_type(v, gctx),
+            TypeData::GenericEnv(check::GenericEnv { ty, vars: _ }) => self.type_(*ty, genv),
+            TypeData::Struct(v) => self.make_struct_type(v, genv),
             TypeData::Var(_) => {
-                let ty = gctx.vars[&ty.id];
-                self.type_(ty, gctx)
+                let ty = genv.vars.get(uty.id).unwrap();
+                self.type_(ty, genv)
             },
             | TypeData::Ctor(_)
             | TypeData::Incomplete(_)
             | TypeData::Instance(_)
-            => unreachable!("{:?}", ty),
+            => unreachable!("{:?}", uty),
         };
-        assert!(self.types.insert((ty.id, gctx.id), ty_ll).is_none());
+        assert!(self.types.insert((ty, genv.id), ty_ll).is_none());
         ty_ll
     }
 
-    fn make_struct_type(&mut self, sty: &check::StructType, gctx: &GenericCtx) -> TypeRef {
+    fn make_struct_type(&mut self, sty: &check::StructType, genv: &GenericEnv) -> TypeRef {
         let check::StructType { def, fields } = sty;
         if let Some(def) = *def {
             if let Some(prim) = self.packages.std().check_data.lang().as_primitive(def) {
@@ -608,7 +594,7 @@ impl<'a> Codegen<'a> {
         }
         let field_tys = &mut Vec::with_capacity(fields.len());
         for &check::StructTypeField { name: _, ty } in fields {
-            field_tys.push(self.type_(ty, gctx));
+            field_tys.push(self.type_(ty, genv));
         }
         self.make_struct_type0(*def, field_tys)
     }
@@ -616,7 +602,7 @@ impl<'a> Codegen<'a> {
     fn make_struct_type0(&mut self, def: Option<GlobalNodeId>, fields: &mut [TypeRef]) -> TypeRef {
         let shape = self.llvm.struct_type(fields);
         if let Some(def) = def {
-            match self.defined_types.entry((def, GenericCtxId(shape))) {
+            match self.defined_types.entry((def, GenericEnvId(shape))) {
                 hash_map::Entry::Occupied(e) => {
                     *e.get()
                 }
@@ -648,12 +634,12 @@ impl<'a> Codegen<'a> {
     }
 
     fn lang_type(&mut self, lang_item: LangItem) -> TypeRef {
-        self.type_(self.packages.std().check_data.lang().type_(lang_item), &self.default_gctx())
+        self.type_(self.packages.std().check_data.lang().type_(lang_item), &self.default_genv())
     }
 
     fn alloca(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> IValueRef {
         let ty = ctx.package.check_data.typing(node);
-        let ty = self.type_(ty, ctx.gctx);
+        let ty = self.type_(ty, ctx.genv);
         self.alloca_ty(node, ty, name, ctx)
     }
 

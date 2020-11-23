@@ -17,9 +17,15 @@ impl PassImpl<'_> {
         }
 
         let reso = self.resolver().resolve_node(node)?;
-
+        assert!(!reso.is_empty());
         match reso.kind() {
-            ResolutionKind::Exact => {}
+            ResolutionKind::Exact => {
+                if self.reso_ctx() == ResoCtx::Import {
+                    Ok(None)
+                } else {
+                    self.check_path0(node, reso).map(Some)
+                }
+            }
             ResolutionKind::Empty => return Ok(None),
             ResolutionKind::Wildcard => {
                 if !reso.nodes()
@@ -28,23 +34,22 @@ impl PassImpl<'_> {
                     self.error(node,
                         "only symbols from current package can be imported by wildcard import".into());
                 }
-                return Ok(None);
+                Ok(None)
             }
             ResolutionKind::Type => {
                 let (k, type_) = reso.nodes().exactly_one().unwrap();
                 assert_eq!(k, NsKind::Type);
-                return self.resolve_type_path(node, type_, reso.type_path()).map(Some);
-            },
+                if self.reso_ctx() == ResoCtx::Import {
+                    if reso.type_path().len() > 1 {
+                        self.error(node,
+                            "can't import associated items".into());
+                    }
+                    Ok(None)
+                } else {
+                    self.check_type_path(node, type_, reso.type_path()).map(Some)
+                }
+            }
         }
-
-        assert!(!reso.is_empty());
-
-        if self.reso_ctx() == ResoCtx::Import {
-            self.std().unit_type();
-            return Ok(None);
-        }
-
-       self.check_path0(node, reso).map(Some)
     }
 
     pub fn check_path_start(&mut self, node: NodeId /*Path*/) -> Result<Option<TypeId>> {
@@ -165,9 +170,9 @@ impl PassImpl<'_> {
             }
         };
         self.check_data.insert_path_to_target(path, (pkg, node));
-        Ok(if pkg == self.package_id {
+        let ty = if pkg == self.package_id {
             if let Some(ty) = self.ensure_opt_typing(node)? {
-                self.check_path_node_ty_args(path, ty)?
+                ty
             } else {
                 self.error_span(path, span, format!(
                     "expected type, found {}", self.describe_named((pkg, node))));
@@ -175,7 +180,9 @@ impl PassImpl<'_> {
             }
         } else {
             self.packages[pkg].check_data.typing(node)
-        })
+        };
+        let ty = self.check_path_node_ty_args(path, ty)?;
+        Ok(ty)
     }
 
     fn check_path_node_ty_args(&mut self, path: NodeId /*PathEndIdent*/, ty: TypeId) -> Result<TypeId> {
@@ -189,8 +196,8 @@ impl PassImpl<'_> {
         };
 
         let path = PathItem::from_hir_path_end(path, self.hir, self.discover_data);
-
-        self.check_path_ty_args(&path, ty, fully_inferrable)
+        let ty = self.check_path_ty_args(&path, ty, fully_inferrable)?;
+        Ok(ty)
     }
 
     pub fn check_path_ty_args(&mut self, path: &[PathItem], ty: TypeId, fully_inferrable: bool) -> Result<TypeId> {

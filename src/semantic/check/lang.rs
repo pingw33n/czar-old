@@ -148,7 +148,7 @@ impl PassImpl<'_> {
 
                 assert!(lang_item_to_type.insert(lang_item, ty).is_none());
 
-                let (pkg, node) = self.type_term((PackageId::std(), ty)).data.def().unwrap();
+                let (pkg, node) = self.underlying_type((PackageId::std(), ty)).data.def().unwrap();
                 assert!(pkg.is_std());
                 assert!(node_to_lang_item.insert(node, lang_item).is_none());
             }
@@ -176,6 +176,12 @@ impl PassImpl<'_> {
             .ok_or(())?;
         assert!(node.0.is_std());
         let ty = self.ensure_typing(node.1)?;
+        assert!(matches!(&self.type_(ty).data, TypeData::Ctor(TypeCtor { ty: _, params }) if params.is_empty()));
+        let ty = self.insert_type(node, TypeData::Instance(TypeInstance {
+            ty,
+            args: Vec::new(),
+        }));
+        let ty = self.normalize(ty);
         assert!(ty.0.is_std());
         Ok(ty.1)
     }
@@ -190,7 +196,7 @@ impl PassImpl<'_> {
 
     pub fn as_any_number(&self, ty: TypeId) -> Option<NumberKind> {
         self.packages.as_number_type_ctx(ty, self.cdctx()).map(|v| v.kind())
-            .or_else(|| self.type_(self.type_term(ty).id).data.as_inference_var()
+            .or_else(|| self.type_(self.underlying_type(ty).id).data.as_inference_var()
                 .and_then(|v| v.as_number().copied()))
     }
 }

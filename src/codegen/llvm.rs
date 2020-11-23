@@ -444,7 +444,7 @@ impl Llvm {
                     OutputFormat::IR => unreachable!(),
                 };
                 unsafe {
-                    let r = LLVMVerifyModule(self.m.as_ptr(), LLVMVerifierFailureAction::LLVMPrintMessageAction, ptr::null_mut());
+                    let r = LLVMVerifyModule(self.m.as_ptr(), LLVMVerifierFailureAction::LLVMReturnStatusAction, ptr::null_mut());
                     assert!(r == 0, "LLVMVerifyModule failed");
 
                     let mut error = ptr::null_mut();

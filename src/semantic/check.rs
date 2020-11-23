@@ -26,11 +26,11 @@ use resolve::{self, Resolution, ResolutionKind, Resolver, ResolveData};
 use inference::{InferenceCtx, InferenceVar};
 pub use data::CheckData;
 pub use lang::{LangItem, Lang, NumberKind, NumberType, PrimitiveType};
-pub use normalize::NormalizedType;
 pub use structs::{StructType, StructTypeField};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct FnType {
+    pub def: Option<GlobalNodeId>,
     pub params: Vec<TypeId>,
     pub result: TypeId,
     pub unsafe_: bool,
@@ -60,6 +60,7 @@ pub enum Var {
 #[derive(Clone, Debug, EnumAsInner, Eq, Hash, PartialEq)]
 pub enum TypeData {
     Ctor(TypeCtor),
+    GenericEnv(GenericEnv),
     Fn(FnType),
     Incomplete(IncompleteType),
     Instance(TypeInstance),
@@ -70,9 +71,10 @@ pub enum TypeData {
 impl TypeData {
     pub fn def(&self) -> Option<GlobalNodeId> {
         match self {
+            Self::Fn(v) => v.def,
             Self::Struct(v) => v.def,
             | Self::Ctor(_)
-            | Self::Fn(_)
+            | Self::GenericEnv(_)
             | Self::Incomplete(_)
             | Self::Instance(_)
             | Self::Var(_)
@@ -86,6 +88,7 @@ impl TypeData {
             Self::Incomplete(IncompleteType { params }) => &params[..],
             Self::Instance(TypeInstance { ty: _, args: _ }) => &[],
             | Self::Fn(_)
+            | Self::GenericEnv(_)
             | Self::Struct(_)
             | Self::Var(_)
             => &[],
@@ -131,14 +134,93 @@ pub struct IncompleteType {
     pub params: Vec<TypeId>,
 }
 
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub struct TypeVarMap {
+    entries: Vec<(TypeId, TypeId)>,
+}
+
+impl TypeVarMap {
+    pub fn insert(&mut self, var: TypeId, val: TypeId) {
+        if self.replace(var, val).is_some() {
+            panic!("already exists");
+        }
+    }
+
+    pub fn replace(&mut self, var: TypeId, val: TypeId) -> Option<TypeId> {
+        match self.find_idx(var) {
+            Ok(i) => Some(std::mem::replace(&mut self.entries[i].1, val)),
+            Err(i) => {
+                self.entries.insert(i, (var, val));
+                None
+            }
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    pub fn get(&self, var: TypeId) -> Option<TypeId> {
+        self.find_idx(var).ok().map(|i| self.entries[i].1)
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(TypeId, TypeId)> + 'a {
+        self.entries.iter().copied()
+    }
+
+    pub fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item=(TypeId, &'a mut TypeId)> + 'a {
+        self.entries.iter_mut().map(|e| (e.0, &mut e.1))
+    }
+
+    pub fn vars<'a>(&'a self) -> impl Iterator<Item=TypeId> + 'a {
+        self.iter().map(|(v, _)| v)
+    }
+
+    pub fn vals<'a>(&'a self) -> impl Iterator<Item=TypeId> + 'a {
+        self.iter().map(|(_, v)| v)
+    }
+
+    pub fn insert_iter(&mut self, iter: impl Iterator<Item=(TypeId, TypeId)>) {
+        for (var, val) in iter {
+            self.insert(var, val);
+        }
+    }
+
+    pub fn replace_iter(&mut self, iter: impl Iterator<Item=(TypeId, TypeId)>) {
+        for (var, val) in iter {
+            self.replace(var, val);
+        }
+    }
+
+    fn find_idx(&self, key: TypeId) -> std::result::Result<usize, usize> {
+        self.entries.binary_search_by_key(&key, |e| e.0)
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct GenericEnv {
+    pub ty: TypeId,
+    pub vars: TypeVarMap,
+}
+
 #[derive(Debug)]
 enum ImplValueItem {
     Single(NodeId),
     Fns(Vec<NodeId /*FnDef*/>),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Impl {
+    /// This is instance of type `Foo<T>` in `impl<T> Foo<T>`.
+    for_ty: TypeId,
     values: HashMap<Ident, ImplValueItem>,
 }
 
@@ -197,7 +279,7 @@ impl<'a> Check<'a> {
             typing_state: Default::default(),
             resolve_data: self.resolve_data,
             inference_ctxs: Vec::new(),
-            type_data_cache: Default::default(),
+            type_data_ids: Default::default(),
         };
         if self.package_id.is_std() {
             imp.make_lang();
@@ -230,7 +312,7 @@ impl<'a> Check<'a> {
                 assert!(!diag_empty, "{:?}", self.package_id);
             }
         }
-        imp.resolve_entry_point()?;
+        imp.check_entry_point()?;
         if self.diag.borrow().error_count() > 0 {
             return Err(());
         }
@@ -287,7 +369,7 @@ struct PassImpl<'a> {
     typing_state: NodeMap<TypingState>,
     resolve_data: &'a ResolveData,
     inference_ctxs: Vec<InferenceCtx>,
-    type_data_cache: HashMap<TypeData, TypeId>,
+    type_data_ids: HashMap<TypeData, TypeId>,
 }
 
 impl PassImpl<'_> {
@@ -364,8 +446,17 @@ impl PassImpl<'_> {
         self.packages.type_ctx(id, self.cdctx())
     }
 
-    fn type_term(&self, ty: TypeId) -> &Type {
-        self.packages.type_term_ctx(ty, self.cdctx())
+    fn underlying_type(&self, ty: TypeId) -> &Type {
+        self.packages.underlying_type_ctx(ty, self.cdctx())
+    }
+
+    fn type_param(&self, ty: TypeId) -> Option<&Type> {
+        let ty = self.underlying_type(ty);
+        if matches!(ty.data, TypeData::Var(Var::Param)) {
+            Some(ty)
+        } else {
+            None
+        }
     }
 
     fn insert_type(&mut self, node: GlobalNodeId, data: TypeData) -> TypeId {
@@ -456,6 +547,11 @@ impl PassImpl<'_> {
         *self.reso_ctxs.last().unwrap()
     }
 
+    fn normalized_lang_type(&mut self, lang_item: LangItem) -> TypeId {
+        let ty = self.std().type_(lang_item);
+        self.normalize(ty)
+    }
+
     fn do_pre_typing(&mut self, ctx: HirVisitorCtx) -> Result<()> {
         match ctx.kind {
             NodeKind::FnDef => {
@@ -484,6 +580,7 @@ impl PassImpl<'_> {
 
                 let ty = self.check_data.insert_type((self.package_id, ctx.node),
                     TypeData::Fn(FnType {
+                        def: Some((self.package_id, ctx.node)),
                         params: params?,
                         result: result?,
                         unsafe_: unsafe_.is_some(),
@@ -512,11 +609,12 @@ impl PassImpl<'_> {
                 let mut err = self.ensure_typing_many(ty_params).is_err();
 
                 self.reso_ctxs.push(ResoCtx::Type);
-                let struct_ty = self.ensure_typing(*for_);
+                let for_ty = self.ensure_typing(*for_);
                 assert_eq!(self.reso_ctxs.pop().unwrap(), ResoCtx::Type);
-                let struct_ty = struct_ty?;
+                let for_ty = for_ty?;
+                let for_ty = self.type_(for_ty).data.as_ctor().unwrap().ty;
 
-                let def = if let Some(def) = self.type_term(struct_ty).data.def() {
+                let def = if let Some(def) = self.underlying_type(for_ty).data.def() {
                     if def.0 != self.package_id {
                         self.error(*for_,
                             "cannot define inherent `impl` for a type from outside of this package".into());
@@ -529,50 +627,78 @@ impl PassImpl<'_> {
                     return Err(());
                 };
 
-                let mut dup_errs = Vec::new();
-                let impl_ = &mut self.check_data.impls.entry(def)
-                    .or_insert_with(|| vec![Default::default()])
-                    [0];
+                let mut dup_items = Vec::new();
+                let impls = self.check_data.impls.entry(def)
+                    .or_insert_with(Vec::new);
+                let mut impl_values = HashMap::with_capacity(items.len());
                 for &item in items {
                     match self.hir.node_kind(item).value {
                         NodeKind::FnDef => {
                             let name = &self.hir.fn_def(item).name;
                             let sign = self.discover_data.fn_def_signature(item);
-                            match impl_.values.entry(name.value.clone()) {
-                                hash_map::Entry::Occupied(mut e) => {
-                                    match e.get_mut() {
-                                        ImplValueItem::Single(_) => {
-                                            dup_errs.push(item);
+                            let mut dup = false;
+                            for impl_ in &*impls {
+                                match impl_.values.get(&name.value) {
+                                    Some(ImplValueItem::Single(_)) => {
+                                        dup = true;
+                                        break;
+                                    }
+                                    Some(ImplValueItem::Fns(fns)) => {
+                                        debug_assert!(!fns.iter().any(|&n| n == item));
+                                        let discover_data = self.discover_data;
+                                        if fns.iter().any(|&n| discover_data.fn_def_signature(n) == sign) {
+                                            dup = true;
+                                            break;
                                         }
-                                        ImplValueItem::Fns(fns) => {
-                                            debug_assert!(!fns.iter().any(|&n| n == item));
-                                            let discover_data = self.discover_data;
-                                            if fns.iter().any(|&n| discover_data.fn_def_signature(n) == sign) {
-                                                dup_errs.push(item);
-                                            } else {
-                                                fns.push(item);
+                                    }
+                                    None => {}
+                                }
+                            }
+
+                            if !dup {
+                                match impl_values.entry(name.value.clone()) {
+                                    hash_map::Entry::Occupied(mut e) => {
+                                        match e.get_mut() {
+                                            ImplValueItem::Single(_) => {
+                                                dup = true;
+                                            }
+                                            ImplValueItem::Fns(fns) => {
+                                                debug_assert!(!fns.iter().any(|&n| n == item));
+                                                let discover_data = self.discover_data;
+                                                if fns.iter().any(|&n| discover_data.fn_def_signature(n) == sign) {
+                                                    dup = true;
+                                                } else {
+                                                    fns.push(item);
+                                                }
                                             }
                                         }
                                     }
-                                }
-                                hash_map::Entry::Vacant(e) => {
-                                    e.insert(ImplValueItem::Fns(vec![item]));
-                                }
-                            };
+                                    hash_map::Entry::Vacant(e) => {
+                                        e.insert(ImplValueItem::Fns(vec![item]));
+                                    }
+                                };
+                            }
+                            if dup {
+                                err = true;
+                                dup_items.push(item);
+                            }
                         }
                         _ => unreachable!(),
                     }
-
-                    if err {
-                        return Err(());
-                    }
                 }
-                for node in dup_errs {
-                    let name = &self.hir.fn_def(node).name;
-                    let sign = self.discover_data.fn_def_signature(node);
-                    self.error_span(node, name.span, format!(
-                        "function `{}` is defined multiple times within inherent `impl`",
+                impls.push(Impl {
+                    for_ty,
+                    values: impl_values,
+                });
+                for item in dup_items {
+                    let name = &self.hir.fn_def(item).name;
+                    let sign = self.discover_data.fn_def_signature(item);
+                    self.error_span(item, name.span, format!(
+                        "function `{}` is defined multiple times across inherent `impl`s",
                         sign.display_with_name(&name.value)));
+                }
+                if err {
+                    return Err(());
                 }
             }
             NodeKind::Struct => {
@@ -679,7 +805,7 @@ impl PassImpl<'_> {
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = self.hir.if_expr(ctx.node);
                 if let Ok(actual_cond_ty) = self.typing(cond) {
-                    if self.normalize(actual_cond_ty) != self.normalize(self.std().type_(LangItem::Primitive(PrimitiveType::Bool))) {
+                    if self.normalize(actual_cond_ty) != self.normalized_lang_type(LangItem::Primitive(PrimitiveType::Bool)) {
                         self.error(cond, format!(
                             "invalid type of `if` condition: expected `bool`, found `{}`",
                             self.display_type(actual_cond_ty)));
@@ -813,7 +939,7 @@ impl PassImpl<'_> {
             => {
                 let cond = self.hir.while_(ctx.node).cond;
                 if let Ok(actual_cond_ty) = self.typing(cond) {
-                    if self.normalize(actual_cond_ty) != self.normalize(self.std().type_(LangItem::Primitive(PrimitiveType::Bool))) {
+                    if self.normalize(actual_cond_ty) != self.normalized_lang_type(LangItem::Primitive(PrimitiveType::Bool)) {
                         self.error(cond, format!(
                             "invalid type of `while` condition: expected `bool`, found `{}`",
                             self.display_type(actual_cond_ty)));
@@ -882,7 +1008,7 @@ impl PassImpl<'_> {
 
     fn display_type1(&self, ty: &Type, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &ty.data {
-            TypeData::Fn(FnType { params, result, unsafe_ }) => {
+            TypeData::Fn(FnType { def: _, params, result, unsafe_ }) => {
                 if *unsafe_ {
                     write!(f, "unsafe ")?;
                 }
@@ -921,6 +1047,7 @@ impl PassImpl<'_> {
             TypeData::Incomplete(_) => write!(f, "<incomplete>"),
             | &TypeData::Ctor(TypeCtor { ty, params: _ })
             | &TypeData::Instance(TypeInstance { ty, args: _ })
+            | &TypeData::GenericEnv(GenericEnv { ty, vars: _ })
             => self.display_type0(ty, f),
         }
     }
@@ -958,22 +1085,26 @@ impl PassImpl<'_> {
             FnCallKind::Free => {
                 let callee_ty = self.typing(*callee)?;
                 let callee_ty = self.normalize(callee_ty);
-                let callee_ty = self.type_(callee_ty);
-                if callee_ty.data.as_fn().is_none() {
+                let fn_def = if let Some(FnType { def, .. }) = self.underlying_type(callee_ty).data.as_fn() {
+                    if def.is_none() {
+                        todo!()
+                    }
+                    def.unwrap()
+                } else {
                     self.error(*callee, format!(
                         "invalid callee type: expected function, found `{}`",
-                        self.display_type(callee_ty.id)));
+                        self.display_type(callee_ty)));
                     return Err(());
                 };
-                (callee_ty.node, callee_ty.id)
+                (fn_def, callee_ty)
             }
             FnCallKind::Method => {
-                self.resolve_method_call(ctx.node)?
+                self.check_method_call(ctx.node)?
             }
         };
 
         let fn_ty = self.normalize(fn_ty);
-        let params = self.type_(fn_ty).data.as_fn().unwrap().params.clone();
+        let params = self.underlying_type(fn_ty).data.as_fn().unwrap().params.clone();
         assert_eq!(args.len(), params.len());
 
         for (arg, &param_ty) in args
@@ -996,7 +1127,7 @@ impl PassImpl<'_> {
             }
         }
 
-        let res_ty = self.type_(fn_ty).data.as_fn().unwrap().result;
+        let res_ty = self.underlying_type(fn_ty).data.as_fn().unwrap().result;
 
         Ok(res_ty)
     }
@@ -1016,7 +1147,7 @@ impl PassImpl<'_> {
         self.discover_data(node.0).describe_named(node.1, hir).unwrap()
     }
 
-    fn resolve_method_call(&mut self, fn_call: NodeId) -> Result<(GlobalNodeId, TypeId)> {
+    fn check_method_call(&mut self, fn_call: NodeId) -> Result<(GlobalNodeId, TypeId)> {
         let fnc = self.hir.fn_call(fn_call);
         assert_eq!(fnc.kind, FnCallKind::Method);
 
@@ -1026,17 +1157,15 @@ impl PassImpl<'_> {
         let receiver = fnc.args[0].value;
         let receiver_ty = self.ensure_typing(receiver)?;
 
-        if self.type_term(receiver_ty).data.as_inference_var().is_some() {
+        if self.underlying_type(receiver_ty).data.as_inference_var().is_some() {
             self.error(receiver, "can't infer type".into());
             return Err(());
         }
 
+        let fn_name = PathItem::from_hir(path_end_node, path_end_item);
         let sign = FnParamsSignature::from_call(fn_call, self.hir);
-        if let Some(fn_def) = self.resolve_impl_fn(receiver_ty, &name.value, &sign) {
+        if let Some((fn_def, fn_ty)) = self.check_impl_fn(receiver_ty, fn_name, &sign)? {
             self.check_data.insert_path_to_target(fnc.callee, fn_def);
-            let fn_ty = self.ensure_typing_global(fn_def)?;
-            let fn_ty  = self.check_path_ty_args(&[PathItem::from_hir(path_end_node, path_end_item)], fn_ty, true)?;
-
             self.check_data.insert_typing(fnc.callee, fn_ty);
 
             Ok((fn_def, fn_ty))
@@ -1049,28 +1178,31 @@ impl PassImpl<'_> {
         }
     }
 
-    fn resolve_impl_fn(&self, ty: TypeId, name: &Ident, sign: &FnParamsSignature) -> Option<GlobalNodeId> {
+    fn check_impl_fn(&mut self,
+        ty: TypeId,
+        name: PathItem,
+        sign: &FnParamsSignature,
+    ) -> Result<Option<(GlobalNodeId, TypeId)>> {
         let in_pkg = |
             package_id: PackageId,
             discover_data: &DiscoverData,
             check_data: &CheckData,
-        | -> Result<Option<GlobalNodeId>> {
-            let def = if let Some(v) = self.type_term(ty).data.def() {
+        | -> Result<Option<(GlobalNodeId, TypeId)>> {
+            let def = if let Some(v) = self.underlying_type(ty).data.def() {
                 v
             } else {
                 return Ok(None)
             };
             if let Some(impls) = check_data.impls.get(&def) {
                 assert!(!impls.is_empty());
-                if impls.len() > 1 {
-                    todo!();
-                }
-                if let Some(item) = impls[0].values.get(name) {
-                    match item {
-                        ImplValueItem::Single(_) => return Err(()),
-                        ImplValueItem::Fns(fn_defs) => {
-                            if let Some(&fn_def) = fn_defs.iter().find(|&&n| discover_data.fn_def_signature(n) == sign) {
-                                return Ok(Some((package_id, fn_def)));
+                for impl_ in impls {
+                    if let Some(item) = impl_.values.get(&name.name.value) {
+                        match item {
+                            ImplValueItem::Single(_) => return Err(()),
+                            ImplValueItem::Fns(fn_defs) => {
+                                if let Some(&fn_def) = fn_defs.iter().find(|&&n| discover_data.fn_def_signature(n) == sign) {
+                                    return Ok(Some(((package_id, fn_def), impl_.for_ty)));
+                                }
                             }
                         }
                     }
@@ -1078,24 +1210,52 @@ impl PassImpl<'_> {
             }
             Ok(None)
         };
-        match in_pkg(self.package_id, self.discover_data, self.check_data) {
-            Ok(Some(v)) => return Some(v),
-            Ok(None) => {}
-            Err(()) => return None,
-        }
-        for package in self.packages.iter() {
-            match in_pkg(package.id, &package.discover_data, &package.check_data) {
-                Ok(Some(v)) => return Some(v),
+        let (fn_def, for_ty) = 'outer: loop {
+            match in_pkg(self.package_id, self.discover_data, self.check_data) {
+                Ok(Some(v)) => break 'outer v,
                 Ok(None) => {}
-                Err(()) => return None,
+                Err(()) => return Ok(None),
             }
+            for package in self.packages.iter() {
+                match in_pkg(package.id, &package.discover_data, &package.check_data) {
+                    Ok(Some(v)) => break 'outer v,
+                    Ok(None) => {}
+                    Err(()) => return Ok(None),
+                }
+            }
+            return Ok(None);
+        };
+
+        let fn_ty = self.ensure_typing_global(fn_def)?;
+        let fn_ty = self.check_path_ty_args(&[name], fn_ty, true)?;
+        let fn_ty = self.normalize(fn_ty);
+
+        let for_ty = self.normalize(for_ty);
+        let mut genv_vars = TypeVarMap::default();
+        let ty = self.normalize(ty);
+        let ty_genv_vars = &self.type_(ty).data.as_generic_env().unwrap().vars;
+        for (var, val) in self.type_(for_ty).data.as_generic_env().unwrap().vars.iter() {
+            let from_var = self.type_param(val).unwrap().id;
+            let var = ty_genv_vars.get(var).unwrap();
+            genv_vars.insert(from_var, var);
         }
-        None
+
+        let fn_ty_node = self.type_(fn_ty).node;
+        let fn_ty = self.check_data.insert_type(fn_ty_node, TypeData::Ctor(TypeCtor {
+            ty: fn_ty,
+            params: genv_vars.vars().collect(),
+        }));
+        let fn_ty = self.check_data.insert_type(fn_ty_node, TypeData::Instance(TypeInstance {
+            ty: fn_ty,
+            args: genv_vars.vals().collect(),
+        }));
+
+        Ok(Some((fn_def, fn_ty)))
     }
 
-    /// Performs type-based path resolution.
-    fn resolve_type_path(&mut self,
-        full_path: NodeId,
+    /// Performs type-based path resolution and checking.
+    fn check_type_path(&mut self,
+        full_path: NodeId /*PathEndIdent*/,
         type_: GlobalNodeId,
         path: &[PathItem],
     ) -> Result<TypeId> {
@@ -1105,7 +1265,13 @@ impl PassImpl<'_> {
 
         debug_assert!(self.type_(ty).data.as_inference_var().is_none());
 
-        let mut err = self.check_path_ty_args(&path[..1], ty, true).is_err();
+        let mut err = false;
+        let ty = self.check_path_ty_args(&path[..1], ty, true)
+            .unwrap_or_else(|_| {
+                err = true;
+                ty
+            });
+        let ty = self.normalize(ty);
 
         let item_name = &path[1].name;
 
@@ -1114,10 +1280,8 @@ impl PassImpl<'_> {
             if let Some(fn_call) = self.discover_data.find_fn_call(full_path, self.hir);
             then {
                 let sign = FnParamsSignature::from_call(fn_call, self.hir);
-                if let Some(fn_def) = self.resolve_impl_fn(ty, &item_name.value, &sign) {
+                if let Some((fn_def, fn_ty)) = self.check_impl_fn(ty, path[1].clone(), &sign)? {
                     self.check_data.insert_path_to_target(full_path, fn_def);
-                    let fn_ty = self.ensure_typing_global(fn_def)?;
-                    err |= self.check_path_ty_args(&path[1..2], fn_ty, true).is_err();
                     Ok(fn_ty)
                 } else {
                     self.error_span(full_path, item_name.span, format!(
@@ -1140,7 +1304,7 @@ impl PassImpl<'_> {
         }
     }
 
-    fn resolve_entry_point(&mut self) -> Result<()> {
+    fn check_entry_point(&mut self) -> Result<()> {
         if self.package_kind != PackageKind::Exe {
             return Ok(());
         }
@@ -1160,29 +1324,42 @@ impl PassImpl<'_> {
         } else {
             return Err(());
         };
-        self.check_data.entry_point = Some(node);
 
         let ty = self.typing(node)?;
-        let fn_ = self.type_term(ty).data.as_fn().unwrap();
+        let fn_ = self.underlying_type(ty).data.as_fn().unwrap();
         assert_eq!(fn_.params.len(), 0);
         let fn_def = self.hir.fn_def(node);
+        let mut err = false;
         if !self.is_unit_type(fn_.result) {
             self.error(fn_def.ret_ty.unwrap(),
                 "`main` function must have unit return type".into());
+            err = true;
         }
         if fn_.unsafe_ {
             self.error_span(node, fn_def.unsafe_.unwrap().span,
                 "`main` function must not be unsafe".into());
+            err = true;
         }
         if fn_def.body.is_none() {
             self.error_span(node, fn_def.name.span,
                 "`main` function must not be external".into());
+            err = true;
         }
         if !fn_def.ty_params.is_empty() {
             self.error_span(node, fn_def.name.span,
                 "`main` function must not have type parameters".into());
+            err = true;
         }
-        Ok(())
+        if err {
+            Err(())
+        } else {
+            let ty = self.insert_type((self.package_id, node), TypeData::Instance(TypeInstance {
+                ty: self.typing(node)?,
+                args: Vec::new(),
+            }));
+            self.check_data.entry_point = Some(self.normalize(ty));
+            Ok(())
+        }
     }
 
     fn pre_check_impls(&mut self) -> Result<()> {

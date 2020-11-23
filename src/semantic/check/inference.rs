@@ -24,9 +24,9 @@ impl InferenceCtx {
 impl CheckData {
     fn finish_inference_var(&mut self, var: LocalTypeId, ty: TypeId) {
         let vard = &mut self.type_mut(var).data;
-        let old = std::mem::replace(vard, TypeData::Ctor(TypeCtor {
+        let old = std::mem::replace(vard, TypeData::Instance(TypeInstance {
             ty,
-            params: Vec::new(),
+            args: Vec::new(),
         }));
         assert!(old.as_var().is_some());
     }
@@ -40,9 +40,9 @@ impl PassImpl<'_> {
     }
 
     fn unify_var(&mut self, src: TypeId, dst: TypeId) -> bool {
-        let src = self.type_term(src).id;
-        let src_var = self.type_(src).data.as_inference_var();
-        let dst_var = self.type_(dst).data.as_inference_var();
+        let src = self.type_(src).id;
+        let src_var = self.underlying_type(src).data.as_inference_var();
+        let dst_var = self.underlying_type(dst).data.as_inference_var();
         let can = match (src_var, dst_var) {
             | (Some(InferenceVar::Any), None)
             | (Some(InferenceVar::Any), Some(InferenceVar::Number(_)))
@@ -71,7 +71,7 @@ impl PassImpl<'_> {
         if self.unify_var(ty1, ty2) {
         } else if self.unify_var(ty2, ty1) {
         } else {
-            match (&self.type_(ty1).data, &self.type_(ty2).data) {
+            match (&self.underlying_type(ty1).data, &self.underlying_type(ty2).data) {
                 (TypeData::Struct(StructType { def: def1, fields: fields1 }),
                     TypeData::Struct(StructType { def: def2, fields: fields2 }))
                     if def1.is_some() && def1 == def2
@@ -84,7 +84,7 @@ impl PassImpl<'_> {
                         .map(|(s, d)| (s.ty, d.ty))
                         .collect();
                     for (ty1, ty2) in fields {
-                        self.unify0(ty1, ty2);
+                        self.unify(ty1, ty2);
                     }
                 }
                 _ => {},

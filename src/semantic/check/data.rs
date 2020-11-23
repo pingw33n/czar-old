@@ -11,8 +11,8 @@ pub struct CheckData {
     lvalues: NodeMap<()>,
     /// Impls defined in this package.
     pub(in super) impls: HashMap<GlobalNodeId, Vec<Impl>>,
-    pub(in super) entry_point: Option<NodeId>,
-    pub(in super) normalized_types: TypeMap<NormalizedType>,
+    pub(in super) entry_point: Option<TypeId>,
+    pub(in super) normalized_types: TypeMap<TypeId>,
 }
 
 impl CheckData {
@@ -98,11 +98,11 @@ impl CheckData {
         self.lvalues.contains_key(&node)
     }
 
-    pub fn entry_point(&self) -> Option<NodeId> {
+    pub fn entry_point(&self) -> Option<TypeId> {
         self.entry_point
     }
 
-    pub fn normalized_type(&self, ty: TypeId) -> &NormalizedType {
-        &self.normalized_types[&ty]
+    pub fn normalized_type(&self, ty: TypeId) -> TypeId {
+        self.normalized_types[&ty]
     }
 }

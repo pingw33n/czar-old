@@ -37,11 +37,11 @@ impl Packages {
         Ctx::check_data(None, node.0, self).typing(node.1)
     }
 
-    pub fn type_term(&self, ty: TypeId) -> &Type {
-        self.type_term_ctx(ty, None)
+    pub fn underlying_type(&self, ty: TypeId) -> &Type {
+        self.underlying_type_ctx(ty, None)
     }
 
-    pub fn type_term_ctx<'a>(&'a self, mut id: TypeId, ctx: Option<Ctx<'a>>) -> &'a Type {
+    pub fn underlying_type_ctx<'a>(&'a self, mut id: TypeId, ctx: Option<Ctx<'a>>) -> &'a Type {
         loop {
             let ty = self.type_ctx(id, ctx);
             match &ty.data {
@@ -51,6 +51,7 @@ impl Packages {
                 | TypeData::Var(_)
                 => break ty,
                 | &TypeData::Ctor(TypeCtor { ty, params: _ })
+                | &TypeData::GenericEnv(GenericEnv { ty, vars: _ })
                 | &TypeData::Instance(TypeInstance { ty, args: _ })
                 => {
                     id = ty;
@@ -64,7 +65,7 @@ impl Packages {
     }
 
     pub fn as_lang_item_ctx(&self, ty: TypeId, ctx: Option<Ctx>) -> Option<LangItem> {
-        let def = self.type_term_ctx(ty, ctx).data.def()?;
+        let def = self.underlying_type_ctx(ty, ctx).data.def()?;
         Ctx::check_data(ctx, PackageId::std(), self).lang().as_item(def)
     }
 
@@ -86,6 +87,6 @@ impl Packages {
     }
 
     pub fn is_unit_type_ctx(&self, ty: TypeId, ctx: Option<Ctx>) -> bool {
-        self.type_term_ctx(ty, ctx).data.as_struct().map(|v| v.is_unit()).unwrap_or(false)
+        self.underlying_type_ctx(ty, ctx).data.as_struct().map(|v| v.is_unit()).unwrap_or(false)
     }
 }

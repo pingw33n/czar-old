@@ -18,27 +18,27 @@ error: expected module
 11 | use m1::S::{};
              ~
 
-error: associated item `x` not found for type `S`
+error: can't import associated items
   --> main.cz:12:12
 12 | use m1::S::x;
                 ~
 
-error: associated item `foo` not found for type `S`
+error: can't import associated items
   --> main.cz:13:14
 13 | use m1::{S::{foo, bar::x, self}};
                   ~~~
 
-error: associated item `bar` not found for type `S`
-  --> main.cz:13:19
+error: can't import associated items
+  --> main.cz:13:24
 13 | use m1::{S::{foo, bar::x, self}};
-                       ~~~
+                            ~
 
-error: associated item `self` not found for type `S`
+error: can't import associated items
   --> main.cz:13:27
 13 | use m1::{S::{foo, bar::x, self}};
                                ~~~~
 
-error: associated item `foobar` not found for type `S`
+error: can't import associated items
   --> main.cz:14:13
 14 | use m1::{S::foobar, self};
                  ~~~~~~

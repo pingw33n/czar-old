@@ -142,14 +142,14 @@ impl PassImpl<'_> {
 
         let ty = self.typing(name)?;
         let ty = self.normalize(ty);
-        if self.type_(ty).data.as_struct().and_then(|v| v.def).is_none() {
+        if self.underlying_type(ty).data.as_struct().and_then(|v| v.def).is_none() {
             self.error(name, "expected named struct".into());
             return Err(());
         }
 
         let seen_fields = self.check_struct_value_fields(ty, fields);
 
-        let sty = self.type_(ty).data.as_struct().unwrap();
+        let sty = self.underlying_type(ty).data.as_struct().unwrap();
 
         let expected_field_count = sty.fields.len();
         if seen_fields.len() != expected_field_count {
@@ -239,7 +239,7 @@ impl PassImpl<'_> {
     ) -> Result<TypeId> {
         let struct_ty = self.normalize(struct_ty);
         let idx_and_ty = if_chain! {
-            if let Some(sty) = self.type_(struct_ty).data.as_struct();
+            if let Some(sty) = self.underlying_type(struct_ty).data.as_struct();
             if self.as_primitive(struct_ty).is_none();
             then {
                 // TODO Maybe optimize this.

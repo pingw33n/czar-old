@@ -1,0 +1,57 @@
+fn main() {
+    struct S<T> {v: T}
+
+    impl<T> S<T> {
+        fn v(self) -> T {
+            self.v
+        }
+
+        fn v2(self) -> T {
+            Self::v(self: self)
+        }
+
+        fn f<U>(self, _ t: T, _ u: U) -> {T, T, U} {
+            {Self::v(self: self), t, u}
+        }
+
+        fn v2<V>(self, sv: S<V>) -> {S<T>, S<V>} {
+            {S{v: self.v}, sv}
+        }
+    }
+
+    let s = S{v: 42};
+
+    print_i32(S::v(self: s)); println();
+
+    print_i64(S<i64>::v2(self: S{v: 42123})); println();
+
+    println();
+    let r = S::f(self: s, 4242, "test");
+    print_i32(r.0); println();
+    print_i32(r.1); println();
+    prints(r.2); println();
+
+    println();
+    let r = S::f(self: s, 424242, true);
+    print_i32(r.0); println();
+    print_i32(r.1); println();
+    print_bool(r.2); println();
+
+    println();
+    let r = S<i64>::f<f32>(self: S{v: 42}, 1234, 12.34);
+    print_i64(r.0); println();
+    print_i64(r.1); println();
+    print_f32(r.2); println();
+
+    println();
+    prints(S::f(self: S{v:"test2"}, "test3", "test4").0); println();
+    prints(S::f(self: S{v:"test5"}, "test6", "test7").1); println();
+    prints(S::f(self: S{v:"test8"}, "test9", "test10").2); println();
+
+    println();
+    let r = S::v2(self: s, sv: S{v:"test11"});
+    let s: String = S::v(self: r.1);
+    print_i32(r.0.v); println();
+    prints(S::v(self: r.1)); println();
+
+}

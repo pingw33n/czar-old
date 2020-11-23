@@ -1,0 +1,57 @@
+fn main() {
+    struct S<T> {v: T}
+
+    impl<T> S<T> {
+        fn v(self) -> T {
+            self.v
+        }
+
+        fn v2(self) -> T {
+            self.v()
+        }
+
+        fn f<U>(self, _ t: T, _ u: U) -> {T, T, U} {
+            {self.v(), t, u}
+        }
+
+        fn v2<V>(self, sv: S<V>) -> {S<T>, S<V>} {
+            {S{v: self.v}, sv}
+        }
+    }
+
+    let s = S{v: 42};
+
+    print_i32(s.v()); println();
+
+    print_i32(S{v: 42123}.v2()); println();
+
+    println();
+    let r = s.f(4242, "test");
+    print_i32(r.0); println();
+    print_i32(r.1); println();
+    prints(r.2); println();
+
+    println();
+    let r = s.f(424242, true);
+    print_i32(r.0); println();
+    print_i32(r.1); println();
+    print_bool(r.2); println();
+
+    println();
+    let r = s.f<f32>(1234, 12.34);
+    print_i32(r.0); println();
+    print_i32(r.1); println();
+    print_f32(r.2); println();
+
+    println();
+    prints(S{v:"test2"}.f("test3", "test4").0); println();
+    prints(S{v:"test5"}.f("test6", "test7").1); println();
+    prints(S{v:"test8"}.f("test9", "test10").2); println();
+
+    println();
+    let r = s.v2(sv: S{v:"test11"});
+    let s: String = r.1.v();
+    print_i32(r.0.v); println();
+    prints(r.1.v()); println();
+
+}

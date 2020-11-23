@@ -72,16 +72,19 @@ pub fn compile(
     // println!("package `{}` {:?}", name, id);
     // discover_data.print_scopes(&hir);
 
-    let check_data = Check {
-        package_id: id,
-        package_name: &name,
-        package_kind: kind,
-        hir: &hir,
-        discover_data: &discover_data,
-        resolve_data: &resolve_data,
-        packages,
-        diag: diag.clone(),
-    }.run();
+    let check_data = {
+        measure_time::print_time!("check");
+        Check {
+            package_id: id,
+            package_name: &name,
+            package_kind: kind,
+            hir: &hir,
+            discover_data: &discover_data,
+            resolve_data: &resolve_data,
+            packages,
+            diag,
+        }.run()
+    };
 
     if diag.borrow().reports().iter().any(|r| matches!(r.severity, crate::diag::Severity::Warning)) {
         todo!();

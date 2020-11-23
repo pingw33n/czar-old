@@ -13,6 +13,11 @@ error: unexpected type arguments: type `T` doesn't have type parameters
 4 |     b: T<u32>,
             ~~~~~
 
+error: unexpected type arguments: type `u32` doesn't have type parameters
+  --> main.cz:5:11
+5 |     c: u32<T>,
+              ~~~
+
 error: unexpected type arguments: modules don't have type parameters
   --> main.cz:22:14
 22 |     let s: m1<u32, String>::m2<u32>::S;

@@ -1,44 +1,24 @@
 use super::{*, StructType};
 
-#[derive(Clone)]
-pub struct NormalizedType {
-    pub ty: TypeId,
-    /// Var values that were used to instantiate the type.
-    pub vars: TypeMap<TypeId>,
-}
-
 #[derive(Default)]
 struct Ctx {
-    vars: TypeMap<TypeId>,
-    depends_on_inference_var: bool,
+    no_cache: bool,
+    ext_vars: TypeSet,
 }
 
 impl PassImpl<'_> {
     pub fn normalize(&mut self, ty: TypeId) -> TypeId {
-        if let Some(nty) = self.check_data.normalized_types.get(&ty) {
-            return nty.ty;
+        if let Some(&norm_ty) = self.check_data.normalized_types.get(&ty) {
+            debug_assert_eq!(self.normalize0(ty, &mut Ctx::default()), norm_ty);
+            return norm_ty;
         }
         let ctx = &mut Ctx::default();
         let norm_ty = self.normalize0(ty, ctx);
-        if !ctx.depends_on_inference_var {
-            let vars: HashMap<_, _> = ctx.vars.iter()
-                // Remove intermediate var bindings.
-                .filter(|(_, &ty)| {
-                    let ty = self.type_term(ty);
-                    if matches!(ty.data, TypeData::Var(_)) {
-                        !ctx.vars.contains_key(&ty.id)
-                    } else {
-                        true
-                    }
-                })
-                .map(|(&k, &v)| (k, v))
-                .collect();
-            let nty = NormalizedType {
-                ty: norm_ty,
-                vars,
-            };
-            assert!(self.check_data.normalized_types.insert(ty, nty.clone()).is_none());
-            self.check_data.normalized_types.insert(norm_ty, nty);
+        debug_assert_eq!(self.normalize0(ty, &mut Ctx::default()), norm_ty);
+        if !ctx.no_cache {
+            assert!(self.check_data.normalized_types.insert(ty, norm_ty).is_none());
+            let existing = self.check_data.normalized_types.insert(norm_ty, norm_ty);
+            assert!(existing.is_none() || existing == Some(norm_ty));
         }
         norm_ty
     }
@@ -48,76 +28,157 @@ impl PassImpl<'_> {
         for ty in types {
             self.normalize(ty);
         }
-
-        let mut vars = Vec::new();
-        for nty in self.check_data.normalized_types.values() {
-            vars.extend(nty.vars.values().copied());
-        }
-        for ty in vars {
-            self.normalize(ty);
-        }
     }
 
     fn normalize0(&mut self, ty: TypeId, ctx: &mut Ctx) -> TypeId {
-        let ty = self.type_(ty);
-        let node = ty.node;
-        let data = match ty.data.clone() {
-            TypeData::Ctor(TypeCtor { ty, params }) => {
-                let ty = self.normalize0(ty, ctx);
-                if params.is_empty() {
-                    return ty;
+        if let TypeData::Ctor(_) = &self.type_(ty).data {
+            ctx.no_cache = true;
+            return ty;
+        }
+        self.normalize1(ty, TypeVarMap::default(), ctx)
+    }
+
+    fn normalize1(&mut self, mut ty: TypeId, mut vars: TypeVarMap, ctx: &mut Ctx) -> TypeId {
+        let node = self.type_(ty).node;
+        let ty = loop {
+            let next_vars = match &self.type_(ty).data {
+                TypeData::Ctor(_) => {
+                    unreachable!()
                 }
-                TypeData::Ctor(TypeCtor {
-                    ty,
-                    params,
-                })
-            }
-            TypeData::Incomplete(_) => unreachable!(),
-            TypeData::Instance(TypeInstance { ty, args }) => {
-                debug_assert!(matches!(self.type_(ty).data, TypeData::Ctor(_)) || args.is_empty());
-                let ty = match &self.type_(ty).data {
-                    TypeData::Ctor(TypeCtor { ty, params }) => {
-                        let ty = self.type_(*ty);
-                        self.bind_vars(params, &args, ctx);
-                        ty.id
-                    }
-                    | TypeData::Fn(_)
-                    | TypeData::Incomplete(_)
-                    | TypeData::Instance(_)
-                    | TypeData::Struct(_)
-                    | TypeData::Var(_)
-                    => ty,
-                };
-                let ty = self.normalize0(ty, ctx);
-                return ty;
-            }
-            TypeData::Var(kind) => {
-                let ty = match kind {
-                    Var::Inference(_) => {
-                        debug_assert!(!ctx.vars.contains_key(&ty.id));
-                        assert_eq!(ty.id.0, self.package_id);
-                        ctx.depends_on_inference_var = true;
-                        return ty.id;
-                    }
-                    Var::Param => {
-                        if let Some(&ty) = ctx.vars.get(&ty.id) {
-                            ty
-                        } else {
-                            return ty.id;
+                TypeData::Incomplete(_) => unreachable!(),
+                TypeData::Instance(TypeInstance { ty: next, args }) => {
+                    match &self.type_(*next).data {
+                        TypeData::Ctor(TypeCtor { ty: next, params }) => {
+                            assert_eq!(args.len(), params.len());
+                            let mut next_vars = TypeVarMap::default();
+                            for (&param, &arg) in params.iter().zip(args.iter()) {
+                                next_vars.insert(param, arg);
+                            }
+
+                            ty = *next;
+
+                            Some(next_vars)
+                        }
+                        | TypeData::Fn(_)
+                        | TypeData::Incomplete(_)
+                        | TypeData::Instance(_)
+                        | TypeData::GenericEnv(_)
+                        | TypeData::Struct(_)
+                        | TypeData::Var(_)
+                        => {
+                            assert!(args.is_empty());
+                            ty = *next;
+                            None
                         }
                     }
-                };
-                return self.normalize0(ty, ctx);
-            }
-            TypeData::Fn(v) => {
-                TypeData::Fn(self.normalize_fn(v, ctx))
-            }
-            TypeData::Struct(v) => {
-                TypeData::Struct(self.normalize_struct(v, ctx))
+                }
+                TypeData::GenericEnv(_) => {
+                    break ty;
+                }
+                | TypeData::Fn(_)
+                | TypeData::Struct(_)
+                => break ty,
+                &TypeData::Var(var) => {
+                    match var {
+                        Var::Inference(_) => break ty,
+                        Var::Param => {
+                            if let Some(next) = vars.get(ty) {
+                                if next == ty {
+                                    break ty;
+                                }
+                                vars.clear();
+                                ty = next;
+                                None
+                            } else {
+                                ctx.ext_vars.insert(ty);
+                                break ty;
+                            }
+                        }
+                    }
+                }
+            };
+            if let Some(mut next_vars) = next_vars {
+                for (_, val) in next_vars.iter_mut() {
+                    *val = self.normalize1(*val, vars.clone(), ctx);
+                }
+                vars = next_vars;
             }
         };
+        match self.type_(ty).data.clone() {
+            TypeData::GenericEnv(GenericEnv { ty, vars: mut genv_vars }) => {
+                for (_, val) in genv_vars.iter_mut() {
+                    let v = vars.get(*val).unwrap_or(*val);
+                    *val = self.normalize0(v, ctx);
+                }
+                let data = self.type_(ty).data.clone();
+                let (ty, make_norm) = self.normalize_data(node, ty, data, &vars, ctx);
+                assert!(make_norm);
+                self.type_data_id(node, TypeData::GenericEnv(GenericEnv {
+                    ty,
+                    vars: genv_vars,
+                }))
+            }
+            | data @ TypeData::Fn(_)
+            | data @ TypeData::Struct(_)
+            | data @ TypeData::Var(_)
+            => {
+                let (ty, make_norm) = self.normalize_data(node, ty, data, &vars, ctx);
+                for (_, val) in vars.iter_mut() {
+                    *val = self.normalize0(*val, ctx);
+                }
+                if make_norm {
+                    let top_level_fn = self.type_(ty).data.as_fn().and_then(|v| v.def).is_some();
+                    if top_level_fn {
+                        for var in ctx.ext_vars.drain() {
+                            vars.insert(var, var);
+                        }
+                    }
+                    self.type_data_id(node, TypeData::GenericEnv(GenericEnv {
+                        ty,
+                        vars,
+                    }))
+                } else {
+                    ty
+                }
+            }
+            | TypeData::Ctor(_)
+            | TypeData::Incomplete(_)
+            | TypeData::Instance(_)
+            => unreachable!(),
+        }
+    }
 
-        match self.type_data_cache.entry(data) {
+    fn normalize_data(&mut self,
+        node: GlobalNodeId,
+        ty: TypeId,
+        data: TypeData,
+        vars: &TypeVarMap,
+        ctx: &mut Ctx,
+    ) -> (TypeId, bool) {
+        match data {
+            TypeData::Fn(v) => {
+                let data = TypeData::Fn(self.normalize_fn(v, vars, ctx));
+                (self.type_data_id(node, data), true)
+            }
+            TypeData::Struct(v) => {
+                let def = v.def.is_some();
+                let data = TypeData::Struct(self.normalize_struct(v, vars, ctx));
+                (self.type_data_id(node, data), def)
+            }
+            TypeData::Var(var) => {
+                ctx.no_cache |= var.as_inference().is_some();
+                (ty, false)
+            }
+            | TypeData::Ctor(_)
+            | TypeData::GenericEnv(_)
+            | TypeData::Incomplete(_)
+            | TypeData::Instance(_)
+            => unreachable!(),
+        }
+    }
+
+    fn type_data_id(&mut self, node: GlobalNodeId, data: TypeData) -> TypeId {
+        match self.type_data_ids.entry(data) {
             hash_map::Entry::Occupied(e) => {
                 *e.get()
             }
@@ -128,37 +189,30 @@ impl PassImpl<'_> {
         }
     }
 
-    fn bind_vars(&self, params: &[TypeId], args: &[TypeId], ctx: &mut Ctx) {
-        assert_eq!(args.len(), params.len());
-        for (&param, &arg) in params.iter().zip(args.iter()) {
-            assert_ne!(param, arg);
-            assert!(ctx.vars.insert(param, arg).is_none());
-        }
-    }
-
-    fn normalize_fn(&mut self, mut fn_: FnType, ctx: &mut Ctx) -> FnType {
+    fn normalize_fn(&mut self, mut fn_: FnType, vars: &TypeVarMap, ctx: &mut Ctx) -> FnType {
         let FnType {
+            def: _,
             params,
             result,
             unsafe_: _,
         } = &mut fn_;
 
         for param in params {
-            *param = self.normalize0(*param, ctx);
+            *param = self.normalize1(*param, vars.clone(), ctx);
         }
-        *result = self.normalize0(*result, ctx);
+        *result = self.normalize1(*result, vars.clone(), ctx);
 
         fn_
     }
 
-    fn normalize_struct(&mut self, mut sty: StructType, ctx: &mut Ctx) -> StructType {
+    fn normalize_struct(&mut self, mut sty: StructType, vars: &TypeVarMap, ctx: &mut Ctx) -> StructType {
         let StructType {
             def: _,
             fields,
         } = &mut sty;
 
         for field in fields {
-            field.ty = self.normalize0(field.ty, ctx);
+            field.ty = self.normalize1(field.ty, vars.clone(), ctx);
         }
 
         sty

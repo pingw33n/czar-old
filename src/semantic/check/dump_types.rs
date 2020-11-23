@@ -18,11 +18,28 @@ impl PassImpl<'_> {
             TypeData::Ctor(TypeCtor { ty, params }) => {
                 write!(s, "Ctor(ty: {}, params: {})", self.type_id_str(*ty), self.type_list_str(params)).unwrap();
             }
-            TypeData::Fn(FnType { params, result, unsafe_ }) => {
-                write!(s, "Fn(params: {}, result: {}, unsafe: {})",
+            TypeData::Fn(FnType { def, params, result, unsafe_ }) => {
+                let def = if let &Some(def) = def {
+                    let name = &self.hir(def.0).fn_def(def.1).name.value;
+                    format!("def: `{}` {}, ", name, self.node_kind_str(def))
+                } else {
+                    "".into()
+                };
+                write!(s, "Fn({}params: {}, result: {}, unsafe: {})",
+                    def,
                     self.type_list_str(params),
                     self.type_id_str(*result),
                     unsafe_).unwrap();
+            }
+            TypeData::GenericEnv(GenericEnv { ty, vars }) => {
+                let mut vars_str = String::new();
+                for (i, (var, val)) in vars.iter().enumerate() {
+                    if i > 0 {
+                        vars_str.push_str(", ");
+                    }
+                    write!(vars_str, "{}={}", self.var_param_name(self.type_(var)), self.type_id_str(val)).unwrap();
+                }
+                write!(s, "GenericEnv(ty: {}, vars: [{}])", self.type_id_str(*ty), vars_str).unwrap();
             }
             TypeData::Incomplete(IncompleteType { params }) => {
                 write!(s, "Incomplete(params: {})", self.type_list_str(params)).unwrap();
@@ -41,15 +58,17 @@ impl PassImpl<'_> {
                             InferenceVar::Number(nk) => format!("?{:?}'{}", nk, ty.id.1.0)
                         }
                     }
-                    Var::Param => {
-                        let name = &self.hir(ty.node.0).type_param(ty.node.1).name.value;
-                        format!("{}'{}", name, ty.id.1.0)
-                    }
+                    Var::Param => self.var_param_name(ty)
                 };
                 write!(s, "Var({})", var).unwrap();
             }
         }
         s
+    }
+
+    fn var_param_name(&self, ty: &Type) -> String {
+        let name = &self.hir(ty.node.0).type_param(ty.node.1).name.value;
+        format!("{}'{}", name, ty.id.1.0)
     }
 
     fn package_name(&self, id: PackageId) -> &Ident {

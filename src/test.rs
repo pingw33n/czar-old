@@ -100,7 +100,7 @@ fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) -> Result<(), 
                 cg.lower(pkg_id);
             }
 
-            println!("{}", cg);
+            //println!("{}", cg);
 
             let tmp_dir = tempdir().unwrap();
 

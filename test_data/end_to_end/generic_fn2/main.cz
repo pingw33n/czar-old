@@ -1,0 +1,33 @@
+fn f1() {
+    struct S<T> {v: T}
+    type A1<U> = S<U>;
+
+    fn f<T1, T2>(_ p1: S<T1>, _ p2: S<T2>) -> {S<T1>, S<T2>} {
+        {S{v: p1.v}, f2(S{v: p2.v})}
+    }
+
+    fn f2<T3>(_ p: A1<T3>) -> A1<T3> {
+        p
+    }
+
+    let r = f(S{v: "test"}, S{v: 42});
+    prints(r.0.v); println();
+    print_i32(r.1.v); println();
+}
+
+fn f2() {
+    struct S1<T> {v1: T}
+    struct S2<T> {v2: T}
+
+    fn f<T>(_ v: S1<S2<T>>) -> S2<S1<T>> {
+        S2{v2: S1{v1: v.v1.v2}}
+    }
+
+    print_i32(f(S1{v1:S2{v2:4242}}).v2.v1); println();
+    prints(f(S1{v1:S2{v2:"test2"}}).v2.v1); println();
+}
+
+fn main() {
+    f1();
+    f2();
+}
