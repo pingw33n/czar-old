@@ -72,9 +72,7 @@ impl PassImpl<'_> {
                         }
                     }
                 }
-                TypeData::GenericEnv(_) => {
-                    break ty;
-                }
+                | TypeData::GenericEnv(_)
                 | TypeData::Fn(_)
                 | TypeData::Struct(_)
                 => break ty,
