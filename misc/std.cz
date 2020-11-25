@@ -59,7 +59,7 @@ pub struct char {{}}
 
 pub module string {
     pub /*FIXME ref */struct String {
-        ptr: usize,
+        ptr: super::ptr::Ptr<u8>,
         len: usize,
     }
 
@@ -68,6 +68,10 @@ pub module string {
             self.len
         }
     }
+}
+
+pub module ptr {
+    pub struct Ptr<T> {{}}
 }
 
 type Unit = {};

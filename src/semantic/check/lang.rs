@@ -77,6 +77,7 @@ impl PrimitiveType {
 #[derive(Clone, Copy, Debug, EnumAsInner, Eq, Hash, PartialEq)]
 pub enum LangItem {
     Primitive(PrimitiveType),
+    Ptr,
     String,
 }
 
@@ -115,7 +116,7 @@ impl Lang {
 }
 
 impl PassImpl<'_> {
-    pub fn make_lang(&mut self) {
+    pub fn make_lang(&mut self) -> Result<()> {
         assert!(self.package_id.is_std());
 
         let mut lang_item_to_type = HashMap::new();
@@ -141,10 +142,10 @@ impl PassImpl<'_> {
                 (Primitive(U128), &["u128"][..]),
                 (Primitive(ISize), &["isize"][..]),
                 (Primitive(USize), &["usize"][..]),
+                (Ptr, &["ptr", "Ptr"][..]),
                 (String, &["string", "String"][..]),
             ] {
-                let ty = self.check_lang_type(path)
-                    .unwrap_or_else(|_| panic!("error checking lang item {:?}", lang_item));
+                let ty = self.check_lang_type(path)?;
 
                 assert!(lang_item_to_type.insert(lang_item, ty).is_none());
 
@@ -161,6 +162,8 @@ impl PassImpl<'_> {
             node_to_lang_item,
             unit_type,
         })).is_none());
+
+        Ok(())
     }
 
     pub fn std(&self) -> &Lang {
@@ -176,11 +179,18 @@ impl PassImpl<'_> {
             .ok_or(())?;
         assert!(node.0.is_std());
         let ty = self.ensure_typing(node.1)?;
-        assert!(matches!(&self.type_(ty).data, TypeData::Ctor(TypeCtor { ty: _, params }) if params.is_empty()));
-        let ty = self.insert_type(node, TypeData::Instance(TypeInstance {
-            ty,
-            args: Vec::new(),
-        }));
+        let ty = if let TypeData::Ctor(TypeCtor { ty: _, params }) = &self.type_(ty).data {
+            if params.is_empty() {
+                self.insert_type(node, TypeData::Instance(TypeInstance {
+                    ty,
+                    args: Vec::new(),
+                }))
+            } else {
+                ty
+            }
+        } else {
+            unreachable!();
+        };
         let ty = self.normalize(ty);
         assert!(ty.0.is_std());
         Ok(ty.1)

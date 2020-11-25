@@ -19,9 +19,7 @@ impl PassImpl<'_> {
         let norm_ty = self.normalize0(ty, ctx);
         debug_assert_eq!(self.normalize0(ty, &mut Ctx::default()), norm_ty);
         if !ctx.no_cache {
-            assert!(self.check_data.normalized_types.insert(ty, norm_ty).is_none());
-            let existing = self.check_data.normalized_types.insert(norm_ty, norm_ty);
-            assert!(existing.is_none() || existing == Some(norm_ty));
+            self.insert_normalized_type(ty, norm_ty);
         }
         norm_ty
     }
@@ -101,7 +99,7 @@ impl PassImpl<'_> {
                 vars = next_vars;
             }
         };
-        match self.type_(ty).data.clone() {
+        let norm_ty = match self.type_(ty).data.clone() {
             TypeData::GenericEnv(GenericEnv { ty, vars: mut genv_vars }) => {
                 for (_, val) in genv_vars.iter_mut() {
                     let v = vars.get(*val).unwrap_or(*val);
@@ -142,7 +140,13 @@ impl PassImpl<'_> {
             | TypeData::Incomplete(_)
             | TypeData::Instance(_)
             => unreachable!(),
+        };
+
+        if !ctx.no_cache {
+            self.insert_normalized_type(norm_ty, norm_ty);
         }
+
+        norm_ty
     }
 
     fn normalize_data(&mut self,
@@ -213,5 +217,14 @@ impl PassImpl<'_> {
         }
 
         sty
+    }
+
+    fn insert_normalized_type(&mut self, ty: TypeId, norm_ty: TypeId) {
+        let existing = self.check_data.normalized_types.insert(ty, norm_ty);
+        assert!(existing.is_none() || existing == Some(norm_ty));
+        if ty != norm_ty {
+            let existing = self.check_data.normalized_types.insert(norm_ty, norm_ty);
+            assert!(existing.is_none() || existing == Some(norm_ty));
+        }
     }
 }

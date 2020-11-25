@@ -282,7 +282,7 @@ impl<'a> Check<'a> {
             type_data_ids: Default::default(),
         };
         if self.package_id.is_std() {
-            imp.make_lang();
+            imp.make_lang()?;
         }
 
         let _ = imp.pre_check_impls();

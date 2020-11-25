@@ -564,7 +564,7 @@ impl<'a> Codegen<'a> {
                 TypeRef::function(res_ty, param_tys)
             }
             TypeData::GenericEnv(check::GenericEnv { ty, vars: _ }) => self.type_(*ty, genv),
-            TypeData::Struct(v) => self.make_struct_type(v, genv),
+            TypeData::Struct(v) => self.make_struct_type(ty, v, genv),
             TypeData::Var(_) => {
                 let ty = genv.vars.get(uty.id).unwrap();
                 self.type_(ty, genv)
@@ -578,18 +578,15 @@ impl<'a> Codegen<'a> {
         ty_ll
     }
 
-    fn make_struct_type(&mut self, sty: &check::StructType, genv: &GenericEnv) -> TypeRef {
+    fn make_struct_type(&mut self, ty: TypeId, sty: &check::StructType, genv: &GenericEnv) -> TypeRef {
         let check::StructType { def, fields } = sty;
         if let Some(def) = *def {
             if let Some(prim) = self.packages.std().check_data.lang().as_primitive(def) {
                 return self.make_prim_type(prim);
-            } else if let Some(LangItem::String) = self.packages.std().check_data.lang().as_item(def) {
-                // FIXME this won't be needed once there's a reference type in frontend.
-                let fields = &mut vec![
-                    self.llvm.pointer_type(self.llvm.int_type(8)),
-                    self.llvm.int_type(self.llvm.pointer_size_bits()),
-                ];
-                return self.make_struct_type0(Some(def), fields);
+            } else if let Some(LangItem::Ptr) = self.packages.std().check_data.lang().as_item(def) {
+                let pty = self.packages.type_(ty).data.as_generic_env().unwrap().vars.vals().next().unwrap();
+                let pty = self.type_(pty, genv);
+                return self.llvm.pointer_type(pty)
             }
         }
         let field_tys = &mut Vec::with_capacity(fields.len());
