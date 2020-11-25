@@ -12,6 +12,9 @@ impl PassImpl<'_> {
             debug_assert_eq!(self.normalize0(ty, &mut Ctx::default()), norm_ty);
             return norm_ty;
         }
+        if let TypeData::Ctor(_) = &self.type_(ty).data {
+            return ty;
+        }
         let ctx = &mut Ctx::default();
         let norm_ty = self.normalize0(ty, ctx);
         debug_assert_eq!(self.normalize0(ty, &mut Ctx::default()), norm_ty);
@@ -31,10 +34,6 @@ impl PassImpl<'_> {
     }
 
     fn normalize0(&mut self, ty: TypeId, ctx: &mut Ctx) -> TypeId {
-        if let TypeData::Ctor(_) = &self.type_(ty).data {
-            ctx.no_cache = true;
-            return ty;
-        }
         self.normalize1(ty, TypeVarMap::default(), ctx)
     }
 
@@ -109,8 +108,8 @@ impl PassImpl<'_> {
                     *val = self.normalize0(v, ctx);
                 }
                 let data = self.type_(ty).data.clone();
-                let (ty, make_norm) = self.normalize_data(node, ty, data, &vars, ctx);
-                assert!(make_norm);
+                let (ty, make_genv) = self.normalize_data(node, ty, data, &vars, ctx);
+                assert!(make_genv);
                 self.type_data_id(node, TypeData::GenericEnv(GenericEnv {
                     ty,
                     vars: genv_vars,
@@ -120,11 +119,11 @@ impl PassImpl<'_> {
             | data @ TypeData::Struct(_)
             | data @ TypeData::Var(_)
             => {
-                let (ty, make_norm) = self.normalize_data(node, ty, data, &vars, ctx);
+                let (ty, make_genv) = self.normalize_data(node, ty, data, &vars, ctx);
                 for (_, val) in vars.iter_mut() {
                     *val = self.normalize0(*val, ctx);
                 }
-                if make_norm {
+                if make_genv {
                     let top_level_fn = self.type_(ty).data.as_fn().and_then(|v| v.def).is_some();
                     if top_level_fn {
                         for var in ctx.ext_vars.drain() {
