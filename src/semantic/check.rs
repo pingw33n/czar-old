@@ -920,7 +920,6 @@ impl PassImpl<'_> {
             NodeKind::TyExpr => {
                 let TyExpr { muta: _, data } = self.hir.ty_expr(ctx.node);
                 match &data.value {
-                    TyData::Array(_) => unimplemented!(),
                     TyData::Ref(_) => unimplemented!(),
                     TyData::Slice(_) => unimplemented!(),
                     | &TyData::Path(node)
@@ -1431,7 +1430,7 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | SliceLiteral(_)
         | StructLiteral(StructLiteralLink::Field)
         | StructLiteral(StructLiteralLink::FieldValue)
-        | TyExpr(TyExprLink::Array(ArrayLink::Len))
+        | TyExpr(TyExprLink::Slice(SliceTypeLink::Len))
         | While(_)
         => ResoCtx::Value,
 

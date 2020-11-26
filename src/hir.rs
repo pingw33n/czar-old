@@ -737,30 +737,22 @@ pub struct TyExpr {
     pub data: S<TyData>,
 }
 
-// [<ty>]
-// [<ty>*]
+// [<item_ty>]
+// [<item_ty>; <len>]
 #[derive(Debug)]
-pub struct Slice {
-    pub ty: NodeId,
-    pub resizable: bool,
+pub struct SliceType {
+    pub item_ty: NodeId /*TyExpr*/,
+    pub len: Option<NodeId>,
 }
 
 #[derive(Debug, EnumAsInner)]
 pub enum TyData {
-    Array(Array),
     // &<ty>
     Ref(NodeId),
-    Slice(Slice),
+    Slice(SliceType),
     // path::to::Type
     Path(NodeId),
     Struct(NodeId),
-}
-
-// [<ty>; <len>]
-#[derive(Debug)]
-pub struct Array {
-    pub ty: NodeId,
-    pub len: NodeId,
 }
 
 #[derive(Debug)]

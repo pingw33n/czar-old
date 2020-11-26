@@ -1,0 +1,5 @@
+fn f(a: [u8]) -> [{ x: [std::String], y: [{bool,}] }] {
+  let x: [{ x: [std::String], y: [{bool,}] }] = [({ x: ["a", "b", "c"], y: [({ true, }); (41 + 1)] })];
+  let x: [i32; 42] = [0; 42];
+  let x: Generic<[{ x: [std::String], y: [{bool,}] }]>;
+}

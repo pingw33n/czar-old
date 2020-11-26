@@ -104,16 +104,15 @@ pub enum SliceLiteralLink {
 
 #[derive(Clone, Copy, Debug)]
 pub enum TyExprLink {
-    Array(ArrayLink),
     Ref,
     Path,
     Struct,
-    Slice,
+    Slice(SliceTypeLink),
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum ArrayLink {
-    Type,
+pub enum SliceTypeLink {
+    Item,
     Len,
 }
 
@@ -374,14 +373,15 @@ impl<T: HirVisitor> Traverser<'_, T> {
             NodeKind::TyExpr => {
                 let TyExpr { data, .. } = self.hir.ty_expr(node);
                 match &data.value {
-                    &TyData::Array(Array { ty, len }) => {
-                        self.traverse0(ty, NodeLink::TyExpr(TyExprLink::Array(ArrayLink::Type)));
-                        self.traverse0(len, NodeLink::TyExpr(TyExprLink::Array(ArrayLink::Len)));
-                    },
-                    &TyData::Ref(n) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Ref)),
                     &TyData::Path(n) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Path)),
+                    &TyData::Ref(n) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Ref)),
+                    &TyData::Slice(SliceType { item_ty, len }) => {
+                        self.traverse0(item_ty, NodeLink::TyExpr(TyExprLink::Slice(SliceTypeLink::Item)));
+                        if let Some(len) = len {
+                            self.traverse0(len, NodeLink::TyExpr(TyExprLink::Slice(SliceTypeLink::Len)));
+                        }
+                    },
                     &TyData::Struct(n)  => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Struct)),
-                    &TyData::Slice(Slice { ty: n, .. }) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Slice)),
                 }
             },
             NodeKind::TypeAlias => {

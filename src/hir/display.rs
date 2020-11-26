@@ -496,21 +496,16 @@ impl Display<'_> {
                     p.print("mut ")?;
                 }
                 match &data.value {
-                    &TyData::Array(Array { ty, len }) => {
-                        p.print("[")?;
-                        self.node(ty, false, p)?;
-                        self.node(len, false, p)?;
-                        p.print("]")?;
-                    }
                     &TyData::Ref(v) => {
                         p.print("&")?;
                         self.node(v, false, p)?;
                     }
-                    &TyData::Slice(Slice { ty, resizable }) => {
+                    &TyData::Slice(SliceType { item_ty: item, len }) => {
                         p.print("[")?;
-                        self.node(ty, false, p)?;
-                        if resizable {
-                            p.print("*")?;
+                        self.node(item, false, p)?;
+                        if let Some(len) = len {
+                            p.print("; ")?;
+                            self.node(len, false, p)?;
                         }
                         p.print("]")?;
                     }

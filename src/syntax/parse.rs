@@ -478,23 +478,17 @@ impl<'a> ParserImpl<'a> {
             }
             Token::BlockOpen(lex::Block::Bracket) => {
                 self.lex.consume();
-                let ty = self.ty_expr()?;
-                let data = if self.lex.maybe(Token::Semi).is_some() {
-                    let len = self.expr(Default::default())?;
-                    TyData::Array(Array {
-                        ty,
-                        len,
-                    })
+                let item = self.ty_expr()?;
+                let len = if self.lex.maybe(Token::Semi).is_some() {
+                    Some(self.expr(Default::default())?)
                 } else {
-                    // [<ty>*]
-                    let resizable = self.lex.maybe(Token::Star).is_some();
-                    TyData::Slice(Slice {
-                        ty,
-                        resizable,
-                    })
+                    None
                 };
                 let end = self.expect(Token::BlockClose(lex::Block::Bracket))?.span.end;
-                (end, data)
+                (end, TyData::Slice(SliceType {
+                    item_ty: item,
+                    len,
+                }))
             }
             Token::BlockOpen(lex::Block::Brace) => {
                 let struct_ = self.struct_type(false, false)?;
