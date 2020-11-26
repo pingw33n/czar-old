@@ -105,7 +105,6 @@ pub enum SliceLiteralLink {
 #[derive(Clone, Copy, Debug)]
 pub enum TyExprLink {
     Array(ArrayLink),
-    Ptr,
     Ref,
     Path,
     Struct,
@@ -379,7 +378,6 @@ impl<T: HirVisitor> Traverser<'_, T> {
                         self.traverse0(ty, NodeLink::TyExpr(TyExprLink::Array(ArrayLink::Type)));
                         self.traverse0(len, NodeLink::TyExpr(TyExprLink::Array(ArrayLink::Len)));
                     },
-                    &TyData::Ptr(n) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Ptr)),
                     &TyData::Ref(n) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Ref)),
                     &TyData::Path(n) => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Path)),
                     &TyData::Struct(n)  => self.traverse0(n, NodeLink::TyExpr(TyExprLink::Struct)),

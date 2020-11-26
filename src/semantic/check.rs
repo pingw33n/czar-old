@@ -921,7 +921,6 @@ impl PassImpl<'_> {
                 let TyExpr { muta: _, data } = self.hir.ty_expr(ctx.node);
                 match &data.value {
                     TyData::Array(_) => unimplemented!(),
-                    &TyData::Ptr(_) => unimplemented!(),
                     TyData::Ref(_) => unimplemented!(),
                     TyData::Slice(_) => unimplemented!(),
                     | &TyData::Path(node)

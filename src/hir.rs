@@ -748,8 +748,6 @@ pub struct Slice {
 #[derive(Debug, EnumAsInner)]
 pub enum TyData {
     Array(Array),
-    // *<ty>
-    Ptr(NodeId),
     // &<ty>
     Ref(NodeId),
     Slice(Slice),

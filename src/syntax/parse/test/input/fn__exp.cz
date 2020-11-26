@@ -2,7 +2,7 @@ fn foo();
 pub fn foo();
 unsafe fn foo();
 pub unsafe fn foo();
-pub unsafe fn foo(s: *u8) -> i32;
+pub unsafe fn foo(s: u8) -> i32;
 pub fn main() -> i32 {}
 fn foo(a: {}) -> {} {}
 fn foo(s: &str) {}

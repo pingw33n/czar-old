@@ -502,10 +502,6 @@ impl Display<'_> {
                         self.node(len, false, p)?;
                         p.print("]")?;
                     }
-                    &TyData::Ptr(v) => {
-                        p.print("*")?;
-                        self.node(v, false, p)?;
-                    }
                     &TyData::Ref(v) => {
                         p.print("&")?;
                         self.node(v, false, p)?;

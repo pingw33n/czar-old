@@ -476,11 +476,6 @@ impl<'a> ParserImpl<'a> {
                 };
                 (end, data)
             }
-            Token::Star => {
-                self.lex.consume();
-                let ty = self.ty_expr()?;
-                (self.hir.node_kind(ty).span.end, TyData::Ptr(ty))
-            },
             Token::BlockOpen(lex::Block::Bracket) => {
                 self.lex.consume();
                 let ty = self.ty_expr()?;
