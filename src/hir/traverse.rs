@@ -30,6 +30,7 @@ pub enum NodeLink {
     Path(PathLink),
     Range(RangeLink),
     Root,
+    SliceLiteral(SliceLiteralLink),
     StructDef(StructDefLink),
     StructTypeFieldType,
     StructLiteral(StructLiteralLink),
@@ -93,6 +94,12 @@ pub enum RangeLink {
 pub enum StructDefLink {
     Type,
     TypeParam,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum SliceLiteralLink {
+    Item,
+    Len,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -328,6 +335,15 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 }
                 if let Some(end) = end {
                     self.traverse0(end, NodeLink::Range(RangeLink::End));
+                }
+            },
+            NodeKind::SliceLiteral => {
+                let SliceLiteral { items, len } = self.hir.slice_literal(node);
+                for &item in items {
+                    self.traverse0(item, NodeLink::SliceLiteral(SliceLiteralLink::Item));
+                }
+                if let &Some(len) = len {
+                    self.traverse0(len, NodeLink::SliceLiteral(SliceLiteralLink::Len));
                 }
             },
             NodeKind::Struct => {

@@ -425,6 +425,21 @@ impl Display<'_> {
                     self.expr(*end, p)?;
                 }
             }
+            NodeKind::SliceLiteral => {
+                let SliceLiteral { items, len } = self.hir.slice_literal(node);
+                p.print("[")?;
+                for (i, &item) in items.iter().enumerate() {
+                    if i > 0 {
+                        p.print(", ")?;
+                    }
+                    self.expr(item, p)?;
+                }
+                if let &Some(len) = len {
+                    p.print("; ")?;
+                    self.expr(len, p)?;
+                }
+                p.print("]")?;
+            }
             NodeKind::Struct => {
                 let Struct { vis, name, ty_params, ty } = self.hir.struct_(node);
                 self.vis(vis, p)?;

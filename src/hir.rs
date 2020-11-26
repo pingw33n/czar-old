@@ -49,6 +49,7 @@ pub enum NodeKind {
     PathEndStar,
     PathSegment,
     Range,
+    SliceLiteral,
     Struct,
     StructLiteral,
     StructLiteralField,
@@ -104,6 +105,7 @@ impl NodeKind {
             | PathEndStar
             | PathSegment
             | Range
+            | SliceLiteral
             | StructType
             | StructLiteral
             | StructLiteralField
@@ -179,6 +181,7 @@ pub struct Hir {
     path_end_idents: NodeMap<PathEndIdent>,
     path_segments: NodeMap<PathSegment>,
     ranges: NodeMap<Range>,
+    slice_literals: NodeMap<SliceLiteral>,
     struct_literals: NodeMap<StructLiteral>,
     struct_literal_fields: NodeMap<StructLiteralField>,
     structs: NodeMap<Struct>,
@@ -354,6 +357,7 @@ impl Hir {
         insert_path_segment, path_segment, path_segment_mut, try_path_segment, try_path_segment_mut, path_segments, PathSegment;
         insert_path_end_ident, path_end_ident, path_end_ident_mut, try_path_end_ident, try_path_end_ident_mut, path_end_idents, PathEndIdent;
         insert_range, range, range_mut, try_range, try_range_mut, ranges, Range;
+        insert_slice_literal, slice_literal, slice_literal_mut, try_slice_literal, try_slice_literal_mut, slice_literals, SliceLiteral;
         insert_struct, struct_, struct_mut, try_struct, try_struct_mut, structs, Struct;
         insert_struct_type, struct_type, struct_type_mut, try_struct_type, try_struct_type_mut, struct_types, StructType;
         insert_struct_literal, struct_literal, struct_literal_mut, try_struct_literal, try_struct_literal_mut, struct_literals, StructLiteral;
@@ -929,4 +933,10 @@ pub struct While {
 #[derive(Debug)]
 pub struct Loop {
     pub block: NodeId,
+}
+
+#[derive(Debug)]
+pub struct SliceLiteral {
+    pub items: Vec<NodeId>,
+    pub len: Option<NodeId>,
 }

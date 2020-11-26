@@ -740,6 +740,7 @@ impl PassImpl<'_> {
             | NodeKind::Cast
             | NodeKind::Loop
             | NodeKind::Range
+            | NodeKind::SliceLiteral
             => todo!("{:?}", self.hir.node_kind(ctx.node)),
         }
         Ok(())
@@ -1428,6 +1429,7 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | LoopBlock
         | Op(_)
         | Range(_)
+        | SliceLiteral(_)
         | StructLiteral(StructLiteralLink::Field)
         | StructLiteral(StructLiteralLink::FieldValue)
         | TyExpr(TyExprLink::Array(ArrayLink::Len))

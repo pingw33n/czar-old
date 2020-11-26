@@ -1142,6 +1142,43 @@ impl<'a> ParserImpl<'a> {
                     block,
                 }))
             }
+            // Slice literal:
+            // []
+            // [1, 2, 3]
+            // [{ let x = 42; x },]
+            // [42; 100]
+            Token::BlockOpen(lex::Block::Bracket) => {
+                let start = tok.span.start;
+                self.lex.consume();
+                let mut items = Vec::new();
+                let first = self.maybe_expr(Default::default())?;
+                let len;
+                if let Some(first) = first {
+                    items.push(first);
+                    if self.lex.maybe(Token::Semi).is_some() {
+                        len = Some(self.expr(Default::default())?);
+                    } else {
+                        len = None;
+                        self.lex.maybe(Token::Comma);
+                        loop {
+                            let item = if let Some(v) = self.maybe_expr(Default::default())? {
+                                v
+                            } else {
+                                break;
+                            };
+                            items.push(item);
+                            self.lex.maybe(Token::Comma);
+                        }
+                    }
+                } else {
+                    len = None
+                };
+                let end = self.expect(Token::BlockClose(lex::Block::Bracket))?.span.end;
+                self.hir.insert_slice_literal(Span::new(start, end).spanned(SliceLiteral {
+                    items,
+                    len,
+                }))
+            }
             _ => if let Some(v) = self.maybe_path(false)? {
                 v
             } else {
@@ -1908,6 +1945,7 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | Range
         | TyExpr
         | TypeParam
+        | SliceLiteral
         | StructLiteral
         | StructLiteralField
         => true,

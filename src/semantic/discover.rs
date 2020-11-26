@@ -476,6 +476,7 @@ impl DiscoverData {
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
             | NodeKind::Range
+            | NodeKind::SliceLiteral
             | NodeKind::StructLiteral
             | NodeKind::StructLiteralField
             | NodeKind::StructType
@@ -527,6 +528,7 @@ impl DiscoverData {
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
             | NodeKind::Range
+            | NodeKind::SliceLiteral
             | NodeKind::StructLiteral
             | NodeKind::StructLiteralField
             | NodeKind::StructType
@@ -566,6 +568,7 @@ impl DiscoverData {
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
             | NodeKind::Range
+            | NodeKind::SliceLiteral
             | NodeKind::StructLiteral
             | NodeKind::StructLiteralField
             | NodeKind::StructType
@@ -765,6 +768,7 @@ fn creates_scope(kind: NodeKind) -> bool {
         | PathEndStar
         | PathSegment
         | Range
+        | SliceLiteral
         | StructLiteral
         | StructLiteralField
         | StructType
