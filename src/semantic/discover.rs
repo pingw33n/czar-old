@@ -476,9 +476,9 @@ impl DiscoverData {
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
             | NodeKind::Range
+            | NodeKind::StructLiteral
+            | NodeKind::StructLiteralField
             | NodeKind::StructType
-            | NodeKind::StructValue
-            | NodeKind::StructValueField
             | NodeKind::TyExpr
             | NodeKind::Use
             | NodeKind::While
@@ -527,9 +527,9 @@ impl DiscoverData {
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
             | NodeKind::Range
+            | NodeKind::StructLiteral
+            | NodeKind::StructLiteralField
             | NodeKind::StructType
-            | NodeKind::StructValue
-            | NodeKind::StructValueField
             | NodeKind::TyExpr
             | NodeKind::TypeAlias
             | NodeKind::Use
@@ -566,9 +566,9 @@ impl DiscoverData {
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
             | NodeKind::Range
+            | NodeKind::StructLiteral
+            | NodeKind::StructLiteralField
             | NodeKind::StructType
-            | NodeKind::StructValue
-            | NodeKind::StructValueField
             | NodeKind::TyExpr
             | NodeKind::Use
             | NodeKind::While
@@ -765,9 +765,9 @@ fn creates_scope(kind: NodeKind) -> bool {
         | PathEndStar
         | PathSegment
         | Range
+        | StructLiteral
+        | StructLiteralField
         | StructType
-        | StructValue
-        | StructValueField
         | TyExpr
         | TypeParam
         | Use

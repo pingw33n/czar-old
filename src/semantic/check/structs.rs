@@ -70,27 +70,27 @@ impl PassImpl<'_> {
         })))
     }
 
-    pub fn check_struct_value(&mut self, node: NodeId) -> Result<TypeId> {
-        let StructValue {
+    pub fn check_struct_literal(&mut self, node: NodeId) -> Result<TypeId> {
+        let StructLiteral {
             name,
             explicit_tuple,
             fields,
-        } = self.hir.struct_value(node);
+        } = self.hir.struct_literal(node);
         assert!(explicit_tuple.is_none() || !fields.is_empty());
         if name.is_some() {
-            self.check_named_struct_value(node)
+            self.check_named_struct_literal(node)
         } else {
-            self.check_unnamed_struct_value(node)
+            self.check_unnamed_struct_literal(node)
         }
     }
 
-    fn check_struct_value_fields(&mut self,
+    fn check_struct_literal_fields(&mut self,
         ty: TypeId,
-        fields: &[NodeId /*StructValueField*/],
+        fields: &[NodeId /*StructLiteralField*/],
     ) -> HashSet<u32> {
         let mut seen_fields = HashSet::new();
         for (i, &field_node) in fields.iter().enumerate() {
-            let field = self.hir.struct_value_field(field_node);
+            let field = self.hir.struct_literal_field(field_node);
 
             let name = if let Some(name) = &field.name {
                 name.span.spanned(FieldAccessName::Ident(name.value.clone()))
@@ -131,12 +131,12 @@ impl PassImpl<'_> {
         seen_fields
     }
 
-    fn check_named_struct_value(&mut self, node: NodeId) -> Result<TypeId> {
-        let StructValue {
+    fn check_named_struct_literal(&mut self, node: NodeId) -> Result<TypeId> {
+        let StructLiteral {
             name,
             explicit_tuple: _,
             fields,
-        } = self.hir.struct_value(node);
+        } = self.hir.struct_literal(node);
 
         let name = name.unwrap();
 
@@ -147,7 +147,7 @@ impl PassImpl<'_> {
             return Err(());
         }
 
-        let seen_fields = self.check_struct_value_fields(ty, fields);
+        let seen_fields = self.check_struct_literal_fields(ty, fields);
 
         let sty = self.underlying_type(ty).data.as_struct().unwrap();
 
@@ -182,14 +182,14 @@ impl PassImpl<'_> {
         Ok(ty)
     }
 
-    fn check_unnamed_struct_value(&mut self, node: NodeId /*StructValue*/) -> Result<TypeId> {
-        let fields = &self.hir.struct_value(node).fields;
+    fn check_unnamed_struct_literal(&mut self, node: NodeId /*StructLiteral*/) -> Result<TypeId> {
+        let fields = &self.hir.struct_literal(node).fields;
         let mut err = false;
 
         let mut field_data = Vec::with_capacity(fields.len());
         let mut seen_named_fields = HashSet::new();
         for (idx, &field_node) in fields.iter().enumerate() {
-            let f = self.hir.struct_value_field(field_node);
+            let f = self.hir.struct_literal_field(field_node);
             if let Ok(ty) = self.typing(f.value) {
                 let name = if let Some(name) = f.name.as_ref() {
                     if seen_named_fields.insert(&name.value) {

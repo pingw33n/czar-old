@@ -50,9 +50,9 @@ pub enum NodeKind {
     PathSegment,
     Range,
     Struct,
+    StructLiteral,
+    StructLiteralField,
     StructType,
-    StructValue,
-    StructValueField,
     TypeAlias,
     TyExpr,
     TypeParam,
@@ -105,8 +105,8 @@ impl NodeKind {
             | PathSegment
             | Range
             | StructType
-            | StructValue
-            | StructValueField
+            | StructLiteral
+            | StructLiteralField
             | TyExpr
             | TypeParam
             | While
@@ -179,10 +179,10 @@ pub struct Hir {
     path_end_idents: NodeMap<PathEndIdent>,
     path_segments: NodeMap<PathSegment>,
     ranges: NodeMap<Range>,
+    struct_literals: NodeMap<StructLiteral>,
+    struct_literal_fields: NodeMap<StructLiteralField>,
     structs: NodeMap<Struct>,
     struct_types: NodeMap<StructType>,
-    struct_values: NodeMap<StructValue>,
-    struct_value_fields: NodeMap<StructValueField>,
     type_aliases: NodeMap<TypeAlias>,
     ty_exprs: NodeMap<TyExpr>,
     type_params: NodeMap<TypeParam>,
@@ -356,8 +356,8 @@ impl Hir {
         insert_range, range, range_mut, try_range, try_range_mut, ranges, Range;
         insert_struct, struct_, struct_mut, try_struct, try_struct_mut, structs, Struct;
         insert_struct_type, struct_type, struct_type_mut, try_struct_type, try_struct_type_mut, struct_types, StructType;
-        insert_struct_value, struct_value, struct_value_mut, try_struct_value, try_struct_value_mut, struct_values, StructValue;
-        insert_struct_value_field, struct_value_field, struct_value_field_mut, try_struct_value_field, try_struct_value_field_mut, struct_value_fields, StructValueField;
+        insert_struct_literal, struct_literal, struct_literal_mut, try_struct_literal, try_struct_literal_mut, struct_literals, StructLiteral;
+        insert_struct_literal_field, struct_literal_field, struct_literal_field_mut, try_struct_literal_field, try_struct_literal_field_mut, struct_literal_fields, StructLiteralField;
         insert_type_alias, type_alias, type_alias_mut, try_type_alias, try_type_alias_mut, type_aliases, TypeAlias;
         insert_ty_expr, ty_expr, ty_expr_mut, try_ty_expr, try_ty_expr_mut, ty_exprs, TyExpr;
         insert_type_param, type_param, type_param_mut, try_type_param, try_type_param_mut, type_params, TypeParam;
@@ -865,15 +865,15 @@ pub struct StructTypeField {
 }
 
 #[derive(Debug)]
-pub struct StructValue {
-    pub name: Option<NodeId>, // Path
+pub struct StructLiteral {
+    pub name: Option<NodeId /*Path*/>,
     /// Whether the value has `0:` specifier.
     pub explicit_tuple: Option<S<()>>,
-    pub fields: Vec<NodeId>, // StructValueField
+    pub fields: Vec<NodeId /*StructLiteralField*/>,
 }
 
 #[derive(Debug)]
-pub struct StructValueField {
+pub struct StructLiteralField {
     pub name: Option<S<Ident>>,
     pub value: NodeId,
 }

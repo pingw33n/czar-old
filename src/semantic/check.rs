@@ -729,9 +729,9 @@ impl PassImpl<'_> {
             | NodeKind::PathEndIdent
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
+            | NodeKind::StructLiteral
+            | NodeKind::StructLiteralField
             | NodeKind::StructType
-            | NodeKind::StructValue
-            | NodeKind::StructValueField
             | NodeKind::TyExpr
             | NodeKind::Use
             | NodeKind::While
@@ -911,11 +911,11 @@ impl PassImpl<'_> {
                 self.typing(self.hir.struct_(ctx.node).ty)?
             }
             NodeKind::StructType => self.check_struct_type(ctx.node)?,
-            NodeKind::StructValueField => {
-                let value = self.hir.struct_value_field(ctx.node).value;
+            NodeKind::StructLiteralField => {
+                let value = self.hir.struct_literal_field(ctx.node).value;
                 self.typing(value)?
             }
-            NodeKind::StructValue => self.check_struct_value(ctx.node)?,
+            NodeKind::StructLiteral => self.check_struct_literal(ctx.node)?,
             NodeKind::TyExpr => {
                 let TyExpr { muta: _, data } = self.hir.ty_expr(ctx.node);
                 match &data.value {
@@ -1428,8 +1428,8 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | LoopBlock
         | Op(_)
         | Range(_)
-        | StructValue(StructValueLink::Field)
-        | StructValue(StructValueLink::FieldValue)
+        | StructLiteral(StructLiteralLink::Field)
+        | StructLiteral(StructLiteralLink::FieldValue)
         | TyExpr(TyExprLink::Array(ArrayLink::Len))
         | While(_)
         => ResoCtx::Value,
@@ -1445,8 +1445,8 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | Path(PathLink::EndIdentTyParams)
         | Path(PathLink::SegmentItemTyParams)
         | StructDef(_)
+        | StructLiteral(StructLiteralLink::Name)
         | StructTypeFieldType
-        | StructValue(StructValueLink::Name)
         | TypeAlias(_)
         | TyExpr(_)
         => ResoCtx::Type,

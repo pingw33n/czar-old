@@ -26,7 +26,7 @@ impl Display<'_> {
                     p.indent()?;
 
                     let no_result = exprs.last()
-                        .and_then(|&v| self.hir.try_struct_value(v))
+                        .and_then(|&v| self.hir.try_struct_literal(v))
                         .map(|v| v.fields.is_empty()) == Some(true);
                     let it = exprs.iter().enumerate()
                         .take(if no_result { exprs.len() - 1 } else { exprs.len() });
@@ -438,11 +438,11 @@ impl Display<'_> {
             NodeKind::StructType => {
                 unreachable!();
             }
-            NodeKind::StructValue => {
-                let StructValue {
+            NodeKind::StructLiteral => {
+                let StructLiteral {
                     name,
                     explicit_tuple,
-                    fields } = self.hir.struct_value(node);
+                    fields } = self.hir.struct_literal(node);
                 if let &Some(name) = name {
                     self.node(name, false, p)?;
                     p.print(' ')?;
@@ -454,7 +454,7 @@ impl Display<'_> {
                         p.print("0: ")?;
                     }
                     for (i, &field) in fields.iter().enumerate() {
-                        let StructValueField { name, value } = self.hir.struct_value_field(field);
+                        let StructLiteralField { name, value } = self.hir.struct_literal_field(field);
                         if i > 0 {
                             p.print(", ")?;
                         }
@@ -474,7 +474,7 @@ impl Display<'_> {
                 }
                 p.print('}')?;
             }
-            NodeKind::StructValueField => unreachable!(),
+            NodeKind::StructLiteralField => unreachable!(),
             NodeKind::TyExpr => {
                 let TyExpr { muta, data } = self.hir.ty_expr(node);
                 if muta.is_some() {

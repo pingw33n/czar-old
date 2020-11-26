@@ -6,7 +6,7 @@ pub struct CheckData {
     pub(in super) typings: NodeMap<TypeId>,
     pub(in super) lang: Option<Box<Lang>>,
     path_to_target: NodeMap<GlobalNodeId>,
-    /// Maps `FieldAccess` and `StructValueField` nodes to the field index on the struct type.
+    /// Maps `FieldAccess` and `StructLiteralField` nodes to the field index on the struct type.
     pub(in super) struct_field_index: NodeMap<u32>,
     lvalues: NodeMap<()>,
     /// Impls defined in this package.

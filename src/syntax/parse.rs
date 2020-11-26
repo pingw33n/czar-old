@@ -51,7 +51,7 @@ struct PrecAssoc {
     assoc: u32,
 }
 
-const NAMED_STRUCT_VALUE_PREC: PrecAssoc = PrecAssoc { prec: 10000, assoc: 1 };
+const NAMED_STRUCT_LITERAL_PREC: PrecAssoc = PrecAssoc { prec: 10000, assoc: 1 };
 const FIELD_ACCESS_PREC: PrecAssoc = PrecAssoc { prec: 180, assoc: 1 };
 const FN_CALL_PREC: PrecAssoc = PrecAssoc { prec: 170, assoc: 1 };
 const UNWRAP_PREC: PrecAssoc = PrecAssoc { prec: 160, assoc: 1 };
@@ -73,8 +73,8 @@ const ASSIGN_PREC: PrecAssoc = PrecAssoc { prec: 30, assoc: 0 };
 struct ExprState {
     min_prec: u32,
 
-    /// Whether the expr parser recognizes struct constructors.
-    parse_struct_value: bool,
+    /// Whether the expr parser recognizes struct literals.
+    parse_struct_literal: bool,
 
     /// Are we immediately after '{' or '('?
     at_group_start: bool,
@@ -100,7 +100,7 @@ impl Default for ExprState {
     fn default() -> Self {
         Self {
             min_prec: 0,
-            parse_struct_value: true,
+            parse_struct_literal: true,
             at_group_start: false,
         }
     }
@@ -874,7 +874,7 @@ impl<'a> ParserImpl<'a> {
                 // If we have empty expression in the middle of block or
                 // semicolon at the end of the block, add an empty unnamed struct.
                 if expr.is_none() || end.is_some() {
-                    exprs.push(self.hir.insert_struct_value(semi.span.spanned(StructValue {
+                    exprs.push(self.hir.insert_struct_literal(semi.span.spanned(StructLiteral {
                         name: None,
                         explicit_tuple: None,
                         fields: Vec::new(),
@@ -949,7 +949,6 @@ impl<'a> ParserImpl<'a> {
         }
     }
 
-    /// `allow_struct_value` allows struct constructors.
     fn maybe_expr(&mut self, state: ExprState) -> PResult<Option<NodeId>> {
         let tok = self.lex.nth(0);
         // Handle prefix position.
@@ -1033,7 +1032,7 @@ impl<'a> ParserImpl<'a> {
             // Block or unnamed struct
             Token::BlockOpen(lex::Block::Brace) => {
                 self.lex.consume();
-                if state.parse_struct_value {
+                if state.parse_struct_literal {
                     self.block_or_struct(None, tok.span.start)
                 } else {
                     self.block_inner(tok.span.start)
@@ -1061,7 +1060,7 @@ impl<'a> ParserImpl<'a> {
                 self.lex.consume();
                 let needs_parens = self.lex.nth(0).value == Token::BlockOpen(lex::Block::Brace);
                 let cond = self.expr(ExprState {
-                    parse_struct_value: false,
+                    parse_struct_literal: false,
                     ..Default::default()
                 })?;
                 if needs_parens {
@@ -1122,7 +1121,7 @@ impl<'a> ParserImpl<'a> {
                 self.lex.consume();
                 let needs_parens = self.lex.nth(0).value == Token::BlockOpen(lex::Block::Brace);
                 let cond = self.expr(ExprState {
-                    parse_struct_value: false,
+                    parse_struct_literal: false,
                     ..Default::default()
                 })?;
                 if needs_parens {
@@ -1157,10 +1156,10 @@ impl<'a> ParserImpl<'a> {
             let PrecAssoc { prec, assoc } = match tok.value {
                 // Named struct value.
                 Token::BlockOpen(lex::Block::Brace)
-                    if state.parse_struct_value
+                    if state.parse_struct_literal
                         && self.hir.node_kind(left).value == NodeKind::Path
                 => {
-                    NAMED_STRUCT_VALUE_PREC
+                    NAMED_STRUCT_LITERAL_PREC
                 }
 
                 // Field access or method call
@@ -1642,7 +1641,7 @@ impl<'a> ParserImpl<'a> {
     fn block_or_struct(&mut self, struct_name: Option<NodeId>, start: usize) -> PResult<NodeId> {
         enum Probe {
             StructStart {
-                first_field: S<StructValueField>,
+                first_field: S<StructLiteralField>,
                 explicit_tuple: Option<S<()>>,
             },
             EmptyStruct {
@@ -1657,7 +1656,7 @@ impl<'a> ParserImpl<'a> {
             self.expect(Token::Colon).unwrap();
             let value = self.expr(Default::default())?;
             Probe::StructStart {
-                first_field: Span::new(name.span.start, self.hir.node_kind(value).span.end).spanned(StructValueField {
+                first_field: Span::new(name.span.start, self.hir.node_kind(value).span.end).spanned(StructLiteralField {
                     name: Some(name),
                     value,
                 }),
@@ -1676,7 +1675,7 @@ impl<'a> ParserImpl<'a> {
             self.expect(Token::Colon).unwrap();
             let value = self.expr(Default::default())?;
             Probe::StructStart {
-                first_field: self.hir.node_kind(value).span.spanned(StructValueField {
+                first_field: self.hir.node_kind(value).span.spanned(StructLiteralField {
                     name: None,
                     value,
                 }),
@@ -1693,7 +1692,7 @@ impl<'a> ParserImpl<'a> {
                         self.discard_state(save);
                     }
                     Probe::StructStart {
-                        first_field: self.hir.node_kind(value).span.spanned(StructValueField {
+                        first_field: self.hir.node_kind(value).span.spanned(StructLiteralField {
                             name: None,
                             value,
                         }),
@@ -1716,7 +1715,7 @@ impl<'a> ParserImpl<'a> {
         Ok(match probe {
             Probe::StructStart { first_field , explicit_tuple } => {
                 let mut fields = Vec::new();
-                fields.push(self.hir.insert_struct_value_field(first_field));
+                fields.push(self.hir.insert_struct_literal_field(first_field));
                 loop {
                     let delimited = self.lex.maybe(Token::Comma).is_some();
                     if self.lex.nth(0).value == Token::BlockClose(lex::Block::Brace) {
@@ -1745,22 +1744,22 @@ impl<'a> ParserImpl<'a> {
 
                     let value_span = self.hir.node_kind(value).span;
                     let start = name.as_ref().map(|v| v.span.start).unwrap_or(value_span.start);
-                    fields.push(self.hir.insert_struct_value_field(Span::new(start, value_span.end).spanned(
-                        StructValueField {
+                    fields.push(self.hir.insert_struct_literal_field(Span::new(start, value_span.end).spanned(
+                        StructLiteralField {
                             name,
                             value,
                         })));
                 }
                 let end = self.expect(Token::BlockClose(lex::Block::Brace)).unwrap().span.end;
 
-                self.hir.insert_struct_value(Span::new(start, end).spanned(StructValue {
+                self.hir.insert_struct_literal(Span::new(start, end).spanned(StructLiteral {
                     name: struct_name,
                     explicit_tuple,
                     fields,
                 }))
             }
             Probe::EmptyStruct { end } => {
-                self.hir.insert_struct_value(Span::new(start, end).spanned(StructValue {
+                self.hir.insert_struct_literal(Span::new(start, end).spanned(StructLiteral {
                     name: struct_name,
                     explicit_tuple: None,
                     fields: Vec::new(),
@@ -1909,8 +1908,8 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | Range
         | TyExpr
         | TypeParam
-        | StructValue
-        | StructValueField
+        | StructLiteral
+        | StructLiteralField
         => true,
     }
 }

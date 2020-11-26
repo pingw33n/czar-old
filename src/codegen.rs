@@ -436,8 +436,8 @@ impl<'a> Codegen<'a> {
                     })
                 }
             }
-            NodeKind::StructValue => {
-                let StructValue { fields, .. } = ctx.package.hir.struct_value(node);
+            NodeKind::StructLiteral => {
+                let StructLiteral { fields, .. } = ctx.package.hir.struct_literal(node);
                 if fields.is_empty() {
                     let ty = ctx.package.check_data.typing(node);
                     let ty = self.type_(ty, ctx.genv);
@@ -445,7 +445,7 @@ impl<'a> Codegen<'a> {
                 } else {
                     let struct_var = self.alloca(node, "struct_init", ctx); // TODO use actual type name
                     for &field in fields {
-                        let value = ctx.package.hir.struct_value_field(field).value;
+                        let value = ctx.package.hir.struct_literal_field(field).value;
                         let field_val = self.expr(value, ctx).to_direct(self.bodyb);
                         let idx = ctx.package.check_data.struct_field_index(field);
                         let field_ptr = self.bodyb.struct_gep(struct_var, idx);
@@ -454,7 +454,7 @@ impl<'a> Codegen<'a> {
                     struct_var.into()
                 }
             }
-            NodeKind::StructValueField => unreachable!(),
+            NodeKind::StructLiteralField => unreachable!(),
             NodeKind::While => {
                 let &While { cond, block } = ctx.package.hir.while_(node);
 

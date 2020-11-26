@@ -32,7 +32,7 @@ pub enum NodeLink {
     Root,
     StructDef(StructDefLink),
     StructTypeFieldType,
-    StructValue(StructValueLink),
+    StructLiteral(StructLiteralLink),
     TypeAlias(TypeAliasLink),
     TyExpr(TyExprLink),
     UsePath,
@@ -133,7 +133,7 @@ pub enum PathLink {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum StructValueLink {
+pub enum StructLiteralLink {
     Name,
     Field,
     FieldValue,
@@ -343,18 +343,18 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     self.traverse0(ty, NodeLink::StructTypeFieldType);
                 }
             },
-            NodeKind::StructValue => {
-                let StructValue { name, fields, .. } = self.hir.struct_value(node);
+            NodeKind::StructLiteral => {
+                let StructLiteral { name, fields, .. } = self.hir.struct_literal(node);
                 if let Some(name) = *name {
-                    self.traverse0(name, NodeLink::StructValue(StructValueLink::Name));
+                    self.traverse0(name, NodeLink::StructLiteral(StructLiteralLink::Name));
                 }
                 for &field in fields {
-                    self.traverse0(field, NodeLink::StructValue(StructValueLink::Field));
+                    self.traverse0(field, NodeLink::StructLiteral(StructLiteralLink::Field));
                 }
             },
-            NodeKind::StructValueField => {
-                let value = self.hir.struct_value_field(node).value;
-                self.traverse0(value, NodeLink::StructValue(StructValueLink::FieldValue))
+            NodeKind::StructLiteralField => {
+                let value = self.hir.struct_literal_field(node).value;
+                self.traverse0(value, NodeLink::StructLiteral(StructLiteralLink::FieldValue))
             }
             NodeKind::TyExpr => {
                 let TyExpr { data, .. } = self.hir.ty_expr(node);

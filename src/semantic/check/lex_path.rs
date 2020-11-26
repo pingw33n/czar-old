@@ -189,8 +189,8 @@ impl PassImpl<'_> {
         let path_start = self.discover_data.find_path_start(path, self.hir).unwrap();
 
         let fully_inferrable = match self.hir.node_kind(self.discover_data.parent_of(path_start)).value {
-            | NodeKind::StructValue
             | NodeKind::FnCall
+            | NodeKind::StructLiteral
             => true,
             _ => false,
         };
