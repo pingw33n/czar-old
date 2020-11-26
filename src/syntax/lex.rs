@@ -1217,9 +1217,11 @@ pub fn char_literal(s: &str) -> Result<char, CharLiteralError> {
 pub struct StringLiteralError;
 
 pub fn string_literal(s: &str) -> Result<String, StringLiteralError> {
-    assert!(s.len() >= 2);
     assert_eq!(s.as_bytes()[0], b'"');
-    assert_eq!(s.as_bytes()[s.len() - 1], b'"');
+    if s.as_bytes()[s.len() - 1] != b'"' {
+        // Unterminated.
+        return Err(StringLiteralError);
+    }
 
     let mut r = String::with_capacity(s.len());
     let mut it = s[1..s.len() - 1].chars();
