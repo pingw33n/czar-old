@@ -28,6 +28,13 @@ pub struct BaseStructType {
 }
 
 impl PassImpl<'_> {
+    pub fn pre_check_struct(&mut self, node: NodeId /*Struct*/) -> Result<()> {
+        let Struct { ty_params, .. } = self.hir.struct_(node);
+        let ty_params = self.ensure_typing_many(ty_params)?;
+        self.begin_typing(node, ty_params);
+        Ok(())
+    }
+
     pub fn check_struct_type(&mut self, node: NodeId /*StructType*/) -> Result<TypeId> {
         let fields = &self.hir.struct_type(node).fields;
         let named = self.hir.node_kind(self.discover_data.parent_of(node)).value == NodeKind::Struct;
@@ -82,6 +89,13 @@ impl PassImpl<'_> {
         } else {
             self.check_unnamed_struct_literal(node)
         }
+    }
+
+    pub fn check_field_access(&mut self, node: NodeId /*FieldAccess*/) -> Result<TypeId> {
+        self.check_data.set_lvalue(node);
+        let hir::FieldAccess { receiver, name: field } = self.hir.field_access(node);
+        let struct_ty = self.typing(*receiver)?;
+        self.resolve_struct_field(struct_ty, node, field)
     }
 
     fn check_struct_literal_fields(&mut self,
@@ -232,7 +246,7 @@ impl PassImpl<'_> {
         })))
     }
 
-    pub fn resolve_struct_field(&mut self,
+    fn resolve_struct_field(&mut self,
         struct_ty: TypeId,
         field_node: NodeId,
         field_name: &S<FieldAccessName>,
