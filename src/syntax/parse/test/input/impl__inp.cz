@@ -14,3 +14,13 @@ impl<T, U, V> Trait<T, U> for Struct<V> {
     self.method(0, arg2: {});
   }
 }
+
+impl<T> {} {}
+impl<T> {T,} {}
+impl<T> [T] {}
+impl<T> [[[T]; 42]] {}
+
+impl<T> path::to::Trait<{}> for {} {}
+impl<T> path::to::Trait<{T,}> for {T,} {}
+impl<T> path::to::Trait<[T]> for [T] {}
+impl<T> path::to::Trait<[[[T]; 42]]> for [[[T]; 42]] {}

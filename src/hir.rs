@@ -901,9 +901,9 @@ pub struct Range {
 
 #[derive(Debug)]
 pub struct Impl {
-    pub ty_params: Vec<NodeId>,
-    pub trait_: Option<NodeId>, // Path
-    pub for_: NodeId, // Path
+    pub ty_params: Vec<NodeId /*TypeParam*/>,
+    pub trait_: Option<NodeId /*Path*/>,
+    pub for_: NodeId /*TyExpr*/,
     pub items: Vec<NodeId>,
 }
 

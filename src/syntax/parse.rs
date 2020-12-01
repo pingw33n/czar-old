@@ -1576,16 +1576,19 @@ impl<'a> ParserImpl<'a> {
     fn impl_(&mut self) -> PResult<NodeId> {
         let start = self.expect(Token::Keyword(Keyword::Impl))?.span.start;
         let ty_params = self.maybe_ty_params()?;
-        let sym1 = self.path(true)?;
-        let sym2 = if self.lex.maybe(Token::Keyword(Keyword::For)).is_some() {
-            Some(self.path(true)?)
+        let (trait_, for_) = if let Some(first) = self.maybe_path(true)? {
+            if self.lex.maybe(Token::Keyword(Keyword::For)).is_some() {
+                (Some(first), self.ty_expr()?)
+            } else {
+                let span = self.hir.node_kind(first).span;
+                let for_ = self.hir.insert_ty_expr(span.spanned(TyExpr {
+                    muta: None,
+                    data: span.spanned(TyData::Path(first)),
+                }));
+                (None, for_)
+            }
         } else {
-            None
-        };
-        let (trait_, for_) = if let Some(sym2) = sym2 {
-            (Some(sym1), sym2)
-        } else {
-            (None, sym1)
+            (None, self.ty_expr()?)
         };
 
         let span = self.hir.node_kind(for_).span;
