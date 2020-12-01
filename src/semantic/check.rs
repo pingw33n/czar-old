@@ -1233,10 +1233,17 @@ impl PassImpl<'_> {
         let mut genv_vars = TypeVarMap::default();
         let ty = self.normalize(ty);
         let ty_genv_vars = &self.type_(ty).data.as_generic_env().unwrap().vars;
+        let mut eq_vars = Vec::new();
         for (var, val) in self.type_(for_ty).data.as_generic_env().unwrap().vars.iter() {
             let from_var = self.type_param(val).unwrap().id;
             let var = ty_genv_vars.get(var).unwrap();
-            genv_vars.insert(from_var, var);
+            if let Some(var2) = genv_vars.replace(from_var, var) {
+                eq_vars.push((var, var2));
+            }
+        }
+        for (var1, var2) in eq_vars {
+            self.unify(var1, var2);
+            debug_assert_eq!(self.normalize(var1), self.normalize(var2));
         }
 
         let fn_ty_node = self.type_(fn_ty).node;

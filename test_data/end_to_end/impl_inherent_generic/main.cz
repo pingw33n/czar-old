@@ -1,0 +1,13 @@
+fn main() {
+    struct S<T, U> {t: T, u: U}
+
+    impl<T> S<T, T> {
+        fn f(self) -> S<{T,}, {u: T}> {
+            S { t: {self.t,}, u: {u: self.u} }
+        }
+    }
+
+    let s = S{t: 42, u:4242};
+    print_u64(s.f().t.0); println();
+    print_u64(s.f().u.u); println();
+}
