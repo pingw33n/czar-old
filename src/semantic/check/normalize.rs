@@ -103,7 +103,7 @@ impl PassImpl<'_> {
             TypeData::GenericEnv(GenericEnv { ty, vars: mut genv_vars }) => {
                 for (_, val) in genv_vars.iter_mut() {
                     let v = vars.get(*val).unwrap_or(*val);
-                    *val = self.normalize0(v, ctx);
+                    *val = self.normalize1(v, vars.clone(), ctx);
                 }
                 let data = self.type_(ty).data.clone();
                 let (ty, make_genv) = self.normalize_data(node, ty, data, &vars, ctx);
