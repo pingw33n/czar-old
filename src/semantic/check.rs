@@ -57,7 +57,7 @@ pub struct Type {
 #[derive(Clone, Copy, Debug, EnumAsInner, Eq, Hash, PartialEq)]
 pub enum Var {
     Inference(InferenceVar),
-    Param,
+    Param(GlobalNodeId),
 }
 
 #[derive(Clone, Debug, EnumAsInner, Eq, Hash, PartialEq)]
@@ -442,7 +442,7 @@ impl PassImpl<'_> {
 
     fn type_param(&self, ty: TypeId) -> Option<&Type> {
         let ty = self.underlying_type(ty);
-        if matches!(ty.data, TypeData::Var(Var::Param)) {
+        if matches!(ty.data, TypeData::Var(Var::Param(_))) {
             Some(ty)
         } else {
             None
@@ -553,7 +553,7 @@ impl PassImpl<'_> {
                 self.begin_typing(ctx.node, ty_params);
             }
             NodeKind::TypeParam => {
-                self.insert_typing(ctx.node, TypeData::Var(Var::Param));
+                self.insert_typing(ctx.node, TypeData::Var(Var::Param((self.package_id, ctx.node))));
             }
             | NodeKind::Block
             | NodeKind::FieldAccess
@@ -846,8 +846,8 @@ impl PassImpl<'_> {
                             }
                         }
                     }
-                    Var::Param => {
-                        let name = &self.hir(ty.node.0).type_param(ty.node.1).name.value;
+                    Var::Param(node) => {
+                        let name = &self.hir(node.0).type_param(node.1).name.value;
                         write!(f, "{}", name)
                     }
                 }

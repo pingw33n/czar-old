@@ -76,7 +76,7 @@ impl PassImpl<'_> {
                 &TypeData::Var(var) => {
                     match var {
                         Var::Inference(_) => break ty,
-                        Var::Param => {
+                        Var::Param(_) => {
                             if let Some(next) = vars.get(ty) {
                                 if next == ty {
                                     break ty;

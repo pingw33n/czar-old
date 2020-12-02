@@ -18,6 +18,10 @@ impl NodeId {
     pub fn null() -> Self {
         Self(usize::max_value())
     }
+
+    pub fn as_u32(self) -> u32 {
+        self.0 as u32
+    }
 }
 
 impl Default for NodeId {

@@ -37,7 +37,9 @@ impl PassImpl<'_> {
                     if i > 0 {
                         vars_str.push_str(", ");
                     }
-                    write!(vars_str, "{}={}", self.var_param_name(self.type_(var)), self.type_id_str(val)).unwrap();
+                    write!(vars_str, "{}={}",
+                        self.type_param_str(*self.type_(var).data.as_var().unwrap().as_param().unwrap()),
+                        self.type_id_str(val)).unwrap();
                 }
                 write!(s, "GenericEnv(ty: {}, vars: [{}])", self.type_id_str(*ty), vars_str).unwrap();
             }
@@ -58,7 +60,7 @@ impl PassImpl<'_> {
                             InferenceVar::Number(nk) => format!("?{:?}'{}", nk, ty.id.1.0)
                         }
                     }
-                    Var::Param => self.var_param_name(ty)
+                    Var::Param(node) => self.type_param_str(node)
                 };
                 write!(s, "Var({})", var).unwrap();
             }
@@ -66,9 +68,9 @@ impl PassImpl<'_> {
         s
     }
 
-    fn var_param_name(&self, ty: &Type) -> String {
-        let name = &self.hir(ty.node.0).type_param(ty.node.1).name.value;
-        format!("{}'{}", name, ty.id.1.0)
+    fn type_param_str(&self, node: GlobalNodeId) -> String {
+        let name = &self.hir(node.0).type_param(node.1).name.value;
+        format!("{}'{}", name, self.node_id_str(node))
     }
 
     fn package_name(&self, id: PackageId) -> &Ident {
@@ -77,6 +79,10 @@ impl PassImpl<'_> {
         } else {
             &self.packages[id].name
         }
+    }
+
+    fn node_id_str(&self, id: GlobalNodeId) -> String {
+        format!("{}.{}", self.package_name(id.0), id.1.as_u32())
     }
 
     fn type_id_str(&self, id: TypeId) -> String {
