@@ -33,7 +33,7 @@ pub use structs::{StructType, StructTypeField};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct FnType {
-    pub def: Option<GlobalNodeId>,
+    pub name: Option<GlobalNodeId /*FnDef*/>,
     pub params: Vec<TypeId>,
     pub result: TypeId,
     pub unsafe_: bool,
@@ -72,10 +72,10 @@ pub enum TypeData {
 }
 
 impl TypeData {
-    pub fn def(&self) -> Option<GlobalNodeId> {
+    pub fn name(&self) -> Option<GlobalNodeId> {
         match self {
-            Self::Fn(v) => v.def,
-            Self::Struct(v) => v.def,
+            Self::Fn(v) => v.name,
+            Self::Struct(v) => v.name,
             | Self::Ctor(_)
             | Self::GenericEnv(_)
             | Self::Incomplete(_)
@@ -230,10 +230,10 @@ impl CheckData {
         incomplete_ty: LocalTypeId,
         struct_ty: LocalTypeId,
     ) {
-        // Set StructType::def
+        // Set StructType::name
         let pkg = self.package_id;
         let structd = self.type_mut(struct_ty).data.as_struct_mut().unwrap();
-        structd.def = Some((pkg, node));
+        structd.name = Some((pkg, node));
 
         self.type_mut(incomplete_ty).data.finish((pkg, struct_ty));
     }
@@ -816,7 +816,7 @@ impl PassImpl<'_> {
 
     fn display_type1(&self, ty: &Type, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &ty.data {
-            TypeData::Fn(FnType { def: _, params, result, unsafe_ }) => {
+            TypeData::Fn(FnType { name: _, params, result, unsafe_ }) => {
                 if *unsafe_ {
                     write!(f, "unsafe ")?;
                 }
@@ -861,11 +861,11 @@ impl PassImpl<'_> {
     }
 
     fn display_struct_type(&self, ty: &StructType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(def) = ty.def {
-            let name = &self.hir(def.0).struct_(def.1).name.value;
+        if let Some(name) = ty.name {
+            let name = &self.hir(name.0).struct_(name.1).name.value;
             write!(f, "{}", name)
         } else {
-            let StructType { def: _, fields } = ty;
+            let StructType { name: _, fields } = ty;
             write!(f, "{{")?;
             for (i, StructTypeField { name, ty }) in fields.iter().enumerate() {
                 if i > 0 {

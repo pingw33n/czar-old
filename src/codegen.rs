@@ -102,7 +102,7 @@ impl<'a> Codegen<'a> {
 
     pub fn lower(&mut self, package_id: PackageId) {
         let entry_point = self.packages[package_id].check_data.entry_point().unwrap();
-        let node = self.packages.underlying_type(entry_point).data.def().unwrap();
+        let node = self.packages.underlying_type(entry_point).data.name().unwrap();
 
         self.fn_def(node, entry_point, &self.default_genv());
 
@@ -555,7 +555,7 @@ impl<'a> Codegen<'a> {
         }
         let uty = self.packages.underlying_type(ty);
         let ty_ll = match &uty.data {
-            TypeData::Fn(FnType { def: _, params, result, unsafe_: _, }) => {
+            TypeData::Fn(FnType { name: _, params, result, unsafe_: _, }) => {
                 let param_tys = &mut Vec::with_capacity(params.len());
                 for &param in params {
                     param_tys.push(self.type_(param, genv));
@@ -579,7 +579,7 @@ impl<'a> Codegen<'a> {
     }
 
     fn make_struct_type(&mut self, ty: TypeId, sty: &check::StructType, genv: &GenericEnv) -> TypeRef {
-        let check::StructType { def, fields } = sty;
+        let check::StructType { name: def, fields } = sty;
         if let Some(def) = *def {
             if let Some(prim) = self.packages.std().check_data.lang().as_primitive(def) {
                 return self.make_prim_type(prim);

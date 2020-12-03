@@ -18,15 +18,16 @@ impl PassImpl<'_> {
             TypeData::Ctor(TypeCtor { ty, params }) => {
                 write!(s, "Ctor(ty: {}, params: {})", self.type_id_str(*ty), self.type_list_str(params)).unwrap();
             }
-            TypeData::Fn(FnType { def, params, result, unsafe_ }) => {
-                let def = if let &Some(def) = def {
-                    let name = &self.hir(def.0).fn_def(def.1).name.value;
-                    format!("def: `{}` {}, ", name, self.node_kind_str(def))
+            TypeData::Fn(FnType { name, params, result, unsafe_ }) => {
+                let name = if let &Some(name) = name {
+                    let nk = self.node_kind_str(name);
+                    let name = &self.hir(name.0).fn_def(name.1).name.value;
+                    format!("name: `{}` {}, ", name, nk)
                 } else {
                     "".into()
                 };
                 write!(s, "Fn({}params: {}, result: {}, unsafe: {})",
-                    def,
+                    name,
                     self.type_list_str(params),
                     self.type_id_str(*result),
                     unsafe_).unwrap();
@@ -49,8 +50,21 @@ impl PassImpl<'_> {
             TypeData::Instance(TypeInstance { ty, args }) => {
                 write!(s, "Instance(ty: {}, args: {})", self.type_id_str(*ty), self.type_list_str(args)).unwrap();
             }
-            TypeData::Struct(v) => {
-                write!(s, "{}", self.struct_type_str(v)).unwrap();
+            TypeData::Struct(StructType { name, fields }) => {
+                write!(s, "Struct(").unwrap();
+                if let &Some(name) = name {
+                    let nk = self.node_kind_str(name);
+                    let name = &self.hir(name.0).struct_(name.1).name.value;
+                    write!(s, "name: `{}` {}, ", name, nk).unwrap();
+                }
+                write!(s, "fields: [").unwrap();
+                for (i, StructTypeField { name, ty }) in fields.iter().enumerate() {
+                    if i > 0 {
+                        s.push_str(", ");
+                    }
+                    write!(s, "{}: {}", name, self.type_id_str(*ty)).unwrap();
+                }
+                write!(s, "]").unwrap();
             }
             &TypeData::Var(var) => {
                 let var = match var {
@@ -101,31 +115,5 @@ impl PassImpl<'_> {
         }
         s.push(']');
         s
-    }
-
-    fn struct_fields_str(&self, fields: &[StructTypeField]) -> String {
-        let mut s = String::new();
-        s.push('[');
-        for (i, StructTypeField { name, ty }) in fields.iter().enumerate() {
-            if i > 0 {
-                s.push_str(", ");
-            }
-            write!(s, "{}: {}", name, self.type_id_str(*ty)).unwrap();
-        }
-        s.push(']');
-        s
-    }
-
-    fn struct_type_str(&self, v: &StructType) -> String {
-        let StructType { def, fields } = v;
-        let def = if let &Some(def) = def {
-            let name = &self.hir(def.0).struct_(def.1).name.value;
-            format!("def: `{}` {}, ", name, self.node_kind_str(def))
-        } else {
-            "".into()
-        };
-        format!("Struct({}fields: {})",
-            def,
-            self.struct_fields_str(fields))
     }
 }

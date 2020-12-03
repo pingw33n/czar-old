@@ -149,7 +149,7 @@ impl PassImpl<'_> {
 
                 assert!(lang_item_to_type.insert(lang_item, ty).is_none());
 
-                let (pkg, node) = self.underlying_type((PackageId::std(), ty)).data.def().unwrap();
+                let (pkg, node) = self.underlying_type((PackageId::std(), ty)).data.name().unwrap();
                 assert!(pkg.is_std());
                 assert!(node_to_lang_item.insert(node, lang_item).is_none());
             }

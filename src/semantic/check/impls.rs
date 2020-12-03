@@ -56,7 +56,7 @@ impl PassImpl<'_> {
         let for_ty = self.type_(for_ty).data.as_ctor().unwrap().ty;
         let for_ty = self.normalize(for_ty);
 
-        let def = if let Some(def) = self.underlying_type(for_ty).data.def() {
+        let def = if let Some(def) = self.underlying_type(for_ty).data.name() {
             if def.0 != self.package_id {
                 self.error(*for_,
                     "cannot define inherent `impl` for a type from outside of this package".into());
@@ -175,7 +175,7 @@ impl PassImpl<'_> {
         sign: &FnParamsSignature,
     ) -> Result<Option<(GlobalNodeId, TypeId)>> {
         let ty = self.normalize(ty);
-        let def = self.underlying_type(ty).data.def();
+        let def = self.underlying_type(ty).data.name();
 
         struct Res {
             fn_def: GlobalNodeId,
@@ -342,8 +342,8 @@ impl PassImpl<'_> {
     }
 
     fn match_struct_type(&self, ty: &StructType, pat: &StructType, ctx: &mut MatchTypeCtx) -> bool {
-        if ty.def.is_some() || pat.def.is_some() {
-            ty.def == pat.def
+        if ty.name.is_some() || pat.name.is_some() {
+            ty.name == pat.name
         } else if ty.fields.len() == pat.fields.len() {
             let mut ok = true;
             for (StructTypeField { name, ty },
@@ -362,8 +362,8 @@ impl PassImpl<'_> {
     }
 
     fn match_fn_type(&self, ty: &FnType, pat: &FnType, ctx: &mut MatchTypeCtx) -> bool {
-        if ty.def.is_some() || pat.def.is_some() {
-            ty.def == pat.def
+        if ty.name.is_some() || pat.name.is_some() {
+            ty.name == pat.name
         } else if ty.params.len() == pat.params.len() {
             for (&ty, &pat) in ty.params.iter().zip(pat.params.iter()) {
                 if !self.match_type0(ty, pat, ctx) {

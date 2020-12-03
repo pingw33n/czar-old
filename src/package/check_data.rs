@@ -65,7 +65,7 @@ impl Packages {
     }
 
     pub fn as_lang_item_ctx(&self, ty: TypeId, ctx: Option<Ctx>) -> Option<LangItem> {
-        let def = self.underlying_type_ctx(ty, ctx).data.def()?;
+        let def = self.underlying_type_ctx(ty, ctx).data.name()?;
         Ctx::check_data(ctx, PackageId::std(), self).lang().as_item(def)
     }
 

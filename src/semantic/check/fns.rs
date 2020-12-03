@@ -27,7 +27,7 @@ impl PassImpl<'_> {
 
         let ty = self.check_data.insert_type((self.package_id, node),
             TypeData::Fn(FnType {
-                def: Some((self.package_id, node)),
+                name: Some((self.package_id, node)),
                 params: params?,
                 result: result?,
                 unsafe_: unsafe_.is_some(),
@@ -83,11 +83,11 @@ impl PassImpl<'_> {
             FnCallKind::Free => {
                 let callee_ty = self.typing(*callee)?;
                 let callee_ty = self.normalize(callee_ty);
-                let fn_def = if let Some(FnType { def, .. }) = self.underlying_type(callee_ty).data.as_fn() {
-                    if def.is_none() {
+                let fn_def = if let Some(FnType { name, .. }) = self.underlying_type(callee_ty).data.as_fn() {
+                    if name.is_none() {
                         todo!()
                     }
-                    def.unwrap()
+                    name.unwrap()
                 } else {
                     self.error(*callee, format!(
                         "invalid callee type: expected function, found `{}`",

@@ -8,7 +8,7 @@ pub struct StructTypeField {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StructType {
-    pub def: Option<GlobalNodeId>,
+    pub name: Option<GlobalNodeId /*Struct*/>,
     pub fields: Vec<StructTypeField>,
 }
 
@@ -72,7 +72,7 @@ impl PassImpl<'_> {
             field_tys.sort_by(|a, b| a.name.cmp(&b.name));
         }
         Ok(self.insert_type((self.package_id, node), TypeData::Struct(StructType {
-            def: None,
+            name: None,
             fields: field_tys,
         })))
     }
@@ -156,7 +156,7 @@ impl PassImpl<'_> {
 
         let ty = self.typing(name)?;
         let ty = self.normalize(ty);
-        if self.underlying_type(ty).data.as_struct().and_then(|v| v.def).is_none() {
+        if self.underlying_type(ty).data.as_struct().and_then(|v| v.name).is_none() {
             self.error(name, "expected named struct".into());
             return Err(());
         }
@@ -241,7 +241,7 @@ impl PassImpl<'_> {
         }
 
         Ok(self.insert_type((self.package_id, node), TypeData::Struct(StructType {
-            def: None,
+            name: None,
             fields,
         })))
     }

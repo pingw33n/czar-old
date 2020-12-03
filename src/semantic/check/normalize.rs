@@ -122,8 +122,8 @@ impl PassImpl<'_> {
                     *val = self.normalize0(*val, ctx);
                 }
                 if make_genv {
-                    let top_level_fn = self.type_(ty).data.as_fn().and_then(|v| v.def).is_some();
-                    if top_level_fn {
+                    let nominal_fn = self.type_(ty).data.as_fn().and_then(|v| v.name).is_some();
+                    if nominal_fn {
                         for var in ctx.ext_vars.drain() {
                             vars.insert(var, var);
                         }
@@ -162,7 +162,7 @@ impl PassImpl<'_> {
                 (self.type_data_id(node, data), true)
             }
             TypeData::Struct(v) => {
-                let def = v.def.is_some();
+                let def = v.name.is_some();
                 let data = TypeData::Struct(self.normalize_struct(v, vars, ctx));
                 (self.type_data_id(node, data), def)
             }
@@ -192,7 +192,7 @@ impl PassImpl<'_> {
 
     fn normalize_fn(&mut self, mut fn_: FnType, vars: &TypeVarMap, ctx: &mut Ctx) -> FnType {
         let FnType {
-            def: _,
+            name: _,
             params,
             result,
             unsafe_: _,
@@ -208,7 +208,7 @@ impl PassImpl<'_> {
 
     fn normalize_struct(&mut self, mut sty: StructType, vars: &TypeVarMap, ctx: &mut Ctx) -> StructType {
         let StructType {
-            def: _,
+            name: _,
             fields,
         } = &mut sty;
 
