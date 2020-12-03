@@ -1,0 +1,5 @@
+fn main() {
+    impl {} {}
+    impl {String,} {}
+    impl {t: String} {}
+}

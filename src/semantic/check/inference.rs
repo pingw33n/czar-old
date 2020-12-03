@@ -39,11 +39,10 @@ impl PassImpl<'_> {
         ty
     }
 
-    fn unify_var(&mut self, src: TypeId, dst: TypeId) -> bool {
-        let src = self.type_(src).id;
+    pub fn can_unify_inference_var(&self, src: TypeId, dst: TypeId) -> bool {
         let src_var = self.underlying_type(src).data.as_inference_var();
         let dst_var = self.underlying_type(dst).data.as_inference_var();
-        let can = match (src_var, dst_var) {
+        match (src_var, dst_var) {
             | (Some(InferenceVar::Any), None)
             | (Some(InferenceVar::Any), Some(InferenceVar::Number(_)))
             => true,
@@ -54,8 +53,11 @@ impl PassImpl<'_> {
                 if src_num == dst_num
                 => true,
             _ => false,
-        };
-        if can {
+        }
+    }
+
+    fn unify_var(&mut self, src: TypeId, dst: TypeId) -> bool {
+        if self.can_unify_inference_var(src, dst) {
             assert_eq!(src.0, self.package_id);
             self.finish_inference_var(src.1, dst);
             true

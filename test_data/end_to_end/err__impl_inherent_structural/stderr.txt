@@ -1,0 +1,14 @@
+error: cannot define inherent `impl` for a structural type
+  --> main.cz:2:10
+2 |     impl {} {}
+             ~~
+
+error: cannot define inherent `impl` for a structural type
+  --> main.cz:3:10
+3 |     impl {String,} {}
+             ~~~~~~~~~
+
+error: cannot define inherent `impl` for a structural type
+  --> main.cz:4:10
+4 |     impl {t: String} {}
+             ~~~~~~~~~~~

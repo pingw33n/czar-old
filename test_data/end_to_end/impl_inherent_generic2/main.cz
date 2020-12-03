@@ -1,0 +1,32 @@
+fn main() {
+    struct S<T> {t: T}
+
+    impl S<i32> {
+        fn f(self) -> i32 {
+            self.t
+        }
+    }
+
+    impl S<u32> {
+        fn f(self) -> u32 {
+            self.t * 100
+        }
+    }
+
+    impl S<f64> {
+        fn f(self) -> f64 {
+            self.t
+        }
+    }
+
+    impl<T> S<S<T>> {
+        fn f(self) -> T {
+            self.t.t
+        }
+    }
+
+    print_i32(S{t: 42i32}.f()); println();
+    print_u32(S{t: 42u32}.f()); println();
+    print_f64(S{t: 123.45}.f()); println();
+    prints(S{t: S{t: "test"}}.f()); println();
+}

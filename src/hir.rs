@@ -12,15 +12,15 @@ pub use crate::syntax::{FloatLiteral, FloatTypeSuffix, IntLiteral, IntTypeSuffix
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(transparent)]
-pub struct NodeId(usize);
+pub struct NodeId(u32);
 
 impl NodeId {
-    pub fn null() -> Self {
-        Self(usize::max_value())
+    pub const fn null() -> Self {
+        Self(u32::max_value())
     }
 
-    pub fn as_u32(self) -> u32 {
-        self.0 as u32
+    pub const fn as_u32(self) -> u32 {
+        self.0
     }
 }
 
@@ -227,7 +227,7 @@ macro_rules! node_ops {
         }
 
         pub fn $insert(&mut self, v: S<$ty>) -> NodeId {
-            let id = NodeId(self.nodes.insert(v.span.spanned(NodeKind::$ty)));
+            let id = NodeId(self.nodes.insert(v.span.spanned(NodeKind::$ty)) as u32);
             self.$f.insert(id, v.value);
             id
         }
@@ -236,11 +236,11 @@ macro_rules! node_ops {
     ($($insert:ident, $is:ident, $kind:ident;)*) => {
         $(
         pub fn $is(&self, id: NodeId) -> bool {
-            self.nodes.contains(id.0)
+            self.nodes.contains(id.0 as usize)
         }
 
         pub fn $insert(&mut self, span: Span) -> NodeId {
-            NodeId(self.nodes.insert(span.spanned(NodeKind::$kind)))
+            NodeId(self.nodes.insert(span.spanned(NodeKind::$kind)) as u32)
         }
         )*
     };
@@ -272,7 +272,7 @@ impl Hir {
     }
 
     pub fn try_node_kind(&self, id: NodeId) -> Option<S<NodeKind>> {
-        self.nodes.get(id.0).copied()
+        self.nodes.get(id.0 as usize).copied()
     }
 
     pub fn insert_path_from_ident(&mut self, ident: S<Ident>, ty_args: Option<S<Vec<NodeId>>>) -> NodeId {

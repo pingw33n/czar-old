@@ -36,6 +36,10 @@ impl PackageId {
     pub const fn is_std(self) -> bool {
         self.0 == Self::std().0
     }
+
+    pub const fn as_u32(self) -> u32 {
+        self.0
+    }
 }
 
 pub type GlobalNodeId = (PackageId, NodeId);

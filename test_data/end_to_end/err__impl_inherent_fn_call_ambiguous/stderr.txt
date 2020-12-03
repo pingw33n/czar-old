@@ -1,0 +1,4 @@
+error: multiple applicable items are in scope
+  --> main.cz:12:13
+12 |     S{t:42}.f();
+                 ~

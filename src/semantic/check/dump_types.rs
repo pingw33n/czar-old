@@ -70,7 +70,7 @@ impl PassImpl<'_> {
 
     fn type_param_str(&self, node: GlobalNodeId) -> String {
         let name = &self.hir(node.0).type_param(node.1).name.value;
-        format!("{}'{}", name, self.node_id_str(node))
+        format!("{}'{}_{}", name, node.0.as_u32(), node.1.as_u32())
     }
 
     fn package_name(&self, id: PackageId) -> &Ident {
@@ -79,10 +79,6 @@ impl PassImpl<'_> {
         } else {
             &self.packages[id].name
         }
-    }
-
-    fn node_id_str(&self, id: GlobalNodeId) -> String {
-        format!("{}.{}", self.package_name(id.0), id.1.as_u32())
     }
 
     fn type_id_str(&self, id: TypeId) -> String {

@@ -1,0 +1,13 @@
+fn main() {
+    struct S<T> {t: T}
+
+    impl S<u32> {
+        fn f(self) {}
+    }
+
+    impl S<i32> {
+        fn f(self) {}
+    }
+
+    S{t:42}.f();
+}

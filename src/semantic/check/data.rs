@@ -1,4 +1,4 @@
-use super::{*, Impl};
+use super::*;
 
 pub struct CheckData {
     pub(in super) package_id: PackageId,
@@ -10,7 +10,7 @@ pub struct CheckData {
     pub(in super) struct_field_index: NodeMap<u32>,
     lvalues: NodeMap<()>,
     /// Impls defined in this package.
-    pub(in super) impls: HashMap<GlobalNodeId, Vec<Impl>>,
+    pub(in super) impls: Impls,
     pub(in super) entry_point: Option<TypeId>,
     pub(in super) normalized_types: TypeMap<TypeId>,
 }
