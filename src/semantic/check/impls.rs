@@ -15,8 +15,8 @@ pub struct Impl {
 
 #[derive(Default)]
 pub struct Impls {
-    defs: HashMap<GlobalNodeId, Vec<Impl>>,
-    non_defs: Vec<Impl>,
+    nominal: HashMap<GlobalNodeId, Vec<Impl>>,
+    structural: Vec<Impl>,
 }
 
 struct MatchTypeCtx<'a> {
@@ -56,13 +56,13 @@ impl PassImpl<'_> {
         let for_ty = self.type_(for_ty).data.as_ctor().unwrap().ty;
         let for_ty = self.normalize(for_ty);
 
-        let def = if let Some(def) = self.underlying_type(for_ty).data.name() {
-            if def.0 != self.package_id {
+        let for_name = if let Some(name) = self.underlying_type(for_ty).data.name() {
+            if name.0 != self.package_id {
                 self.error(*for_,
                     "cannot define inherent `impl` for a type from outside of this package".into());
                 err = true;
             }
-            Some(def)
+            Some(name)
         } else if matches!(self.type_(for_ty).data, TypeData::Var(_)) {
             self.error(*for_,
                 "can't define inherent `impl` on a type parameter".into());
@@ -76,12 +76,12 @@ impl PassImpl<'_> {
             None
         };
 
-        let impls = if let Some(def) = def {
-            self.check_data.impls.defs.entry(def)
+        let impls = if let Some(name) = for_name {
+            self.check_data.impls.nominal.entry(name)
                 .or_insert_with(Vec::new);
-            &self.check_data.impls.defs[&def]
+            &self.check_data.impls.nominal[&name]
         } else {
-            &self.check_data.impls.non_defs
+            &self.check_data.impls.structural
         };
 
         let mut dup_items = Vec::new();
@@ -144,10 +144,10 @@ impl PassImpl<'_> {
             }
         }
 
-        let impls = if let Some(def) = def {
-            self.check_data.impls.defs.get_mut(&def).unwrap()
+        let impls = if let Some(name) = for_name {
+            self.check_data.impls.nominal.get_mut(&name).unwrap()
         } else {
-            &mut self.check_data.impls.non_defs
+            &mut self.check_data.impls.structural
         };
         impls.push(Impl {
             node,
@@ -175,7 +175,7 @@ impl PassImpl<'_> {
         sign: &FnParamsSignature,
     ) -> Result<Option<(GlobalNodeId, TypeId)>> {
         let ty = self.normalize(ty);
-        let def = self.underlying_type(ty).data.name();
+        let ty_name = self.underlying_type(ty).data.name();
 
         struct Res {
             fn_def: GlobalNodeId,
@@ -194,14 +194,14 @@ impl PassImpl<'_> {
             discover_data: &DiscoverData,
             check_data: &CheckData,
         | -> std::result::Result<Res, Error> {
-            let impls = if let Some(def) = def {
-                if let Some(v) = check_data.impls.defs.get(&def) {
+            let impls = if let Some(name) = ty_name {
+                if let Some(v) = check_data.impls.nominal.get(&name) {
                     v
                 } else {
                     return Err(Error::NotFound);
                 }
             } else {
-                &check_data.impls.non_defs
+                &check_data.impls.structural
             };
             let mut r = None;
             for impl_ in impls {
