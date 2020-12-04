@@ -121,11 +121,13 @@ impl std::fmt::Display for Token {
             BlockClose(v) => match v {
                 Block::Paren => ")",
                 Block::Bracket => "]",
+                Block::BracketEq => unreachable!(),
                 Block::Brace => "}",
             },
             BlockOpen(v) => match v {
                 Block::Paren => "(",
                 Block::Bracket => "[",
+                Block::BracketEq => "[=",
                 Block::Brace => "{",
             },
             Ident => "<identifier>",
@@ -328,6 +330,8 @@ pub enum Block {
     Paren,
     // [ ]
     Bracket,
+    // [= ]
+    BracketEq,
     // { }
     Brace,
 }
@@ -496,7 +500,12 @@ impl<'a> Lexer<'a> {
             c if is_whitespace(c) => self.whitespace(),
 
             '(' => Token::BlockOpen(Block::Paren),
-            '[' => Token::BlockOpen(Block::Bracket),
+            '[' => Token::BlockOpen(if self.nth_char(0) == '=' {
+                    self.next_char();
+                    Block::BracketEq
+                } else {
+                    Block::Bracket
+                }),
             '{' => Token::BlockOpen(Block::Brace),
             ')' => Token::BlockClose(Block::Paren),
             ']' => Token::BlockClose(Block::Bracket),

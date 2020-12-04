@@ -932,5 +932,12 @@ pub struct Loop {
 #[derive(Debug)]
 pub struct SliceLiteral {
     pub items: Vec<NodeId>,
-    pub len: Option<NodeId>,
+    pub len: SliceLiteralLen,
+}
+
+#[derive(Debug)]
+pub struct SliceLiteralLen {
+    pub value: Option<NodeId>,
+    /// Is this a const-len slice?
+    pub const_: bool,
 }

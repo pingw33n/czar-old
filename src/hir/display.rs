@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fmt::{self, Result, Write};
 
 use super::*;
@@ -7,6 +8,7 @@ impl Hir {
         Display {
             hir: self,
             node: self.root,
+            stack: Default::default(),
         }
     }
 }
@@ -14,10 +16,23 @@ impl Hir {
 pub struct Display<'a> {
     hir: &'a Hir,
     node: NodeId,
+    stack: RefCell<Vec<NodeId>>,
 }
 
 impl Display<'_> {
+    fn parent(&self) -> NodeId {
+        let s = self.stack.borrow();
+        s[s.len() - 2]
+    }
+
     fn node(&self, node: NodeId, at_group_level: bool, p: &mut Printer) -> Result {
+        self.stack.borrow_mut().push(node);
+        let r = self.node0(node, at_group_level, p);
+        assert_eq!(self.stack.borrow_mut().pop().unwrap(), node);
+        r
+    }
+
+    fn node0(&self, node: NodeId, at_group_level: bool, p: &mut Printer) -> Result {
         match self.hir.node_kind(node).value {
             NodeKind::Block => {
                 let Block { exprs } = self.hir.block(node);
@@ -427,14 +442,17 @@ impl Display<'_> {
             }
             NodeKind::SliceLiteral => {
                 let SliceLiteral { items, len } = self.hir.slice_literal(node);
-                p.print("[")?;
+               p.print("[")?;
+                if len.const_ {
+                    p.print("=")?;
+                }
                 for (i, &item) in items.iter().enumerate() {
                     if i > 0 {
                         p.print(", ")?;
                     }
                     self.expr(item, p)?;
                 }
-                if let &Some(len) = len {
+                if let Some(len) = len.value {
                     p.print("; ")?;
                     self.expr(len, p)?;
                 }
@@ -686,6 +704,7 @@ impl Display<'_> {
             | NodeKind::Literal
             | NodeKind::Loop
             | NodeKind::Path
+            | NodeKind::SliceLiteral
             | NodeKind::While
         );
         self.expr0(node, no_parens, p)

@@ -1136,7 +1136,12 @@ impl<'a> ParserImpl<'a> {
             // [1, 2, 3]
             // [{ let x = 42; x },]
             // [42; 100]
-            Token::BlockOpen(lex::Block::Bracket) => {
+            // [=]
+            // [=1,2,3]
+            | Token::BlockOpen(lex::Block::Bracket)
+            | Token::BlockOpen(lex::Block::BracketEq)
+            => {
+                let const_len = tok.value == Token::BlockOpen(lex::Block::BracketEq);
                 let start = tok.span.start;
                 self.lex.consume();
                 let mut items = Vec::new();
@@ -1165,9 +1170,13 @@ impl<'a> ParserImpl<'a> {
                 let end = self.expect(Token::BlockClose(lex::Block::Bracket))?.span.end;
                 self.hir.insert_slice_literal(Span::new(start, end).spanned(SliceLiteral {
                     items,
-                    len,
+                    len: SliceLiteralLen {
+                        value: len,
+                        const_: const_len,
+                    },
                 }))
             }
+            // [=42; 100]
             _ => if let Some(v) = self.maybe_path(false)? {
                 v
             } else {

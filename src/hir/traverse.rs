@@ -336,7 +336,7 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 }
             },
             NodeKind::SliceLiteral => {
-                let SliceLiteral { items, len } = self.hir.slice_literal(node);
+                let SliceLiteral { items, len: SliceLiteralLen { value: len, const_: _ } } = self.hir.slice_literal(node);
                 for &item in items {
                     self.traverse0(item, NodeLink::SliceLiteral(SliceLiteralLink::Item));
                 }
