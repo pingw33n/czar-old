@@ -7,6 +7,7 @@ mod inference;
 mod impls;
 mod lang;
 mod lex_path;
+mod range;
 mod structs;
 mod unary_op;
 
@@ -570,6 +571,7 @@ impl PassImpl<'_> {
             | NodeKind::PathEndIdent
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
+            | NodeKind::Range
             | NodeKind::StructLiteral
             | NodeKind::StructLiteralField
             | NodeKind::StructType
@@ -580,7 +582,6 @@ impl PassImpl<'_> {
             | NodeKind::BlockFlowCtl
             | NodeKind::Cast
             | NodeKind::Loop
-            | NodeKind::Range
             | NodeKind::SliceLiteral
             => todo!("{:?}", self.hir.node_kind(ctx.node)),
         }
@@ -717,6 +718,7 @@ impl PassImpl<'_> {
                 };
             },
             NodeKind::PathSegment => return self.check_path_segment(ctx.node),
+            NodeKind::Range => self.check_range(ctx.node)?,
             NodeKind::Struct => {
                 self.typing(self.hir.struct_(ctx.node).ty)?
             }

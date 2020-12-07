@@ -1367,7 +1367,7 @@ impl<'a> ParserImpl<'a> {
                         let end = self.maybe_expr(Default::default())?;
                         let span_end = end.map(|v| self.hir.node_kind(v).span.end)
                             .unwrap_or(tok.span.end);
-                        self.hir.insert_range(tok.span.extended(span_end).spanned(Range {
+                        self.hir.insert_range(self.hir.node_kind(left).span.extended(span_end).spanned(Range {
                             kind,
                             start: Some(left),
                             end,

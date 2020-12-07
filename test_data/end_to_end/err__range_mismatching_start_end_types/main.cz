@@ -1,0 +1,12 @@
+fn main() {
+    "test"..42;
+
+    fn s() -> String { "test" }
+    fn e() -> {} {}
+
+    s()..e();
+
+    fn f<S, E>(s: S, e: E) {
+        s..e;
+    }
+}

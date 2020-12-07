@@ -1,0 +1,6 @@
+Range -42 12345
+RangeFrom true
+RangeTo end
+RangeFull
+-100
+42

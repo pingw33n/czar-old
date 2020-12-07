@@ -1,0 +1,35 @@
+fn main() {
+    use std::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
+
+    fn range(_ v: Range<i64>) {
+        prints("Range "); print_i64(v.start); prints(" "); print_i64(v.end); println();
+    }
+
+    fn range_from(_ v: RangeFrom<{bool,}>) {
+        prints("RangeFrom "); print_bool(v.start.0); println();
+    }
+
+    fn range_to(_ v: RangeTo<String>) {
+        prints("RangeTo "); prints(v.end); println();
+    }
+
+    fn full(_ v: RangeFull) {
+        prints("RangeFull"); println();
+    }
+
+    fn range_inclusive(_ v: RangeInclusive<i64>) {
+        prints("RangeInclusive "); print_i64(v.start); prints(" "); print_i64(v.end); println();
+    }
+
+    fn range_to_inclusive(_ v: RangeToInclusive<String>) {
+        prints("RangeToInclusive "); prints(v.end); println();
+    }
+
+    range(-42..12345);
+    range_from({true,}..);
+    range_to(.."end");
+    full(..);
+
+    print_i64((-100..42).start); println();
+    print_i32((-100..42).end); println();
+}

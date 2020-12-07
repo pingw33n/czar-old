@@ -78,6 +78,7 @@ impl PrimitiveType {
 pub enum LangItem {
     Primitive(PrimitiveType),
     Ptr,
+    Range(RangeItem),
     String,
 }
 
@@ -85,6 +86,16 @@ impl LangItem {
     pub fn as_number(self) -> Option<NumberType> {
         self.as_primitive().and_then(|v| v.as_number())
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum RangeItem {
+    Range,
+    RangeFrom,
+    RangeFull,
+    RangeInclusive,
+    RangeTo,
+    RangeToInclusive,
 }
 
 pub struct Lang {
@@ -123,27 +134,34 @@ impl PassImpl<'_> {
         let mut node_to_lang_item = HashMap::new();
 
         {
-            use LangItem::*;
+            use LangItem as L;
             use PrimitiveType::*;
+            use RangeItem as R;
             for &(lang_item, path) in &[
-                (Primitive(Bool), &["bool"][..]),
-                (Primitive(Char), &["char"][..]),
-                (Primitive(F32), &["f32"][..]),
-                (Primitive(F64), &["f64"][..]),
-                (Primitive(I8), &["i8"][..]),
-                (Primitive(U8), &["u8"][..]),
-                (Primitive(I16), &["i16"][..]),
-                (Primitive(U16), &["u16"][..]),
-                (Primitive(I32), &["i32"][..]),
-                (Primitive(U32), &["u32"][..]),
-                (Primitive(I64), &["i64"][..]),
-                (Primitive(U64), &["u64"][..]),
-                (Primitive(I128), &["i128"][..]),
-                (Primitive(U128), &["u128"][..]),
-                (Primitive(ISize), &["isize"][..]),
-                (Primitive(USize), &["usize"][..]),
-                (Ptr, &["ptr", "Ptr"][..]),
-                (String, &["string", "String"][..]),
+                (L::Primitive(Bool), &["bool"][..]),
+                (L::Primitive(Char), &["char"][..]),
+                (L::Primitive(F32), &["f32"][..]),
+                (L::Primitive(F64), &["f64"][..]),
+                (L::Primitive(I8), &["i8"][..]),
+                (L::Primitive(U8), &["u8"][..]),
+                (L::Primitive(I16), &["i16"][..]),
+                (L::Primitive(U16), &["u16"][..]),
+                (L::Primitive(I32), &["i32"][..]),
+                (L::Primitive(U32), &["u32"][..]),
+                (L::Primitive(I64), &["i64"][..]),
+                (L::Primitive(U64), &["u64"][..]),
+                (L::Primitive(I128), &["i128"][..]),
+                (L::Primitive(U128), &["u128"][..]),
+                (L::Primitive(ISize), &["isize"][..]),
+                (L::Primitive(USize), &["usize"][..]),
+                (L::Ptr, &["ptr", "Ptr"][..]),
+                (L::Range(R::Range), &["ops", "Range"][..]),
+                (L::Range(R::RangeFrom), &["ops", "RangeFrom"][..]),
+                (L::Range(R::RangeFull), &["ops", "RangeFull"][..]),
+                (L::Range(R::RangeInclusive), &["ops", "RangeInclusive"][..]),
+                (L::Range(R::RangeTo), &["ops", "RangeTo"][..]),
+                (L::Range(R::RangeToInclusive), &["ops", "RangeToInclusive"][..]),
+                (L::String, &["string", "String"][..]),
             ] {
                 let ty = self.check_lang_type(path)?;
 

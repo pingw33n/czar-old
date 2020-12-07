@@ -442,6 +442,23 @@ impl<'a> Codegen<'a> {
                     })
                 }
             }
+            NodeKind::Range => {
+                let &Range { kind: _, start, end } = ctx.package.hir.range(node);
+
+                let struct_var = self.alloca(node, "range_literal", ctx);
+
+                let mut idx = 0;
+                for &v in &[start, end] {
+                    if let Some(v) = v {
+                        let v = self.expr(v, ctx).deref(self.bodyb);
+                        let ptr = self.bodyb.struct_gep(struct_var.ptr(), idx);
+                        self.bodyb.store(v, ptr);
+                        idx += 1;
+                    }
+                }
+
+                struct_var
+            }
             NodeKind::StructLiteral => {
                 let StructLiteral { fields, .. } = ctx.package.hir.struct_literal(node);
                 if fields.is_empty() {
