@@ -21,26 +21,27 @@ struct GenericEnv {
 
 struct ExprCtx<'a> {
     package: &'a Package,
-    fn_: DValueRef,
-    allocas: &'a mut NodeMap<IValueRef>,
+    fn_: ValueRef,
+    allocas: &'a mut NodeMap<Value>,
+    alloca_count: usize,
     genv: &'a GenericEnv,
 }
 
 #[derive(Clone, Copy)]
 enum Value {
-    Direct(DValueRef),
-    Indirect(IValueRef),
+    Direct(ValueRef),
+    Indirect(ValueRef),
 }
 
 impl Value {
-    fn indirect(self) -> IValueRef {
+    fn ptr(self) -> ValueRef {
         match self {
             Self::Direct(v) => panic!("expected indirect value but found: {:?}", v),
             Self::Indirect(v) => v,
         }
     }
 
-    fn to_direct(self, b: llvm::BuilderRef) -> DValueRef {
+    fn deref(self, b: llvm::BuilderRef) -> ValueRef {
         match self {
             Self::Direct(v) => v,
             Self::Indirect(v) => b.load(v),
@@ -48,15 +49,18 @@ impl Value {
     }
 }
 
-impl From<DValueRef> for Value {
-    fn from(v: DValueRef) -> Self {
-        Self::Direct(v)
-    }
+trait FromValueRef {
+    fn direct(self) -> Value;
+    fn indirect(self) -> Value;
 }
 
-impl From<IValueRef> for Value {
-    fn from(v: IValueRef) -> Self {
-        Self::Indirect(v)
+impl FromValueRef for ValueRef {
+    fn direct(self) -> Value {
+        Value::Direct(self)
+    }
+
+    fn indirect(self) -> Value {
+        Value::Indirect(self)
     }
 }
 
@@ -65,7 +69,7 @@ type MonoId = (TypeId, GenericEnvId);
 
 #[derive(Clone, Copy)]
 struct FnDecl {
-    ll: DValueRef,
+    ll: ValueRef,
 }
 
 struct FnMonoRequest {
@@ -142,7 +146,7 @@ impl<'a> Codegen<'a> {
         GenericEnvId(self.make_struct_type0(None, &mut genv_id))
     }
 
-    fn fn_def(&mut self, fn_def: GlobalNodeId, ty: TypeId, genv: &GenericEnv) -> DValueRef {
+    fn fn_def(&mut self, fn_def: GlobalNodeId, ty: TypeId, genv: &GenericEnv) -> Value {
         let ty = self.normalized(ty);
         let mut genv_vars = self.packages.type_(ty).data.as_generic_env().map(|v| v.vars.clone()).unwrap_or_default();
         genv_vars.replace_iter(genv.vars.iter());
@@ -150,7 +154,7 @@ impl<'a> Codegen<'a> {
 
         let mid = (fn_def, genv_id);
         if let Some(&v) = self.fn_decls.get(&mid) {
-            return v.ll;
+            return v.ll.direct();
         }
 
         let package = &self.packages[fn_def.0];
@@ -169,7 +173,7 @@ impl<'a> Codegen<'a> {
             genv_vars,
         }).is_none());
 
-        fn_
+        fn_.direct()
     }
 
     fn mono_fn(&mut self, id: TopLevelMonoId, req: FnMonoRequest) {
@@ -185,6 +189,7 @@ impl<'a> Codegen<'a> {
                 package,
                 fn_,
                 allocas,
+                alloca_count: 0,
                 genv: &GenericEnv {
                     id: id.1,
                     vars: req.genv_vars,
@@ -195,17 +200,17 @@ impl<'a> Codegen<'a> {
                 let name = &package.hir.fn_def_param(param).name.value;
                 let val = self.alloca(param, name, ctx);
                 let param = fn_.param(i as u32);
-                self.headerb.store(param, val);
+                self.headerb.store(param, val.ptr());
             }
 
             let body_bb = self.llvm.append_new_bb(fn_, "body");
             self.bodyb.position_at_end(body_bb);
 
             let ret = self.expr(body, ctx);
-            let ret = ret.to_direct(self.bodyb);
+            let ret = ret.deref(self.bodyb);
             self.bodyb.ret(ret);
 
-            if allocas.is_empty() {
+            if ctx.alloca_count == 0 {
                 fn_.entry_bb().delete();
             } else {
                 self.headerb.position_at_end(fn_.entry_bb());
@@ -214,10 +219,10 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn ensure_indirect(&mut self, node: NodeId, v: Value, ctx: &mut ExprCtx) -> IValueRef {
+    fn make_ptr(&mut self, v: Value, ctx: &mut ExprCtx) -> ValueRef {
         match v {
             Value::Direct(v) => {
-                let tmp = self.alloca_ty(node, v.type_(), "", ctx);
+                let tmp = self.alloca_new(v.type_(), "", ctx).ptr();
                 self.bodyb.store(v, tmp);
                 tmp
             }
@@ -238,20 +243,20 @@ impl<'a> Codegen<'a> {
             NodeKind::FieldAccess => {
                 let receiver = ctx.package.hir.field_access(node).receiver;
                 let receiver = self.expr(receiver, ctx);
-                let receiver = self.ensure_indirect(node, receiver, ctx);
+                let receiver = self.make_ptr(receiver, ctx);
                 let idx = ctx.package.check_data.struct_field_index(node);
-                self.bodyb.struct_gep(receiver, idx).into()
+                self.bodyb.struct_gep(receiver, idx).indirect()
             }
             NodeKind::FnCall => {
                 let fnc = ctx.package.hir.fn_call(node);
 
-                let callee = self.expr(fnc.callee, ctx).to_direct(self.bodyb);
+                let callee = self.expr(fnc.callee, ctx).deref(self.bodyb);
                 let args_ll = &mut Vec::new();
                 for &FnCallArg { value, .. } in &fnc.args {
-                    let v = self.expr(value, ctx).to_direct(self.bodyb);
+                    let v = self.expr(value, ctx).deref(self.bodyb);
                     args_ll.push(v);
                 }
-                self.bodyb.call(callee, args_ll).into()
+                self.bodyb.call(callee, args_ll).direct()
             }
             NodeKind::Let => {
                 let &Let { def } = ctx.package.hir.let_(node);
@@ -259,18 +264,18 @@ impl<'a> Codegen<'a> {
                 let &LetDef { init, .. } = ctx.package.hir.let_def(def);
 
                 if let Some(init) = init {
-                    let p = self.expr(def, ctx).indirect();
-                    let v = self.expr(init, ctx).to_direct(self.bodyb);
+                    let p = self.expr(def, ctx).ptr();
+                    let v = self.expr(init, ctx).deref(self.bodyb);
                     self.bodyb.store(v, p);
                 }
 
-                self.bool_literal(true).into()
+                self.bool_literal(true)
             }
             NodeKind::IfExpr => {
                 let fn_ = ctx.fn_;
 
                 let &IfExpr { cond, if_true, if_false } = ctx.package.hir.if_expr(node);
-                let cond = self.expr(cond, ctx).to_direct(self.bodyb);
+                let cond = self.expr(cond, ctx).deref(self.bodyb);
 
                 let if_true_bb = self.llvm.append_new_bb(fn_, "__if_true");
                 let if_false_bb = self.llvm.append_new_bb(fn_, "__if_false");
@@ -278,27 +283,27 @@ impl<'a> Codegen<'a> {
 
                 self.bodyb.cond_br(cond, if_true_bb, if_false_bb);
 
-                let ret_var = self.alloca(node, "__if", ctx);
+                let ret_var = self.alloca(node, "__if", ctx).ptr();
 
                 self.bodyb.position_at_end(if_true_bb);
-                let v = self.expr(if_true, ctx).to_direct(self.bodyb);
+                let v = self.expr(if_true, ctx).deref(self.bodyb);
                 self.bodyb.store(v, ret_var);
                 self.bodyb.br(succ_bb);
 
                 self.bodyb.position_at_end(if_false_bb);
                 if let Some(if_false) = if_false {
-                    let v = self.expr(if_false, ctx).to_direct(self.bodyb);
+                    let v = self.expr(if_false, ctx).deref(self.bodyb);
                     self.bodyb.store(v, ret_var);
                 }
                 self.bodyb.br(succ_bb);
 
                 self.bodyb.position_at_end(succ_bb);
-                ret_var.into()
+                ret_var.indirect()
             }
             NodeKind::FnDefParam => ctx.allocas[&node].into(),
             NodeKind::LetDef => {
                 let name = ctx.package.hir.let_def(node).name.value.as_str();
-                Value::Indirect(self.alloca(node, name, ctx))
+                self.alloca(node, name, ctx)
             }
             NodeKind::Literal => {
                 let lit = ctx.package.hir.literal(node);
@@ -308,11 +313,11 @@ impl<'a> Codegen<'a> {
                     Literal::String(v) => self.string_literal(v),
                     &Literal::Int(IntLiteral { value, .. }) => {
                         let ty = self.typing((ctx.package.id, node), ctx.genv);
-                        ty.const_int(value)
+                        ty.const_int(value).direct()
                     },
                     &Literal::Float(FloatLiteral { value, .. }) => {
                         let ty = self.typing((ctx.package.id, node), ctx.genv);
-                        ty.const_real(value)
+                        ty.const_real(value).direct()
                     },
                     Literal::Unit => self.unit_literal(),
                 }.into()
@@ -322,20 +327,20 @@ impl<'a> Codegen<'a> {
                 match op {
                     &Op::Binary(BinaryOp { kind, left, right }) => {
                         let leftv = self.expr(left, ctx);
-                        let rightv = self.expr(right, ctx).to_direct(self.bodyb);
+                        let rightv = self.expr(right, ctx).deref(self.bodyb);
                         let left_ty = self.packages.typing((ctx.package.id, left));
                         use BinaryOpKind::*;
                         if kind.value == Assign {
-                            self.bodyb.store(rightv, leftv.indirect());
+                            self.bodyb.store(rightv, leftv.ptr());
                             self.unit_literal()
                         } else {
-                            let leftv = leftv.to_direct(self.bodyb);
+                            let leftv = leftv.deref(self.bodyb);
                             match kind.value {
                                 Add => {
                                     match self.packages.as_number_type(left_ty).expect("todo") {
                                         NumberType::Float => self.bodyb.fadd(leftv, rightv),
                                         NumberType::Int { signed: _ } => self.bodyb.add(leftv, rightv),
-                                    }
+                                    }.direct()
                                 },
                                 Assign => unreachable!(),
                                 | Eq
@@ -374,20 +379,20 @@ impl<'a> Codegen<'a> {
                                                 };
                                                 self.bodyb.icmp(leftv, rightv, pred)
                                             }
-                                        }
+                                        }.direct()
                                     }
                                 },
                                 Sub => {
                                     match self.packages.as_number_type(left_ty).expect("todo") {
                                         NumberType::Float => self.bodyb.fsub(leftv, rightv),
                                         NumberType::Int { signed: _ } => self.bodyb.sub(leftv, rightv),
-                                    }
+                                    }.direct()
                                 },
                                 Mul => {
                                     match self.packages.as_number_type(left_ty).expect("todo") {
                                         NumberType::Float => self.bodyb.fmul(leftv, rightv),
                                         NumberType::Int { signed: _ } => self.bodyb.mul(leftv, rightv),
-                                    }
+                                    }.direct()
                                 },
                                 Div => {
                                     self.div_or_rem(ctx.fn_, left_ty, rightv,
@@ -407,7 +412,7 @@ impl<'a> Codegen<'a> {
                         }
                     },
                     &Op::Unary(UnaryOp { kind, arg }) => {
-                        let argv = self.expr(arg, ctx).to_direct(self.bodyb);
+                        let argv = self.expr(arg, ctx).deref(self.bodyb);
                         let arg_ty = self.packages.typing((ctx.package.id, arg));
                         use UnaryOpKind::*;
                         match kind.value {
@@ -418,20 +423,21 @@ impl<'a> Codegen<'a> {
                                 }
                             }
                             _ => todo!("{:?}", kind)
-                        }
+                        }.direct()
                     },
-                }.into()
+                }
             }
             NodeKind::Path => {
                 let reso = ctx.package.check_data.target_of(node);
                 let package = &self.packages[reso.0];
                 if package.hir.node_kind(reso.1).value == NodeKind::FnDef {
-                    self.fn_def(reso, ctx.package.check_data.typing(node), ctx.genv).into()
+                    self.fn_def(reso, ctx.package.check_data.typing(node), ctx.genv)
                 } else {
                     self.expr(reso.1, &mut ExprCtx {
                         package,
                         fn_: ctx.fn_,
                         allocas: ctx.allocas,
+                        alloca_count: ctx.alloca_count,
                         genv: ctx.genv,
                     })
                 }
@@ -441,14 +447,14 @@ impl<'a> Codegen<'a> {
                 if fields.is_empty() {
                     let ty = ctx.package.check_data.typing(node);
                     let ty = self.type_(ty, ctx.genv);
-                    ty.const_struct(&mut []).into()
+                    ty.const_struct(&mut []).direct()
                 } else {
                     let struct_var = self.alloca(node, "struct_init", ctx); // TODO use actual type name
                     for &field in fields {
                         let value = ctx.package.hir.struct_literal_field(field).value;
-                        let field_val = self.expr(value, ctx).to_direct(self.bodyb);
+                        let field_val = self.expr(value, ctx).deref(self.bodyb);
                         let idx = ctx.package.check_data.struct_field_index(field);
-                        let field_ptr = self.bodyb.struct_gep(struct_var, idx);
+                        let field_ptr = self.bodyb.struct_gep(struct_var.ptr(), idx);
                         self.bodyb.store(field_val, field_ptr);
                     }
                     struct_var.into()
@@ -465,7 +471,7 @@ impl<'a> Codegen<'a> {
                 self.bodyb.br(cond_bb);
 
                 self.bodyb.position_at_end(cond_bb);
-                let cond = self.expr(cond, ctx).to_direct(self.bodyb);
+                let cond = self.expr(cond, ctx).deref(self.bodyb);
                 self.bodyb.cond_br(cond, block_bb, succ_bb);
 
                 self.bodyb.position_at_end(block_bb);
@@ -492,13 +498,13 @@ impl<'a> Codegen<'a> {
     }
 
     fn div_or_rem(&self,
-        fn_: DValueRef,
+        fn_: ValueRef,
         left_ty: TypeId,
-        rightv: DValueRef,
-        make_signed: impl FnOnce() -> DValueRef,
-        make_unsigned: impl FnOnce() -> DValueRef,
-        make_float: impl FnOnce() -> DValueRef,
-    ) -> DValueRef {
+        rightv: ValueRef,
+        make_signed: impl FnOnce() -> ValueRef,
+        make_unsigned: impl FnOnce() -> ValueRef,
+        make_float: impl FnOnce() -> ValueRef,
+    ) -> Value {
         match self.packages.as_number_type(left_ty).expect("todo") {
             NumberType::Float => make_float(),
             NumberType::Int { signed } => {
@@ -518,29 +524,30 @@ impl<'a> Codegen<'a> {
                     make_unsigned()
                 }
             },
-        }
+        }.direct()
     }
 
-    fn bool_literal(&mut self, v: bool) -> DValueRef {
+    fn bool_literal(&mut self, v: bool) -> Value {
         let v = if v { 1 } else { 0 };
-        self.lang_type(LangItem::Primitive(PrimitiveType::Bool)).const_int(v)
+        self.lang_type(LangItem::Primitive(PrimitiveType::Bool)).const_int(v).direct()
     }
 
-    fn char_literal(&mut self, v: char) -> DValueRef {
-        self.lang_type(LangItem::Primitive(PrimitiveType::Char)).const_int(v as u128)
+    fn char_literal(&mut self, v: char) -> Value {
+        self.lang_type(LangItem::Primitive(PrimitiveType::Char)).const_int(v as u128).direct()
     }
 
-    fn string_literal(&mut self, v: &str) -> DValueRef {
+    fn string_literal(&mut self, v: &str) -> Value {
         let g = self.llvm.add_global_const(self.llvm.const_string(v));
         let ptr = self.llvm.const_pointer_cast(g, self.llvm.pointer_type(self.llvm.int_type(8)));
         let len = self.lang_type(LangItem::Primitive(PrimitiveType::USize)).const_int(v.len() as u128);
         let ty = self.lang_type(LangItem::String);
-        ty.const_struct(&mut [ptr, len])
+        ty.const_struct(&mut [ptr, len]).direct()
     }
 
-    fn unit_literal(&mut self) -> DValueRef {
+    fn unit_literal(&mut self) -> Value {
         self.type_(self.packages.std().check_data.lang().unit_type(), &self.default_genv())
             .const_struct(&mut [])
+            .direct()
     }
 
     fn typing(&mut self, node: GlobalNodeId, genv: &GenericEnv) -> TypeRef {
@@ -634,20 +641,22 @@ impl<'a> Codegen<'a> {
         self.type_(self.packages.std().check_data.lang().type_(lang_item), &self.default_genv())
     }
 
-    fn alloca(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> IValueRef {
+    fn alloca(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> Value {
         let ty = ctx.package.check_data.typing(node);
         let ty = self.type_(ty, ctx.genv);
-        self.alloca_ty(node, ty, name, ctx)
+        if ctx.allocas.contains_key(&node) {
+            ctx.allocas[&node]
+        } else {
+            let r = self.alloca_new(ty, name, ctx);
+            assert!(ctx.allocas.insert(node, r).is_none());
+            r
+        }
     }
 
-    fn alloca_ty(&mut self, node: NodeId, ty: TypeRef, name: &str, ctx: &mut ExprCtx) -> IValueRef {
-        let fn_ = ctx.fn_;
-        *ctx.allocas.entry(node)
-            .or_insert_with(|| {
-                self.headerb.position_at_end(fn_.entry_bb());
-                let val = self.headerb.alloca(name, ty);
-                val
-            })
+    fn alloca_new(&mut self, ty: TypeRef, name: &str, ctx: &mut ExprCtx) -> Value {
+        ctx.alloca_count += 1;
+        self.headerb.position_at_end(ctx.fn_.entry_bb());
+        self.headerb.alloca(name, ty).indirect()
     }
 }
 

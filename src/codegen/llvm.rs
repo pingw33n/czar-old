@@ -43,19 +43,19 @@ impl TypeRef {
         self.0.as_ptr()
     }
 
-    pub fn const_int(self, v: u128) -> DValueRef {
+    pub fn const_int(self, v: u128) -> ValueRef {
         NonNull::new(unsafe {
             LLVMConstIntOfArbitraryPrecision(self.as_ptr(), 2, [v as u64, (v >> 64) as u64].as_ptr())
         }).unwrap().into()
     }
 
-    pub fn const_real(self, v: f64) -> DValueRef {
+    pub fn const_real(self, v: f64) -> ValueRef {
         NonNull::new(unsafe {
             LLVMConstReal(self.as_ptr(), v)
         }).unwrap().into()
     }
 
-    pub fn const_struct(self, fields: &mut [DValueRef]) -> DValueRef {
+    pub fn const_struct(self, fields: &mut [ValueRef]) -> ValueRef {
         NonNull::new(unsafe {
             LLVMConstNamedStruct(self.as_ptr(), fields.as_mut_ptr() as *mut _, fields.len() as u32)
         }).unwrap().into()
@@ -138,7 +138,7 @@ impl ValueRef {
         self.0.as_ptr()
     }
 
-    pub fn param(self, i: u32) -> DValueRef {
+    pub fn param(self, i: u32) -> ValueRef {
         NonNull::new(unsafe { LLVMGetParam(self.as_ptr(), i) }).unwrap().into()
     }
 
@@ -173,84 +173,6 @@ impl std::fmt::Display for ValueRef {
 }
 
 impl std::fmt::Debug for ValueRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        std::fmt::Display::fmt(self, f)
-    }
-}
-
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct IValueRef(ValueRef);
-
-impl IValueRef {
-    pub fn to_direct(self, b: BuilderRef) -> DValueRef {
-        b.load(self)
-    }
-}
-
-impl IValueRef {
-    fn as_ptr(self) -> *mut LLVMValue {
-        self.0.as_ptr()
-    }
-}
-
-impl From<NonNull<LLVMValue>> for IValueRef {
-    fn from(v: NonNull<LLVMValue>) -> Self {
-        Self(v.into())
-    }
-}
-
-impl std::ops::Deref for IValueRef {
-    type Target = ValueRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for IValueRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "[indirect] {}", self.0)
-    }
-}
-
-impl std::fmt::Debug for IValueRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        std::fmt::Display::fmt(self, f)
-    }
-}
-
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct DValueRef(ValueRef);
-
-impl DValueRef {
-    fn as_ptr(self) -> *mut LLVMValue {
-        self.0.as_ptr()
-    }
-}
-
-impl From<NonNull<LLVMValue>> for DValueRef {
-    fn from(v: NonNull<LLVMValue>) -> Self {
-        Self(v.into())
-    }
-}
-
-impl std::ops::Deref for DValueRef {
-    type Target = ValueRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for DValueRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "[direct] {}", self.0)
-    }
-}
-
-impl std::fmt::Debug for DValueRef {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         std::fmt::Display::fmt(self, f)
     }
@@ -325,7 +247,7 @@ impl Llvm {
         b
     }
 
-    pub fn add_function(&self, name: &str, ty: TypeRef) -> DValueRef {
+    pub fn add_function(&self, name: &str, ty: TypeRef) -> ValueRef {
         let name = CString::new(name).unwrap();
         NonNull::new(unsafe {
             LLVMAddFunction(self.m.as_ptr(), name.as_ptr(), ty.0.as_ptr())
@@ -338,44 +260,44 @@ impl Llvm {
         }).unwrap().into()
     }
 
-    pub fn append_new_bb(&self, fn_: DValueRef, name: &str) -> BasicBlockRef {
+    pub fn append_new_bb(&self, fn_: ValueRef, name: &str) -> BasicBlockRef {
         NonNull::new(unsafe {
             LLVMAppendBasicBlockInContext(self.c.as_ptr(), fn_.as_ptr(), cstring(name).as_ptr())
         }).unwrap().into()
     }
 
-    pub fn const_string(&self, s: &str) -> DValueRef {
+    pub fn const_string(&self, s: &str) -> ValueRef {
         NonNull::new(unsafe {
             LLVMConstStringInContext(self.c.as_ptr(), s.as_ptr() as *const i8, s.len() as u32, 1)
         }).unwrap().into()
     }
 
-    pub fn add_global_const(&self, value: DValueRef) -> DValueRef {
+    pub fn add_global_const(&self, value: ValueRef) -> ValueRef {
         let g = self.add_global(value.type_());
         self.set_initializer(g, value);
         self.set_constant(g, true);
         g
     }
 
-    fn add_global(&self, ty: TypeRef) -> DValueRef {
+    fn add_global(&self, ty: TypeRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMAddGlobal(self.m.as_ptr(), ty.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    fn set_initializer(&self, global: DValueRef, const_value: DValueRef) {
+    fn set_initializer(&self, global: ValueRef, const_value: ValueRef) {
         unsafe {
             LLVMSetInitializer(global.as_ptr(), const_value.as_ptr())
         }
     }
 
-    fn set_constant(&self, global: DValueRef, constant: bool) {
+    fn set_constant(&self, global: ValueRef, constant: bool) {
         unsafe {
             LLVMSetGlobalConstant(global.as_ptr(), constant as i32)
         }
     }
 
-    pub fn const_pointer_cast(&self, v: DValueRef, to_ty: TypeRef) -> DValueRef {
+    pub fn const_pointer_cast(&self, v: ValueRef, to_ty: TypeRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMConstPointerCast(v.as_ptr(), to_ty.0.as_ptr())
         }).unwrap().into()
@@ -486,7 +408,7 @@ impl Llvm {
                 self.add_function(name.to_str().unwrap(), ty)
             }
         };
-        T::new(func.0)
+        T::new(func)
     }
 }
 
@@ -526,25 +448,25 @@ impl BuilderRef {
         unsafe { LLVMPositionBuilderAtEnd(self.as_ptr(), bb.0.as_ptr()); }
     }
 
-    pub fn alloca(&self, name: &str, ty: TypeRef) -> IValueRef {
+    pub fn alloca(&self, name: &str, ty: TypeRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildAlloca(self.as_ptr(), ty.as_ptr(), cstring(name).as_ptr())
         }).unwrap().into()
     }
 
-    pub fn load(&self, v: IValueRef) -> DValueRef {
+    pub fn load(&self, v: ValueRef) -> ValueRef {
         NonNull::new(unsafe { LLVMBuildLoad(self.as_ptr(), v.as_ptr(), empty_cstr()) }).unwrap().into()
     }
 
-    pub fn store(&self, v: DValueRef, ptr: IValueRef) -> ValueRef {
+    pub fn store(&self, v: ValueRef, ptr: ValueRef) -> ValueRef {
         NonNull::new(unsafe { LLVMBuildStore(self.as_ptr(), v.as_ptr(), ptr.0.as_ptr()) }).unwrap().into()
     }
 
-    pub fn ret(&self, v: DValueRef) -> DValueRef {
+    pub fn ret(&self, v: ValueRef) -> ValueRef {
         NonNull::new(unsafe { LLVMBuildRet(self.as_ptr(), v.as_ptr()) }).unwrap().into()
     }
 
-    pub fn call(&self, callee: DValueRef, args: &mut [DValueRef]) -> DValueRef {
+    pub fn call(&self, callee: ValueRef, args: &mut [ValueRef]) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildCall(
                 self.as_ptr(),
@@ -555,7 +477,7 @@ impl BuilderRef {
         }).unwrap().into()
     }
 
-    pub fn cond_br(&self, cond: DValueRef, if_true: BasicBlockRef, if_false: BasicBlockRef) -> ValueRef {
+    pub fn cond_br(&self, cond: ValueRef, if_true: BasicBlockRef, if_false: BasicBlockRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildCondBr(self.as_ptr(), cond.as_ptr(), if_true.as_ptr(), if_false.as_ptr())
         }).unwrap().into()
@@ -565,97 +487,97 @@ impl BuilderRef {
         NonNull::new(unsafe { LLVMBuildBr(self.as_ptr(), to.0.as_ptr()) }).unwrap().into()
     }
 
-    pub fn add(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn add(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildAdd(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn mul(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn mul(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildMul(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn sdiv(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn sdiv(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildSDiv(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn udiv(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn udiv(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildUDiv(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn srem(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn srem(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildSRem(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn urem(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn urem(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildURem(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn frem(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn frem(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildFRem(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn icmp(&self, left: DValueRef, right: DValueRef, predicate: IntPredicate) -> DValueRef {
+    pub fn icmp(&self, left: ValueRef, right: ValueRef, predicate: IntPredicate) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildICmp(self.as_ptr(), predicate, left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn fcmp(&self, left: DValueRef, right: DValueRef, predicate: RealPredicate) -> DValueRef {
+    pub fn fcmp(&self, left: ValueRef, right: ValueRef, predicate: RealPredicate) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildFCmp(self.as_ptr(), predicate, left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn fneg(&self, v: DValueRef) -> DValueRef {
+    pub fn fneg(&self, v: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildFNeg(self.as_ptr(), v.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn fadd(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn fadd(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildFAdd(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn fsub(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn fsub(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildFSub(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn fmul(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn fmul(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildFMul(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn fdiv(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn fdiv(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildFDiv(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn neg(&self, v: DValueRef) -> DValueRef {
+    pub fn neg(&self, v: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildNeg(self.as_ptr(), v.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn sub(&self, left: DValueRef, right: DValueRef) -> DValueRef {
+    pub fn sub(&self, left: ValueRef, right: ValueRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildSub(self.as_ptr(), left.as_ptr(), right.as_ptr(), empty_cstr())
         }).unwrap().into()
@@ -667,14 +589,14 @@ impl BuilderRef {
         }).unwrap().into()
     }
 
-    pub fn gep(&self, ptr: IValueRef, indexes: &mut [DValueRef]) -> IValueRef {
+    pub fn gep(&self, ptr: ValueRef, indexes: &mut [ValueRef]) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildGEP(self.as_ptr(), ptr.as_ptr(),
                 indexes.as_mut_ptr() as *mut _, indexes.len() as u32, empty_cstr())
         }).unwrap().into()
     }
 
-    pub fn struct_gep(&self, ptr: IValueRef, idx: u32) -> IValueRef {
+    pub fn struct_gep(&self, ptr: ValueRef, idx: u32) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildStructGEP(self.as_ptr(), ptr.as_ptr(), idx, empty_cstr())
         }).unwrap().into()

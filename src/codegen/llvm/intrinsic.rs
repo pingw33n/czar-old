@@ -38,6 +38,6 @@ impl Intrinsic for Trap {
 
 impl Trap {
     pub fn call(&self, b: BuilderRef) -> ValueRef {
-        b.call((self.0).0.into(), &mut []).0
+        b.call(self.0, &mut [])
     }
 }
