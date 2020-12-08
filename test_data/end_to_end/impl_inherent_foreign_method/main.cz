@@ -1,0 +1,4 @@
+fn main() {
+    let s = "test";
+    print_usize(s.len()); println();
+}

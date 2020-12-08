@@ -26,6 +26,23 @@ struct MatchTypeCtx<'a> {
 }
 
 impl PassImpl<'_> {
+    pub fn normalize_impls(&mut self) {
+        let mut tys = Vec::new();
+        for package in self.packages.iter() {
+            for impls in package.check_data.impls.nominal.values() {
+                for impl_ in impls {
+                    tys.push(impl_.for_ty);
+                }
+            }
+            for impl_ in &package.check_data.impls.structural {
+                tys.push(impl_.for_ty);
+            }
+        }
+        for ty in tys {
+            self.normalize(ty);
+        }
+    }
+
     pub fn pre_check_impls(&mut self) -> Result<()> {
         for &impl_ in self.discover_data.impls() {
             let _ = self.ensure_typing(impl_);

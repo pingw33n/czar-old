@@ -257,7 +257,7 @@ impl<'a> Check<'a> {
     pub fn run(self) -> Result<CheckData> {
         let mut check_data = CheckData::new(self.package_id);
 
-        let imp = &mut PassImpl {
+        PassImpl {
             discover_data: self.discover_data,
             check_data: &mut check_data,
             package_id: self.package_id,
@@ -271,54 +271,7 @@ impl<'a> Check<'a> {
             resolve_data: self.resolve_data,
             inference_ctxs: Vec::new(),
             type_data_ids: Default::default(),
-        };
-        if self.package_id.is_std() {
-            imp.make_lang()?;
-        }
-
-        let _ = imp.pre_check_impls();
-
-        self.hir.traverse(imp);
-
-        // println!();
-        // imp.dump_all_types();
-
-        for ty in imp.check_data.types() {
-            assert_eq!(ty.id.0, self.package_id);
-        }
-
-        if cfg!(debug_assertions) {
-            let failed: Vec<_> = imp.typing_state.iter()
-                .filter(|&(_, &s)| s == TypingState::Failed)
-                .map(|(&n, _)| n)
-                .collect();
-            if !failed.is_empty() {
-                let diag_empty = self.diag.borrow().reports().is_empty();
-                if diag_empty {
-                    dbg!(self.package_id);
-                    for node in failed {
-                        dbg!(self.hir.node_kind(node));
-                    }
-                }
-                assert!(!diag_empty, "{:?}", self.package_id);
-            }
-        }
-        imp.check_entry_point()?;
-        if self.diag.borrow().error_count() > 0 {
-            return Err(());
-        }
-
-        // println!();
-        // imp.dump_all_types();
-
-        imp.normalize_all();
-
-        for ty in imp.check_data.types() {
-            assert!(ty.data.as_incomplete().is_none(), "{:?} {:?}", ty, imp.hir(ty.node.0).node_kind(ty.node.1));
-        }
-
-        // println!();
-        // imp.dump_all_types();
+        }.run()?;
 
         Ok(check_data)
     }
@@ -364,6 +317,60 @@ struct PassImpl<'a> {
 }
 
 impl PassImpl<'_> {
+    fn run(&mut self) -> Result<()> {
+        if self.package_id.is_std() {
+            self.make_lang()?;
+        }
+
+        self.normalize_impls();
+
+        let _ = self.pre_check_impls();
+
+        self.hir.traverse(self);
+
+        // println!();
+        // imp.dump_all_types();
+
+        for ty in self.check_data.types() {
+            assert_eq!(ty.id.0, self.package_id);
+        }
+
+        if cfg!(debug_assertions) {
+            let failed: Vec<_> = self.typing_state.iter()
+                .filter(|&(_, &s)| s == TypingState::Failed)
+                .map(|(&n, _)| n)
+                .collect();
+            if !failed.is_empty() {
+                let diag_empty = self.diag.borrow().reports().is_empty();
+                if diag_empty {
+                    dbg!(self.package_id);
+                    for node in failed {
+                        dbg!(self.hir.node_kind(node));
+                    }
+                }
+                assert!(!diag_empty, "{:?}", self.package_id);
+            }
+        }
+        self.check_entry_point()?;
+        if self.diag.borrow().error_count() > 0 {
+            return Err(());
+        }
+
+        // println!();
+        // imp.dump_all_types();
+
+        self.normalize_all();
+
+        for ty in self.check_data.types() {
+            assert!(ty.data.as_incomplete().is_none(), "{:?} {:?}", ty, self.hir(ty.node.0).node_kind(ty.node.1));
+        }
+
+        // println!();
+        // self.dump_all_types();
+
+        Ok(())
+    }
+
     fn typing_state(&self, node: NodeId) -> Option<TypingState> {
         self.typing_state.get(&node).copied()
     }
