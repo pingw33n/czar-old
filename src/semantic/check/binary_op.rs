@@ -6,6 +6,8 @@ impl PassImpl<'_> {
         let left_ty = self.typing(left)?;
         let right_ty = self.typing(right)?;
         self.unify(left_ty, right_ty);
+        let left_ty = self.normalize(left_ty);
+        let right_ty = self.normalize(right_ty);
 
         use BinaryOpKind::*;
         let ty = match kind.value {
@@ -13,7 +15,7 @@ impl PassImpl<'_> {
                 if !self.check_data.is_lvalue(left) {
                     self.error(left, "can't assign to this expression".into());
                 } else {
-                    if self.normalize(left_ty) != self.normalize(right_ty) {
+                    if left_ty != right_ty {
                         self.error(right, format!(
                             "mismatching types: expected `{}`, found `{}`",
                             self.display_type(left_ty),
@@ -29,26 +31,20 @@ impl PassImpl<'_> {
             | LtEq
             | NotEq
             => {
-                let left_ty = self.type_(left_ty);
-                let right_ty = self.type_(right_ty);
-                let lli = self.as_lang_item(left_ty.id);
-                let rli = self.as_lang_item(right_ty.id);
+                let lli = self.as_lang_item(left_ty);
+                let rli = self.as_lang_item(right_ty);
                 let ok =
                     // Any primitive.
                     matches!((lli, rli), (Some(LangItem::Primitive(l)), Some(LangItem::Primitive(r))) if l == r)
                     // Unit
-                    || self.is_unit_type(left_ty.id) && self.is_unit_type(right_ty.id)
+                    || self.is_unit_type(left_ty) && self.is_unit_type(right_ty)
                     // String
                     || matches!(lli, Some(v) if lli == rli && matches!(v, LangItem::String))
                     // Any number.
-                    || matches!((self.as_any_number(left_ty.id), self.as_any_number(right_ty.id)),
+                    || matches!((self.as_any_number(left_ty), self.as_any_number(right_ty)),
                         (Some(l), Some(r)) if l == r);
                 if !ok {
-                    self.error_span(node, kind.span, format!(
-                        "binary operation `{}` can't be applied to types `{}`, `{}`",
-                        kind.value,
-                        self.display_type(left_ty.id),
-                        self.display_type(right_ty.id)));
+                    self.err_binary_op_not_defined(node, kind, left_ty, right_ty);
                 }
                 self.std().type_(LangItem::Primitive(PrimitiveType::Bool))
             },
@@ -58,24 +54,41 @@ impl PassImpl<'_> {
             | Sub
             | Rem
             => {
-                let left_ty = self.type_(left_ty);
-                let right_ty = self.type_(right_ty);
-                let ok =
+                let mut ok =
                     // Any number.
-                    matches!((self.as_any_number(left_ty.id), self.as_any_number(right_ty.id)),
+                    matches!((self.as_any_number(left_ty), self.as_any_number(right_ty)),
                         (Some(l), Some(r)) if l == r);
                 if !ok {
-                    self.error_span(node, kind.span, format!(
-                        "binary operation `{}` can't be applied to types `{}`, `{}`",
-                        kind.value,
-                        self.display_type(left_ty.id),
-                        self.display_type(right_ty.id)));
+                    // Ptr {+|-} usize
+                    ok = matches!(kind.value, Add | Sub)
+                        && matches!(self.as_lang_item(left_ty), Some(LangItem::Ptr))
+                        && matches!(self.as_any_number(right_ty), Some(NumberKind::Int));
+                    if ok {
+                        self.unify(right_ty, self.std().type_(LangItem::Primitive(PrimitiveType::ISize)));
+                        let right_ty = self.normalize(right_ty);
+                        if self.as_primitive(right_ty) != Some(PrimitiveType::ISize) {
+                            self.error(right, format!(
+                                "mismatching types: expected `isize`, found `{}`",
+                                self.display_type(right_ty)));
+                        }
+                    }
+                }
+                if !ok {
+                    self.err_binary_op_not_defined(node, kind, left_ty, right_ty);
                     return Err(());
                 }
-                left_ty.id
+                left_ty
             }
             _ => todo!("{:?}", kind),
         };
         Ok(ty)
+    }
+
+    fn err_binary_op_not_defined(&self, node: NodeId, kind: S<BinaryOpKind>, left_ty: TypeId, right_ty: TypeId) {
+        self.error_span(node, kind.span, format!(
+            "binary operation `{}` can't be applied to types `{}`, `{}`",
+            kind.value,
+            self.display_type(left_ty),
+            self.display_type(right_ty)));
     }
 }

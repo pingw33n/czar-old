@@ -383,10 +383,27 @@ impl<'a> Codegen<'a> {
                         } else {
                             let leftv = leftv.deref(self.bodyb);
                             match kind.value {
-                                Add => {
-                                    match self.packages.as_number_type(left_ty).expect("todo") {
-                                        NumberType::Float => self.bodyb.fadd(leftv, rightv),
-                                        NumberType::Int { signed: _ } => self.bodyb.add(leftv, rightv),
+                                Add | Sub => {
+                                    if let Some(num) = self.packages.as_number_type(left_ty) {
+                                        match kind.value {
+                                            Add => match num {
+                                                NumberType::Float => self.bodyb.fadd(leftv, rightv),
+                                                NumberType::Int { signed: _ } => self.bodyb.add(leftv, rightv),
+                                            }
+                                            Sub => match num {
+                                                NumberType::Float => self.bodyb.fsub(leftv, rightv),
+                                                NumberType::Int { signed: _ } => self.bodyb.sub(leftv, rightv),
+                                            }
+                                            _ => unreachable!(),
+                                        }
+                                    } else {
+                                        assert_eq!(self.packages.as_lang_item(left_ty), Some(LangItem::Ptr));
+                                        let rightv = if kind.value == BinaryOpKind::Sub {
+                                            self.bodyb.neg(rightv)
+                                        } else {
+                                            rightv
+                                        };
+                                        self.bodyb.gep_in_bounds(leftv, &mut [rightv])
                                     }.direct()
                                 },
                                 Assign => unreachable!(),
@@ -429,12 +446,6 @@ impl<'a> Codegen<'a> {
                                         }.direct()
                                     }
                                 },
-                                Sub => {
-                                    match self.packages.as_number_type(left_ty).expect("todo") {
-                                        NumberType::Float => self.bodyb.fsub(leftv, rightv),
-                                        NumberType::Int { signed: _ } => self.bodyb.sub(leftv, rightv),
-                                    }.direct()
-                                },
                                 Mul => {
                                     match self.packages.as_number_type(left_ty).expect("todo") {
                                         NumberType::Float => self.bodyb.fmul(leftv, rightv),
@@ -463,14 +474,18 @@ impl<'a> Codegen<'a> {
                         let arg_ty = self.packages.typing((ctx.package.id, arg));
                         use UnaryOpKind::*;
                         match kind.value {
+                            Deref => {
+                                assert_eq!(self.packages.as_lang_item(arg_ty), Some(LangItem::Ptr));
+                                argv.indirect()
+                            }
                             Neg => {
                                 match self.packages.as_number_type(arg_ty).expect("todo") {
                                     NumberType::Float => self.bodyb.fneg(argv),
                                     NumberType::Int { signed: _ } => self.bodyb.neg(argv),
-                                }
+                                }.direct()
                             }
                             _ => todo!("{:?}", kind)
-                        }.direct()
+                        }
                     },
                 }
             }

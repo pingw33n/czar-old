@@ -595,9 +595,9 @@ impl BuilderRef {
         }).unwrap().into()
     }
 
-    pub fn gep(&self, ptr: ValueRef, indexes: &mut [ValueRef]) -> ValueRef {
+    pub fn gep_in_bounds(&self, ptr: ValueRef, indexes: &mut [ValueRef]) -> ValueRef {
         NonNull::new(unsafe {
-            LLVMBuildGEP(self.as_ptr(), ptr.as_ptr(),
+            LLVMBuildInBoundsGEP(self.as_ptr(), ptr.as_ptr(),
                 indexes.as_mut_ptr() as *mut _, indexes.len() as u32, empty_cstr())
         }).unwrap().into()
     }

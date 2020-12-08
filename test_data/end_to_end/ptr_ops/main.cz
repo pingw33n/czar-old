@@ -1,0 +1,21 @@
+fn loads() {
+    let s = "012345";
+
+    fn s_len() -> isize { 6 }
+
+    let p = s.ptr;
+    print_u8(*p); println();
+
+    print_u8(*(p + 1)); println();
+
+    p = p + 3;
+    p = p - 1;
+    print_u8(*p); println();
+
+    let p = s.ptr + s_len() - 1;
+    print_u8(*p); println();
+}
+
+fn main() {
+    loads();
+}
