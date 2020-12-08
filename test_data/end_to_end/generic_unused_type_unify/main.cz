@@ -1,0 +1,7 @@
+fn main() {
+    struct S<T> {}
+
+    fn f<T>(_ s: S<S<T>>) {}
+
+    f(S<S<u32>> {});
+}

@@ -66,38 +66,59 @@ impl PassImpl<'_> {
         }
     }
 
-    fn unify0(&mut self, ty1: TypeId, ty2: TypeId) {
+    fn unify0(&mut self, ty1: TypeId, ty2: TypeId) -> bool {
         if ty1 == ty2 {
-            return;
+            return true
         }
-        if self.unify_var(ty1, ty2) {
-        } else if self.unify_var(ty2, ty1) {
-        } else {
-            match (&self.underlying_type(ty1).data, &self.underlying_type(ty2).data) {
-                (TypeData::Struct(StructType { name: name1, fields: fields1 }),
-                    TypeData::Struct(StructType { name: name2, fields: fields2 }))
-                    if name1.is_some() && name1 == name2
-                        || name1.is_none() && name2.is_none()
-                        && fields1.len() == fields2.len()
-                        && fields1.iter().zip(fields2.iter())
-                            .all(|(s, d)| s.name == d.name)
-                => {
+        match (&self.type_(ty1).data, &self.type_(ty2).data) {
+            (TypeData::GenericEnv(GenericEnv { ty: ty1, vars: vars1}),
+                TypeData::GenericEnv(GenericEnv { ty: ty2, vars: vars2}))
+            => {
+                let ty1 = *ty1;
+                let vars1 = vars1.clone();
+                let ty2 = *ty2;
+                let vars2 = vars2.clone();
+                if self.unify0(ty1, ty2) {
+                    assert_eq!(vars1.len(), vars2.len());
+                    for ((var1, val1), (var2, val2)) in vars1.iter().zip(vars2.iter()) {
+                        assert_eq!(var1, var2);
+                        self.unify0(val1, val2);
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            (TypeData::Struct(StructType { name: name1, fields: fields1 }),
+                TypeData::Struct(StructType { name: name2, fields: fields2 }))
+            => {
+                if name1.is_some() && name1 == name2
+                    || name1.is_none() && name2.is_none()
+                    && fields1.len() == fields2.len()
+                    && fields1.iter().zip(fields2.iter())
+                        .all(|(s, d)| s.name == d.name)
+                {
                     let fields: Vec<_> = fields1.iter().zip(fields2.iter())
                         .map(|(s, d)| (s.ty, d.ty))
                         .collect();
                     for (ty1, ty2) in fields {
-                        self.unify(ty1, ty2);
+                        self.unify0(ty1, ty2);
                     }
+                    true
+                } else {
+                    false
                 }
-                _ => {},
             }
+            // Instance on either side means unification has been already done (e.g. via struct field).
+            (TypeData::Instance(_), _) | (_, TypeData::Instance(_)) => false,
+            _ => self.unify_var(ty1, ty2) || self.unify_var(ty2, ty1),
         }
     }
 
-    pub fn unify(&mut self, ty1: TypeId, ty2: TypeId) {
+    pub fn unify(&mut self, ty1: TypeId, ty2: TypeId) -> bool {
         let ty1 = self.normalize(ty1);
         let ty2 = self.normalize(ty2);
-        self.unify0(ty1, ty2);
+        self.unify0(ty1, ty2)
     }
 
     pub fn begin_inference(&mut self) {
