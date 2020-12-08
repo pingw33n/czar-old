@@ -29,7 +29,7 @@ use resolve::{self, Resolution, ResolutionKind, Resolver, ResolveData};
 use inference::{InferenceCtx, InferenceVar};
 pub use data::CheckData;
 pub use impls::{Impl, Impls, ImplValueItem};
-pub use lang::{LangItem, Lang, NumberKind, NumberType, PrimitiveType};
+pub use lang::{IntrinsicItem, LangItem, Lang, NumberKind, NumberType, PrimitiveType, RangeItem};
 pub use structs::{StructType, StructTypeField};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

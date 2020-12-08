@@ -250,13 +250,25 @@ impl<'a> Codegen<'a> {
             NodeKind::FnCall => {
                 let fnc = ctx.package.hir.fn_call(node);
 
-                let callee = self.expr(fnc.callee, ctx).deref(self.bodyb);
                 let args_ll = &mut Vec::new();
                 for &FnCallArg { value, .. } in &fnc.args {
                     let v = self.expr(value, ctx).deref(self.bodyb);
                     args_ll.push(v);
                 }
-                self.bodyb.call(callee, args_ll).direct()
+
+                let intrinsic = self.packages.as_lang_item(ctx.package.check_data.typing(fnc.callee))
+                    .and_then(|v| v.into_intrinsic().ok());
+                if let Some(intr) = intrinsic {
+                    match intr {
+                        IntrinsicItem::Trap => {
+                            assert!(args_ll.is_empty());
+                            self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb).direct()
+                        }
+                    }
+                } else {
+                    let callee = self.expr(fnc.callee, ctx).deref(self.bodyb);
+                    self.bodyb.call(callee, args_ll).direct()
+                }
             }
             NodeKind::Let => {
                 let &Let { def } = ctx.package.hir.let_(node);

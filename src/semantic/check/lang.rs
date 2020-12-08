@@ -76,6 +76,7 @@ impl PrimitiveType {
 
 #[derive(Clone, Copy, Debug, EnumAsInner, Eq, Hash, PartialEq)]
 pub enum LangItem {
+    Intrinsic(IntrinsicItem),
     Primitive(PrimitiveType),
     Ptr,
     Range(RangeItem),
@@ -98,20 +99,25 @@ pub enum RangeItem {
     RangeToInclusive,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum IntrinsicItem {
+    Trap,
+}
+
 pub struct Lang {
-    lang_item_to_type: HashMap<LangItem, LocalTypeId>,
-    node_to_lang_item: HashMap<NodeId, LangItem>,
+    item_to_type: HashMap<LangItem, LocalTypeId>,
+    node_to_item: HashMap<NodeId, LangItem>,
     unit_type: LocalTypeId,
 }
 
 impl Lang {
     pub fn type_(&self, ty: LangItem) -> TypeId {
-        (PackageId::std(), self.lang_item_to_type[&ty])
+        (PackageId::std(), self.item_to_type[&ty])
     }
 
     pub fn as_item(&self, node: GlobalNodeId) -> Option<LangItem> {
         if node.0.is_std() {
-            self.node_to_lang_item.get(&node.1).copied()
+            self.node_to_item.get(&node.1).copied()
         } else {
             None
         }
@@ -130,14 +136,21 @@ impl PassImpl<'_> {
     pub fn make_lang(&mut self) -> Result<()> {
         assert!(self.package_id.is_std());
 
-        let mut lang_item_to_type = HashMap::new();
-        let mut node_to_lang_item = HashMap::new();
+        let unit_type = self.check_lang_type(&["Unit"]).expect("error checking Unit type");
+
+        assert!(self.check_data.lang.replace(Box::new(Lang {
+            item_to_type: HashMap::new(),
+            node_to_item: HashMap::new(),
+            unit_type,
+        })).is_none());
 
         {
+            use IntrinsicItem as I;
             use LangItem as L;
             use PrimitiveType::*;
             use RangeItem as R;
             for &(lang_item, path) in &[
+                (L::Intrinsic(I::Trap), &["intrinsic", "trap"][..]),
                 (L::Primitive(Bool), &["bool"][..]),
                 (L::Primitive(Char), &["char"][..]),
                 (L::Primitive(F32), &["f32"][..]),
@@ -164,22 +177,14 @@ impl PassImpl<'_> {
                 (L::String, &["string", "String"][..]),
             ] {
                 let ty = self.check_lang_type(path)?;
-
-                assert!(lang_item_to_type.insert(lang_item, ty).is_none());
-
                 let (pkg, node) = self.underlying_type((PackageId::std(), ty)).data.name().unwrap();
+
+                let lang = self.check_data.lang.as_mut().unwrap();
+                assert!(lang.item_to_type.insert(lang_item, ty).is_none());
                 assert!(pkg.is_std());
-                assert!(node_to_lang_item.insert(node, lang_item).is_none());
+                assert!(lang.node_to_item.insert(node, lang_item).is_none());
             }
         }
-
-        let unit_type = self.check_lang_type(&["Unit"]).expect("error checking Unit type");
-
-        assert!(self.check_data.lang.replace(Box::new(Lang {
-            lang_item_to_type,
-            node_to_lang_item,
-            unit_type,
-        })).is_none());
 
         Ok(())
     }
@@ -189,10 +194,10 @@ impl PassImpl<'_> {
     }
 
     fn check_lang_type(&mut self, path: &[&str]) -> Result<LocalTypeId> {
-        let node = self.resolver()
+        let (_, node) = self.resolver()
             .resolve_in_package(path)
             .unwrap()
-            .ns_nodes(NsKind::Type)
+            .nodes()
             .exactly_one()
             .ok_or(())?;
         assert!(node.0.is_std());

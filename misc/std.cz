@@ -100,4 +100,8 @@ pub module ptr {
     pub struct Ptr<T> {{}}
 }
 
+module intrinsic {
+    unsafe fn trap();
+}
+
 type Unit = {};
