@@ -101,6 +101,7 @@ pub enum RangeItem {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum IntrinsicItem {
+    Transmute,
     Trap,
 }
 
@@ -150,6 +151,7 @@ impl PassImpl<'_> {
             use PrimitiveType::*;
             use RangeItem as R;
             for &(lang_item, path) in &[
+                (L::Intrinsic(I::Transmute), &["intrinsic", "transmute"][..]),
                 (L::Intrinsic(I::Trap), &["intrinsic", "trap"][..]),
                 (L::Primitive(Bool), &["bool"][..]),
                 (L::Primitive(Char), &["char"][..]),

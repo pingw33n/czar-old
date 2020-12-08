@@ -99,6 +99,12 @@ impl TypeRef {
             }
         }
     }
+
+    pub fn pointer(self) -> Self {
+        NonNull::new(unsafe {
+            LLVMPointerType(self.as_ptr(), 0)
+        }).unwrap().into()
+    }
 }
 
 impl From<NonNull<LLVMType>> for TypeRef {
@@ -342,12 +348,6 @@ impl Llvm {
         }.into()
     }
 
-    pub fn pointer_type(&self, inner: TypeRef) -> TypeRef {
-        NonNull::new(unsafe {
-            LLVMPointerType(inner.as_ptr(), 0)
-        }).unwrap().into()
-    }
-
     pub fn emit(&self, out: &mut impl std::io::Write, format: OutputFormat) -> std::io::Result<()> {
         match format {
             OutputFormat::IR => {
@@ -397,6 +397,12 @@ impl Llvm {
 
     pub fn pointer_size_bits(&self) -> u32 {
         unsafe { LLVMPointerSize(self.data_layout.as_ptr()) * 8 }
+    }
+
+    pub fn abi_size_bytes(&self, ty: TypeRef) -> u64 {
+        let v = unsafe { LLVMSizeOfTypeInBits(self.data_layout.as_ptr(), ty.as_ptr()) };
+        assert_eq!(v % 8, 0);
+        v / 8
     }
 
     pub fn intrinsic<T: Intrinsic>(&self) -> T {
@@ -599,6 +605,12 @@ impl BuilderRef {
     pub fn struct_gep(&self, ptr: ValueRef, idx: u32) -> ValueRef {
         NonNull::new(unsafe {
             LLVMBuildStructGEP(self.as_ptr(), ptr.as_ptr(), idx, empty_cstr())
+        }).unwrap().into()
+    }
+
+    pub fn bitcast(&self, val: ValueRef, ty: TypeRef) -> ValueRef {
+        NonNull::new(unsafe {
+            LLVMBuildBitCast(self.as_ptr(), val.as_ptr(), ty.as_ptr(), empty_cstr())
         }).unwrap().into()
     }
 }

@@ -250,22 +250,57 @@ impl<'a> Codegen<'a> {
             NodeKind::FnCall => {
                 let fnc = ctx.package.hir.fn_call(node);
 
-                let args_ll = &mut Vec::new();
-                for &FnCallArg { value, .. } in &fnc.args {
-                    let v = self.expr(value, ctx).deref(self.bodyb);
-                    args_ll.push(v);
-                }
-
                 let intrinsic = self.packages.as_lang_item(ctx.package.check_data.typing(fnc.callee))
                     .and_then(|v| v.into_intrinsic().ok());
                 if let Some(intr) = intrinsic {
                     match intr {
                         IntrinsicItem::Trap => {
-                            assert!(args_ll.is_empty());
+                            assert!(fnc.args.is_empty());
                             self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb).direct()
+                        }
+                        IntrinsicItem::Transmute => {
+                            assert_eq!(fnc.args.len(), 1);
+                            let src_ty = ctx.package.check_data.typing(fnc.args[0].value);
+                            let src_ty = self.type_(src_ty, ctx.genv);
+                            let src_size = self.llvm.abi_size_bytes(src_ty);
+
+                            let src = self.expr(fnc.args[0].value, ctx);
+                            let src = self.make_ptr(src, ctx);
+
+                            let dst_ty = ctx.package.check_data.typing(node);
+                            let dst_ty = self.type_(dst_ty, ctx.genv);
+                            let dst_size = self.llvm.abi_size_bytes(dst_ty);
+
+                            if src_size != dst_size {
+                                todo!("must fail in frontend");
+                            }
+
+                            let dst = self.alloca_new(dst_ty, "", ctx);
+
+                            let i8ptr = self.llvm.int_type(8).pointer();
+                            let src_ptr = self.bodyb.bitcast(src, i8ptr);
+                            let dst_ptr = self.bodyb.bitcast(dst.ptr(), i8ptr);
+                            match self.llvm.pointer_size_bits() {
+                                32 => self.llvm.intrinsic::<intrinsic::Memcpy32>().call(self.bodyb,
+                                    dst_ptr, src_ptr,
+                                    self.llvm.int_type(32).const_int(src_size as u128),
+                                    self.llvm.int_type(1).const_int(0)),
+                                64 => self.llvm.intrinsic::<intrinsic::Memcpy64>().call(self.bodyb,
+                                    dst_ptr, src_ptr,
+                                    self.llvm.int_type(64).const_int(src_size as u128),
+                                    self.llvm.int_type(1).const_int(0)),
+                                _ => unreachable!(),
+                            }
+
+                            dst
                         }
                     }
                 } else {
+                    let args_ll = &mut Vec::new();
+                    for &FnCallArg { value, .. } in &fnc.args {
+                        let v = self.expr(value, ctx).deref(self.bodyb);
+                        args_ll.push(v);
+                    }
                     let callee = self.expr(fnc.callee, ctx).deref(self.bodyb);
                     self.bodyb.call(callee, args_ll).direct()
                 }
@@ -567,7 +602,7 @@ impl<'a> Codegen<'a> {
 
     fn string_literal(&mut self, v: &str) -> Value {
         let g = self.llvm.add_global_const(self.llvm.const_string(v));
-        let ptr = self.llvm.const_pointer_cast(g, self.llvm.pointer_type(self.llvm.int_type(8)));
+        let ptr = self.llvm.const_pointer_cast(g, self.llvm.int_type(8).pointer());
         let len = self.lang_type(LangItem::Primitive(PrimitiveType::USize)).const_int(v.len() as u128);
         let ty = self.lang_type(LangItem::String);
         ty.const_struct(&mut [ptr, len]).direct()
@@ -622,7 +657,7 @@ impl<'a> Codegen<'a> {
             } else if let Some(LangItem::Ptr) = self.packages.std().check_data.lang().as_item(def) {
                 let pty = self.packages.type_(ty).data.as_generic_env().unwrap().vars.vals().next().unwrap();
                 let pty = self.type_(pty, genv);
-                return self.llvm.pointer_type(pty)
+                return pty.pointer()
             }
         }
         let field_tys = &mut Vec::with_capacity(fields.len());

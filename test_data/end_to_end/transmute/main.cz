@@ -1,0 +1,8 @@
+fn main() {
+    struct Repr {
+        ptr: std::ptr::Ptr<u8>,
+        len: usize,
+    }
+    let v: Repr = std::intrinsic::transmute("test");
+    print_usize(v.len); println();
+}

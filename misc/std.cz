@@ -102,6 +102,8 @@ pub module ptr {
 
 module intrinsic {
     unsafe fn trap();
+
+    unsafe fn transmute<T, U>(_ v: T) -> U;
 }
 
 type Unit = {};
