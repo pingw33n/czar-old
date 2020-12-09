@@ -8,7 +8,7 @@ fn main() {
     5 = 42;
     5 + 4 / 2 = 42;
     2.0 = 42;
-    if true { "t" } else { "f" } = 42;
+    (if true { "t" } else { "f" }) = 42;
     main = 42;
     main() = 42;
 }

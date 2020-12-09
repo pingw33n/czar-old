@@ -69,39 +69,37 @@ const OR_PREC: PrecAssoc = PrecAssoc { prec: 50, assoc: 1 };
 const RANGE_PREC: PrecAssoc = PrecAssoc { prec: 40, assoc: 1 };
 const ASSIGN_PREC: PrecAssoc = PrecAssoc { prec: 30, assoc: 0 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct ExprState {
     min_prec: u32,
 
-    /// Whether the expr parser recognizes struct literals.
-    parse_struct_literal: bool,
+    /// Disables struct literals parsing. This is needed within conditions of `if` and `while`.
+    disable_struct_literal: bool,
 
     /// Are we immediately after '{' or '('?
-    at_group_start: bool,
+    at_block_start: Option<lex::Block>,
 }
 
 impl ExprState {
-    fn with_min_prec(self, min_prec: u32) -> Self {
+    fn block_start(block: lex::Block) -> Self {
+        Self {
+            at_block_start: Some(block),
+            ..Default::default()
+        }
+    }
+
+    fn disable_struct_literal() -> Self {
+        Self {
+            disable_struct_literal: true,
+            ..Default::default()
+        }
+    }
+
+    fn operand(self, min_prec: u32) -> Self {
         Self {
             min_prec,
-            ..self
-        }
-    }
-
-    fn with_at_group_start(self, at_group_start: bool) -> Self {
-        Self {
-            at_group_start,
-            ..self
-        }
-    }
-}
-
-impl Default for ExprState {
-    fn default() -> Self {
-        Self {
-            min_prec: 0,
-            parse_struct_literal: true,
-            at_group_start: false,
+            disable_struct_literal: self.disable_struct_literal,
+            ..Default::default()
         }
     }
 }
@@ -846,10 +844,7 @@ impl<'a> ParserImpl<'a> {
             let expr = if let Some(v) = self.maybe_item(false)? {
                 Some(v)
             } else {
-                self.maybe_expr(ExprState {
-                    at_group_start: true,
-                    ..Default::default()
-                })?
+                self.maybe_expr(ExprState::block_start(lex::Block::Brace))?
             };
 
             let semi = self.lex.maybe(Token::Semi);
@@ -890,7 +885,7 @@ impl<'a> ParserImpl<'a> {
     }
 
     fn unary_op(&mut self, span: Span, kind: UnaryOpKind, state: ExprState) -> PResult<NodeId> {
-        let arg = self.expr(state.with_min_prec(UNARY_PREC.prec))?;
+        let arg = self.expr(state.operand(UNARY_PREC.prec))?;
         Ok(self.hir.insert_op(Span::new(span.start, self.hir.node_kind(arg).span.end).spanned(
             Op::Unary(UnaryOp {
                 kind: span.spanned(kind),
@@ -1011,20 +1006,17 @@ impl<'a> ParserImpl<'a> {
             Token::BlockOpen(lex::Block::Paren) => {
                 self.lex.consume();
 
-                let expr = self.expr(ExprState {
-                    at_group_start: true,
-                    ..Default::default()
-                })?;
+                let expr = self.expr(ExprState::block_start(lex::Block::Paren))?;
                 self.expect(Token::BlockClose(lex::Block::Paren))?;
                 expr
             }
             // Block or unnamed struct
             Token::BlockOpen(lex::Block::Brace) => {
                 self.lex.consume();
-                if state.parse_struct_literal {
-                    self.block_or_struct(None, tok.span.start)
-                } else {
+                if state.disable_struct_literal {
                     self.block_inner(tok.span.start)
+                } else {
+                    self.block_or_struct(None, tok.span.start)
                 }?
             }
             // Start-unbounded range
@@ -1048,10 +1040,7 @@ impl<'a> ParserImpl<'a> {
             Token::Keyword(Keyword::If) => {
                 self.lex.consume();
                 let needs_parens = self.lex.nth(0).value == Token::BlockOpen(lex::Block::Brace);
-                let cond = self.expr(ExprState {
-                    parse_struct_literal: false,
-                    ..Default::default()
-                })?;
+                let cond = self.expr(ExprState::disable_struct_literal())?;
                 if needs_parens {
                     return self.error(self.hir.node_kind(cond).span,
                         "parentheses are required here".into());
@@ -1059,7 +1048,7 @@ impl<'a> ParserImpl<'a> {
                 let if_true = self.block()?;
                 let if_false = if self.lex.maybe(Token::Keyword(Keyword::Else)).is_some() {
                     Some(if self.lex.nth(0).value == Token::Keyword(Keyword::If) {
-                        self.expr(Default::default())?
+                        self.expr(ExprState::block_start(lex::Block::Brace))?
                     } else {
                         self.block()?
                     })
@@ -1067,14 +1056,18 @@ impl<'a> ParserImpl<'a> {
                     None
                 };
                 let end = self.hir.node_kind(if_false.unwrap_or(if_true)).span.end;
-                self.hir.insert_if_expr(tok.span.extended(end).spanned(IfExpr {
+                let node = self.hir.insert_if_expr(tok.span.extended(end).spanned(IfExpr {
                     cond,
                     if_true,
                     if_false,
-                }))
+                }));
+                if state.at_block_start == Some(lex::Block::Brace) {
+                    return Ok(Some(node));
+                }
+                node
             }
             Token::Keyword(Keyword::Let) => {
-                if !state.at_group_start {
+                if state.at_block_start.is_none() {
                     return self.error(tok.span, "this `let` usage requires explicit grouping".into());
                 }
                 let start = tok.span.start;
@@ -1109,10 +1102,7 @@ impl<'a> ParserImpl<'a> {
             Token::Keyword(Keyword::While) => {
                 self.lex.consume();
                 let needs_parens = self.lex.nth(0).value == Token::BlockOpen(lex::Block::Brace);
-                let cond = self.expr(ExprState {
-                    parse_struct_literal: false,
-                    ..Default::default()
-                })?;
+                let cond = self.expr(ExprState::disable_struct_literal())?;
                 if needs_parens {
                     return self.error(self.hir.node_kind(cond).span,
                         "parentheses are required here".into());
@@ -1191,7 +1181,7 @@ impl<'a> ParserImpl<'a> {
             let PrecAssoc { prec, assoc } = match tok.value {
                 // Named struct value.
                 Token::BlockOpen(lex::Block::Brace)
-                    if state.parse_struct_literal
+                    if !state.disable_struct_literal
                         && self.hir.node_kind(left).value == NodeKind::Path
                 => {
                     NAMED_STRUCT_LITERAL_PREC
@@ -1258,11 +1248,6 @@ impl<'a> ParserImpl<'a> {
                 | Token::PipeEq
                 | Token::AmpEq
                 => {
-                    if !state.at_group_start {
-                        let start = self.hir.node_kind(left).span.start;
-                        return self.error(Span::new(start, tok.span.end),
-                            "this assignment operator usage requires parentheses".into());
-                    }
                     ASSIGN_PREC
                 },
 
@@ -1272,7 +1257,7 @@ impl<'a> ParserImpl<'a> {
             if prec < state.min_prec {
                 break;
             }
-            let state = state.with_min_prec(prec + assoc);
+            let state = state.operand(prec + assoc);
 
             self.lex.consume();
 
@@ -1441,10 +1426,7 @@ impl<'a> ParserImpl<'a> {
             } else {
                 None
             };
-            let value = self.maybe_expr(ExprState {
-                at_group_start: true,
-                ..Default::default()
-            })?;
+            let value = self.maybe_expr(ExprState::block_start(lex::Block::Paren))?;
             if let Some(value) = value {
                 args.push(FnCallArg {
                     name,

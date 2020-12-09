@@ -16,11 +16,11 @@ fn f() {
   if (Struct {foo: 0}) {}
 
   if true {
-    if (a < b) == c {
+    (if (a < b) == c {
       a.foo()
     } else {
       b.foo()
-    } + &if x { 0 } else { "foo" }?;
+    }) + &if x { 0 } else { "foo" }?;
   } else {
     return {};
   };
@@ -30,4 +30,5 @@ fn f() {
   else if x > 42 {}
   else if x < 42 {}
   else {}
+  *ptr
 }

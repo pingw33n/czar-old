@@ -13,4 +13,10 @@ fn f() {
   let x = ((let y = 0) && {
     let z = y + 42
   }) || ((let foo) && (foo = 42));
+  let foo = if (a) {
+    0
+  } else {
+    42
+  }
+   * 100;
 }

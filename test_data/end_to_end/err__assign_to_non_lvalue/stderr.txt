@@ -24,9 +24,9 @@ error: can't assign to this expression
          ~~~
 
 error: can't assign to this expression
-  --> main.cz:11:5
-11 |     if true { "t" } else { "f" } = 42;
-         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  --> main.cz:11:6
+11 |     (if true { "t" } else { "f" }) = 42;
+          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 error: invalid function reference, must include function's signature: `main::()`
   --> main.cz:12:5
