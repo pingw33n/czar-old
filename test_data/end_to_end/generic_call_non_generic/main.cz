@@ -1,0 +1,32 @@
+fn simple() {
+    fn f<T>(_ v: String) {
+        prints(v);
+        println();
+    }
+
+    f<i32>("simple i32");
+    f<String>("simple String");
+}
+
+fn with_impl() {
+    struct S<T> {}
+
+    fn f<T>(_ v: String) {
+        prints(v);
+        println();
+    }
+
+    impl<T> S<T> {
+        fn f(self, _ v: String) {
+            f<T>(v);
+        }
+    }
+
+    S<i32>{}.f("impl i32");
+    S<String>{}.f("impl String");
+}
+
+fn main() {
+    simple();
+    with_impl();
+}

@@ -146,10 +146,62 @@ impl<'a> Codegen<'a> {
         GenericEnvId(self.make_struct_type0(None, &mut genv_id))
     }
 
-    fn fn_def(&mut self, fn_def: GlobalNodeId, ty: TypeId, genv: &GenericEnv) -> Value {
-        let ty = self.normalized(ty);
-        let mut genv_vars = self.packages.type_(ty).data.as_generic_env().map(|v| v.vars.clone()).unwrap_or_default();
-        genv_vars.replace_iter(genv.vars.iter());
+    fn find_type_param_deps(&self, ty: TypeId) -> Vec<TypeId> {
+        let mut r = Vec::new();
+        self.find_type_param_deps0(ty, &mut r);
+        r
+    }
+
+    fn find_type_param_deps0(&self, ty: TypeId, r: &mut Vec<TypeId>) {
+        match &self.packages.type_(ty).data {
+            TypeData::GenericEnv(_) => {}
+            TypeData::Fn(FnType { name, params, result, unsafe_: _ }) => {
+                assert!(name.is_none());
+                for &param in params {
+                    self.find_type_param_deps0(param, r);
+                }
+                self.find_type_param_deps0(*result, r);
+            }
+            TypeData::Struct(check::StructType { name, fields }) => {
+                assert!(name.is_none());
+                for &check::StructTypeField { name: _, ty } in fields {
+                    self.find_type_param_deps0(ty, r);
+                }
+            }
+            TypeData::Var(Var::Param(_)) => r.push(ty),
+
+            | TypeData::Ctor(_)
+            | TypeData::Incomplete(_)
+            | TypeData::Instance(_)
+            | TypeData::Var(Var::Inference(_))
+            => unreachable!(),
+        }
+    }
+
+    fn resolve_fn_genv_vars(&self, ty: TypeId, outer: &GenericEnv) -> TypeVarMap {
+        let mut r = self.packages.type_(ty).data.as_generic_env().map(|v| v.vars.clone()).unwrap_or_default();
+        let mut more = Vec::new();
+        for (_, val) in r.iter_mut() {
+            if let Some(v) = outer.vars.get(*val) {
+                *val = v;
+            }
+            more.extend_from_slice(&self.find_type_param_deps(*val));
+        }
+        for var in more {
+            if r.get(var).is_none() {
+                if let Some(val) = outer.vars.get(var) {
+                    r.insert(var, val);
+                }
+            }
+        }
+
+        r
+    }
+
+    fn fn_def(&mut self, fn_def: GlobalNodeId, callee_ty: TypeId, genv: &GenericEnv) -> Value {
+        let callee_ty = self.normalized(callee_ty);
+
+        let genv_vars = self.resolve_fn_genv_vars(callee_ty, genv);
         let genv_id = self.make_genv_id(&genv_vars, genv);
 
         let mid = (fn_def, genv_id);
@@ -158,12 +210,12 @@ impl<'a> Codegen<'a> {
         }
 
         let package = &self.packages[fn_def.0];
-        let name = if package.check_data.entry_point() == Some(ty) {
+        let name = if package.check_data.entry_point() == Some(callee_ty) {
             "__main"
         } else {
             package.hir.fn_def(fn_def.1).name.value.as_str()
         };
-        let ty = self.packages.type_(ty);
+        let ty = self.packages.type_(callee_ty);
         let ty_ll = self.type_(ty.id, genv);
         let fn_ = self.llvm.add_function(&name, ty_ll);
         assert!(self.fn_decls.insert(mid, FnDecl {
