@@ -894,14 +894,20 @@ impl<'a> ParserImpl<'a> {
     }
 
     fn binary_op(&mut self,
-        span: Span,
+        mut span: Span,
         left: NodeId,
         kind: BinaryOpKind,
         state: ExprState,
     ) -> PResult<NodeId> {
         let right = self.expr(state)?;
         let start = self.hir.node_kind(left).span.start;
-        let end = self.hir.node_kind(right).span.end;
+        let end = if kind == BinaryOpKind::Index {
+            let end = self.expect(Token::BlockClose(lex::Block::Bracket))?.span.end;
+            span.end = end;
+            end
+        } else {
+            self.hir.node_kind(right).span.end
+        };
         Ok(self.hir.insert_op(Span::new(start, end).spanned(
             Op::Binary(BinaryOp {
                 kind: span.spanned(kind),
@@ -1313,10 +1319,7 @@ impl<'a> ParserImpl<'a> {
                     }
                     // Indexing
                     Token::BlockOpen(lex::Block::Bracket) => {
-                        let r = self.binary_op(tok.span, left, BinaryOpKind::Index,
-                            Default::default())?;
-                        self.expect(Token::BlockClose(lex::Block::Bracket))?;
-                        r
+                        self.binary_op(tok.span, left, BinaryOpKind::Index, Default::default())?
                     }
                     Token::Quest => {
                         self.hir.insert_op(self.hir.node_kind(left).span.extended(tok.span.end).spanned(
