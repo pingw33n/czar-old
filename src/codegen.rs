@@ -27,7 +27,7 @@ struct ExprCtx<'a> {
     genv: &'a GenericEnv,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Value {
     Direct(ValueRef),
     Indirect(ValueRef),
@@ -36,12 +36,12 @@ enum Value {
 impl Value {
     fn ptr(self) -> ValueRef {
         match self {
-            Self::Direct(v) => panic!("expected indirect value but found: {:?}", v),
+            Self::Direct(v) => v,
             Self::Indirect(v) => v,
         }
     }
 
-    fn deref(self, b: llvm::BuilderRef) -> ValueRef {
+    fn deref(self, b: BuilderRef) -> ValueRef {
         match self {
             Self::Direct(v) => v,
             Self::Indirect(v) => b.load(v),
@@ -162,6 +162,9 @@ impl<'a> Codegen<'a> {
                 }
                 self.find_type_param_deps0(*result, r);
             }
+            &TypeData::Slice(check::SliceType { item, len: _ }) => {
+                self.find_type_param_deps0(item, r);
+            }
             TypeData::Struct(check::StructType { name, fields }) => {
                 assert!(name.is_none());
                 for &check::StructTypeField { name: _, ty } in fields {
@@ -248,15 +251,15 @@ impl<'a> Codegen<'a> {
                 },
             };
 
+            let body_bb = self.llvm.append_new_bb(fn_, "body");
+            self.bodyb.position_at_end(body_bb);
+
             for (i, &param) in params.iter().enumerate() {
                 let name = &package.hir.fn_def_param(param).name.value;
                 let val = self.alloca(param, name, ctx);
                 let param = fn_.param(i as u32);
-                self.headerb.store(param, val.ptr());
+                self.bodyb.store(param, val.ptr());
             }
-
-            let body_bb = self.llvm.append_new_bb(fn_, "body");
-            self.bodyb.position_at_end(body_bb);
 
             let ret = self.expr(body, ctx);
             let ret = ret.deref(self.bodyb);
@@ -274,7 +277,7 @@ impl<'a> Codegen<'a> {
     fn make_ptr(&mut self, v: Value, ctx: &mut ExprCtx) -> ValueRef {
         match v {
             Value::Direct(v) => {
-                let tmp = self.alloca_new(v.type_(), "", ctx).ptr();
+                let tmp = self.alloca_new_ty(v.type_(), "", ctx).ptr();
                 self.bodyb.store(v, tmp);
                 tmp
             }
@@ -295,67 +298,16 @@ impl<'a> Codegen<'a> {
             NodeKind::FieldAccess => {
                 let receiver = ctx.package.hir.field_access(node).receiver;
                 let receiver = self.expr(receiver, ctx);
-                let receiver = self.make_ptr(receiver, ctx);
+                let receiver = self.make_ptr(receiver, ctx).into();
                 let idx = ctx.package.check_data.struct_field_index(node);
                 self.bodyb.struct_gep(receiver, idx).indirect()
             }
             NodeKind::FnCall => {
                 let fnc = ctx.package.hir.fn_call(node);
-
-                let intrinsic = self.packages.as_lang_item(ctx.package.check_data.typing(fnc.callee))
-                    .and_then(|v| v.into_intrinsic().ok());
-                if let Some(intr) = intrinsic {
-                    match intr {
-                        IntrinsicItem::Trap => {
-                            assert!(fnc.args.is_empty());
-                            self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb).direct()
-                        }
-                        IntrinsicItem::Transmute => {
-                            assert_eq!(fnc.args.len(), 1);
-                            let src_ty = ctx.package.check_data.typing(fnc.args[0].value);
-                            let src_ty = self.type_(src_ty, ctx.genv);
-                            let src_size = self.llvm.abi_size_bytes(src_ty);
-
-                            let src = self.expr(fnc.args[0].value, ctx);
-                            let src = self.make_ptr(src, ctx);
-
-                            let dst_ty = ctx.package.check_data.typing(node);
-                            let dst_ty = self.type_(dst_ty, ctx.genv);
-                            let dst_size = self.llvm.abi_size_bytes(dst_ty);
-
-                            if src_size != dst_size {
-                                todo!("must fail in frontend");
-                            }
-
-                            let dst = self.alloca_new(dst_ty, "", ctx);
-
-                            let i8ptr = self.llvm.int_type(8).pointer();
-                            let src_ptr = self.bodyb.bitcast(src, i8ptr);
-                            let dst_ptr = self.bodyb.bitcast(dst.ptr(), i8ptr);
-                            match self.llvm.pointer_size_bits() {
-                                32 => self.llvm.intrinsic::<intrinsic::Memcpy32>().call(self.bodyb,
-                                    dst_ptr, src_ptr,
-                                    self.llvm.int_type(32).const_int(src_size as u128),
-                                    self.llvm.int_type(1).const_int(0)),
-                                64 => self.llvm.intrinsic::<intrinsic::Memcpy64>().call(self.bodyb,
-                                    dst_ptr, src_ptr,
-                                    self.llvm.int_type(64).const_int(src_size as u128),
-                                    self.llvm.int_type(1).const_int(0)),
-                                _ => unreachable!(),
-                            }
-
-                            dst
-                        }
-                    }
-                } else {
-                    let args_ll = &mut Vec::new();
-                    for &FnCallArg { value, .. } in &fnc.args {
-                        let v = self.expr(value, ctx).deref(self.bodyb);
-                        args_ll.push(v);
-                    }
-                    let callee = self.expr(fnc.callee, ctx).deref(self.bodyb);
-                    self.bodyb.call(callee, args_ll).direct()
-                }
+                let callee_ty = ctx.package.check_data.typing(fnc.callee);
+                let callee = self.expr(fnc.callee, ctx).deref(self.bodyb);
+                let args = fnc.args.iter().map(|v| v.value).collect::<Vec<_>>();
+                self.fn_call(node, callee_ty, callee, &args, ctx)
             }
             NodeKind::Let => {
                 let &Let { def } = ctx.package.hir.let_(node);
@@ -422,123 +374,139 @@ impl<'a> Codegen<'a> {
                 }.into()
             }
             NodeKind::Op => {
-                let op = ctx.package.hir.op(node);
-                match op {
-                    &Op::Binary(BinaryOp { kind, left, right }) => {
-                        let leftv = self.expr(left, ctx);
-                        let rightv = self.expr(right, ctx).deref(self.bodyb);
-                        let left_ty = self.packages.typing((ctx.package.id, left));
-                        use BinaryOpKind::*;
-                        if kind.value == Assign {
-                            self.bodyb.store(rightv, leftv.ptr());
-                            self.unit_literal()
-                        } else {
-                            let leftv = leftv.deref(self.bodyb);
-                            match kind.value {
-                                Add | Sub => {
-                                    if let Some(num) = self.packages.as_number_type(left_ty) {
-                                        match kind.value {
-                                            Add => match num {
-                                                NumberType::Float => self.bodyb.fadd(leftv, rightv),
-                                                NumberType::Int { signed: _ } => self.bodyb.add(leftv, rightv),
+                if let Some(OpImpl { fn_def, callee_ty, lvalue_result }) = ctx.package.check_data.op_impl(node) {
+                    let callee = self.fn_def(fn_def, callee_ty, ctx.genv).deref(self.bodyb);
+                    let r = match ctx.package.hir.op(node) {
+                        &Op::Binary(BinaryOp { kind: _, left, right }) =>
+                            self.fn_call(node, callee_ty, callee, &[left, right], ctx),
+                        &Op::Unary(UnaryOp { kind: _, arg }) =>
+                            self.fn_call(node, callee_ty, callee, &[arg], ctx),
+                    };
+                    if lvalue_result {
+                        r.ptr().indirect()
+                    } else {
+                        r
+                    }
+                } else {
+                    let op = ctx.package.hir.op(node);
+                    match op {
+                        &Op::Binary(BinaryOp { kind, left, right }) => {
+                            let leftv = self.expr(left, ctx);
+                            let rightv = self.expr(right, ctx).deref(self.bodyb);
+                            let left_ty = self.packages.typing((ctx.package.id, left));
+                            use BinaryOpKind::*;
+                            if kind.value == Assign {
+                                self.bodyb.store(rightv, leftv.ptr());
+                                self.unit_literal()
+                            } else {
+                                let leftv = leftv.deref(self.bodyb);
+                                match kind.value {
+                                    Add | Sub => {
+                                        if let Some(num) = self.packages.as_number_type(left_ty) {
+                                            match kind.value {
+                                                Add => match num {
+                                                    NumberType::Float => self.bodyb.fadd(leftv, rightv),
+                                                    NumberType::Int { signed: _ } => self.bodyb.add(leftv, rightv),
+                                                }
+                                                Sub => match num {
+                                                    NumberType::Float => self.bodyb.fsub(leftv, rightv),
+                                                    NumberType::Int { signed: _ } => self.bodyb.sub(leftv, rightv),
+                                                }
+                                                _ => unreachable!(),
                                             }
-                                            Sub => match num {
-                                                NumberType::Float => self.bodyb.fsub(leftv, rightv),
-                                                NumberType::Int { signed: _ } => self.bodyb.sub(leftv, rightv),
-                                            }
-                                            _ => unreachable!(),
-                                        }
-                                    } else {
-                                        assert_eq!(self.packages.as_lang_item(left_ty), Some(LangItem::Ptr));
-                                        let rightv = if kind.value == BinaryOpKind::Sub {
-                                            self.bodyb.neg(rightv)
                                         } else {
-                                            rightv
-                                        };
-                                        self.bodyb.gep_in_bounds(leftv, &mut [rightv])
-                                    }.direct()
-                                },
-                                Assign => unreachable!(),
-                                | Eq
-                                | Gt
-                                | GtEq
-                                | Lt
-                                | LtEq
-                                | NotEq => {
-                                    if self.packages.is_unit_type(left_ty) {
-                                        self.bool_literal(true)
-                                    } else {
-                                        match self.packages.as_number_type(left_ty).expect("todo") {
-                                            NumberType::Float => {
-                                                use RealPredicate::*;
-                                                let pred = match kind.value {
-                                                    Eq => LLVMRealOEQ,
-                                                    Gt => LLVMRealOGT,
-                                                    GtEq => LLVMRealOGE,
-                                                    Lt => LLVMRealOLT,
-                                                    LtEq => LLVMRealOLE,
-                                                    NotEq => LLVMRealONE,
-                                                    _ => unreachable!(),
-                                                };
-                                                self.bodyb.fcmp(leftv, rightv, pred)
-                                            }
-                                            NumberType::Int { signed } => {
-                                                use IntPredicate::*;
-                                                let pred = match kind.value {
-                                                    Eq => LLVMIntEQ,
-                                                    Gt => if signed { LLVMIntSGT } else { LLVMIntUGT },
-                                                    GtEq => if signed { LLVMIntSGE } else { LLVMIntUGE },
-                                                    Lt => if signed { LLVMIntSLT } else { LLVMIntULT },
-                                                    LtEq => if signed { LLVMIntSLE } else { LLVMIntULE },
-                                                    NotEq => LLVMIntNE,
-                                                    _ => unreachable!(),
-                                                };
-                                                self.bodyb.icmp(leftv, rightv, pred)
-                                            }
+                                            assert_eq!(self.packages.as_lang_item(left_ty), Some(LangItem::Ptr));
+                                            let rightv = if kind.value == BinaryOpKind::Sub {
+                                                self.bodyb.neg(rightv)
+                                            } else {
+                                                rightv
+                                            };
+                                            self.bodyb.gep_in_bounds(leftv, &mut [rightv])
                                         }.direct()
-                                    }
-                                },
-                                Mul => {
-                                    match self.packages.as_number_type(left_ty).expect("todo") {
-                                        NumberType::Float => self.bodyb.fmul(leftv, rightv),
-                                        NumberType::Int { signed: _ } => self.bodyb.mul(leftv, rightv),
-                                    }.direct()
-                                },
-                                Div => {
-                                    self.div_or_rem(ctx.fn_, left_ty, rightv,
-                                        || self.bodyb.sdiv(leftv, rightv),
-                                        || self.bodyb.udiv(leftv, rightv),
-                                        || self.bodyb.fdiv(leftv, rightv))
-                                },
-                                Rem => {
-                                    self.div_or_rem(ctx.fn_, left_ty, rightv,
-                                        || self.bodyb.srem(leftv, rightv),
-                                        || self.bodyb.urem(leftv, rightv),
-                                        || self.bodyb.frem(leftv, rightv))
-                                },
+                                    },
+                                    Assign => unreachable!(),
+                                    | Eq
+                                    | Gt
+                                    | GtEq
+                                    | Lt
+                                    | LtEq
+                                    | NotEq => {
+                                        if self.packages.is_unit_type(left_ty) {
+                                            self.bool_literal(true)
+                                        } else {
+                                            match self.packages.as_number_type(left_ty).expect("todo") {
+                                                NumberType::Float => {
+                                                    use RealPredicate::*;
+                                                    let pred = match kind.value {
+                                                        Eq => LLVMRealOEQ,
+                                                        Gt => LLVMRealOGT,
+                                                        GtEq => LLVMRealOGE,
+                                                        Lt => LLVMRealOLT,
+                                                        LtEq => LLVMRealOLE,
+                                                        NotEq => LLVMRealONE,
+                                                        _ => unreachable!(),
+                                                    };
+                                                    self.bodyb.fcmp(leftv, rightv, pred)
+                                                }
+                                                NumberType::Int { signed } => {
+                                                    use IntPredicate::*;
+                                                    let pred = match kind.value {
+                                                        Eq => LLVMIntEQ,
+                                                        Gt => if signed { LLVMIntSGT } else { LLVMIntUGT },
+                                                        GtEq => if signed { LLVMIntSGE } else { LLVMIntUGE },
+                                                        Lt => if signed { LLVMIntSLT } else { LLVMIntULT },
+                                                        LtEq => if signed { LLVMIntSLE } else { LLVMIntULE },
+                                                        NotEq => LLVMIntNE,
+                                                        _ => unreachable!(),
+                                                    };
+                                                    self.bodyb.icmp(leftv, rightv, pred)
+                                                }
+                                            }.direct()
+                                        }
+                                    },
+                                    Mul => {
+                                        match self.packages.as_number_type(left_ty).expect("todo") {
+                                            NumberType::Float => self.bodyb.fmul(leftv, rightv),
+                                            NumberType::Int { signed: _ } => self.bodyb.mul(leftv, rightv),
+                                        }.direct()
+                                    },
+                                    Div => {
+                                        self.div_or_rem(ctx, left_ty, rightv,
+                                            || self.bodyb.sdiv(leftv, rightv),
+                                            || self.bodyb.udiv(leftv, rightv),
+                                            || self.bodyb.fdiv(leftv, rightv))
+                                    },
+                                    Rem => {
+                                        self.div_or_rem(ctx, left_ty, rightv,
+                                            || self.bodyb.srem(leftv, rightv),
+                                            || self.bodyb.urem(leftv, rightv),
+                                            || self.bodyb.frem(leftv, rightv))
+                                    },
+                                    Index => unreachable!(),
 
+                                    _ => todo!("{:?}", kind)
+                                }
+                            }
+                        },
+                        &Op::Unary(UnaryOp { kind, arg }) => {
+                            let argv = self.expr(arg, ctx).deref(self.bodyb);
+                            let arg_ty = self.packages.typing((ctx.package.id, arg));
+                            use UnaryOpKind::*;
+                            match kind.value {
+                                Deref => {
+                                    assert_eq!(self.packages.as_lang_item(arg_ty), Some(LangItem::Ptr));
+                                    argv.indirect()
+                                }
+                                Neg => {
+                                    match self.packages.as_number_type(arg_ty).expect("todo") {
+                                        NumberType::Float => self.bodyb.fneg(argv),
+                                        NumberType::Int { signed: _ } => self.bodyb.neg(argv),
+                                    }.direct()
+                                }
                                 _ => todo!("{:?}", kind)
                             }
-                        }
-                    },
-                    &Op::Unary(UnaryOp { kind, arg }) => {
-                        let argv = self.expr(arg, ctx).deref(self.bodyb);
-                        let arg_ty = self.packages.typing((ctx.package.id, arg));
-                        use UnaryOpKind::*;
-                        match kind.value {
-                            Deref => {
-                                assert_eq!(self.packages.as_lang_item(arg_ty), Some(LangItem::Ptr));
-                                argv.indirect()
-                            }
-                            Neg => {
-                                match self.packages.as_number_type(arg_ty).expect("todo") {
-                                    NumberType::Float => self.bodyb.fneg(argv),
-                                    NumberType::Int { signed: _ } => self.bodyb.neg(argv),
-                                }.direct()
-                            }
-                            _ => todo!("{:?}", kind)
-                        }
-                    },
+                        },
+                    }
                 }
             }
             NodeKind::Path => {
@@ -573,6 +541,73 @@ impl<'a> Codegen<'a> {
 
                 struct_var
             }
+            NodeKind::SliceLiteral => {
+                let ty = self.normalized(self.packages.typing((ctx.package.id, node)));
+                let ty = self.packages.type_(ty).data.as_slice().unwrap();
+
+                let SliceLiteral { items, len } = ctx.package.hir.slice_literal(node);
+                let len_val = if let Some(v) = len.value {
+                    if len.const_ {
+                        self.llvm.size_type().const_int(ty.len.unwrap() as u128)
+                    } else {
+                        assert_eq!(items.len(), 1);
+                        self.expr(v, ctx).deref(self.bodyb)
+                    }
+                } else {
+                    self.llvm.size_type().const_int(items.len() as u128)
+                };
+
+                let item_ty = self.type_(ty.item, ctx.genv);
+
+                let slice_var = self.alloca(node, "slice_literal", ctx).ptr();
+
+                let ptr = if len.const_ {
+                    self.bodyb.bitcast(slice_var, self.llvm.pointer_type(item_ty))
+                } else {
+                    let ptr = self.gc_malloc(item_ty, len_val, node, ctx);
+                    self.bodyb.store(ptr, self.bodyb.struct_gep(slice_var, 0));
+                    self.bodyb.store(len_val, self.bodyb.struct_gep(slice_var, 1));
+                    ptr
+                };
+
+                if len.value.is_some() {
+                    let item_val = self.expr(items[0], ctx).deref(self.bodyb);
+
+                    let cond_bb = self.llvm.append_new_bb(ctx.fn_, "__slice_init_cond");
+                    let block_bb = self.llvm.append_new_bb(ctx.fn_, "__slice_init_block");
+                    let succ_bb = self.llvm.append_new_bb(ctx.fn_, "__slice_init_succ");
+
+                    let idx = self.alloca_new_ty(self.llvm.size_type(), "__slice_init_idx", ctx).ptr();
+                    self.bodyb.store(self.llvm.size_type().const_int(0), idx);
+                    self.bodyb.br(cond_bb);
+
+                    self.bodyb.position_at_end(cond_bb);
+                    let idx_val = self.bodyb.load(idx);
+                    let cond = self.bodyb.icmp(idx_val, len_val, IntPredicate::LLVMIntULT);
+                    self.bodyb.cond_br(cond, block_bb, succ_bb);
+
+                    self.bodyb.position_at_end(block_bb);
+                    let item_ptr = self.bodyb.gep_in_bounds(ptr.into(), &mut [idx_val]);
+                    self.bodyb.store(item_val, item_ptr);
+
+                    let idx_val = self.bodyb.add(idx_val, self.llvm.size_type().const_int(1));
+                    self.bodyb.store(idx_val, idx);
+
+                    self.bodyb.br(cond_bb);
+
+                    self.bodyb.position_at_end(succ_bb);
+                } else {
+                    for (i, &item) in items.iter().enumerate() {
+                        let item_val = self.expr(item, ctx).deref(self.bodyb);
+                        let item_ptr = self.bodyb.gep_in_bounds(ptr.into(), &mut [
+                            self.llvm.int_type(32).const_int(i as u128),
+                        ]);
+                        self.bodyb.store(item_val, item_ptr);
+                    }
+                }
+
+                slice_var.indirect()
+            }
             NodeKind::StructLiteral => {
                 let StructLiteral { fields, .. } = ctx.package.hir.struct_literal(node);
                 if fields.is_empty() {
@@ -580,7 +615,7 @@ impl<'a> Codegen<'a> {
                     let ty = self.type_(ty, ctx.genv);
                     ty.const_struct(&mut []).direct()
                 } else {
-                    let struct_var = self.alloca(node, "struct_init", ctx); // TODO use actual type name
+                    let struct_var = self.alloca(node, "struct_literal", ctx);
                     for &field in fields {
                         let value = ctx.package.hir.struct_literal_field(field).value;
                         let field_val = self.expr(value, ctx).deref(self.bodyb);
@@ -629,7 +664,7 @@ impl<'a> Codegen<'a> {
     }
 
     fn div_or_rem(&self,
-        fn_: ValueRef,
+        ctx: &ExprCtx,
         left_ty: TypeId,
         rightv: ValueRef,
         make_signed: impl FnOnce() -> ValueRef,
@@ -639,16 +674,8 @@ impl<'a> Codegen<'a> {
         match self.packages.as_number_type(left_ty).expect("todo") {
             NumberType::Float => make_float(),
             NumberType::Int { signed } => {
-                let panic_bb = self.llvm.append_new_bb(fn_, "__panic");
-                let succ_bb = self.llvm.append_new_bb(fn_, "__succ");
                 let cond = self.bodyb.icmp(rightv, rightv.type_().const_int(0), IntPredicate::LLVMIntEQ);
-                self.bodyb.cond_br(cond, panic_bb, succ_bb);
-
-                self.bodyb.position_at_end(panic_bb);
-                self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb);
-                self.bodyb.unreachable();
-
-                self.bodyb.position_at_end(succ_bb);
+                self.panic_if(cond, ctx);
                 if signed {
                     make_signed()
                 } else {
@@ -656,6 +683,18 @@ impl<'a> Codegen<'a> {
                 }
             },
         }.direct()
+    }
+
+    fn panic_if(&self, cond: ValueRef, ctx: &ExprCtx) {
+        let panic_bb = self.llvm.append_new_bb(ctx.fn_, "__panic");
+        let succ_bb = self.llvm.append_new_bb(ctx.fn_, "__panic_succ");
+        self.bodyb.cond_br(cond, panic_bb, succ_bb);
+
+        self.bodyb.position_at_end(panic_bb);
+        self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb);
+        self.bodyb.unreachable();
+
+        self.bodyb.position_at_end(succ_bb);
     }
 
     fn bool_literal(&mut self, v: bool) -> Value {
@@ -668,8 +707,7 @@ impl<'a> Codegen<'a> {
     }
 
     fn string_literal(&mut self, v: &str) -> Value {
-        let g = self.llvm.add_global_const(self.llvm.const_string(v));
-        let ptr = self.llvm.const_pointer_cast(g, self.llvm.int_type(8).pointer());
+        let ptr = self.llvm.add_global_string_const(v);
         let len = self.lang_type(LangItem::Primitive(PrimitiveType::USize)).const_int(v.len() as u128);
         let ty = self.lang_type(LangItem::String);
         ty.const_struct(&mut [ptr, len]).direct()
@@ -702,6 +740,7 @@ impl<'a> Codegen<'a> {
                 TypeRef::function(res_ty, param_tys)
             }
             TypeData::GenericEnv(check::GenericEnv { ty, vars: _ }) => self.type_(*ty, genv),
+            TypeData::Slice(v) => self.make_slice_type(v, genv),
             TypeData::Struct(v) => self.make_struct_type(ty, v, genv),
             TypeData::Var(_) => {
                 let ty = genv.vars.get(uty.id).unwrap();
@@ -734,6 +773,19 @@ impl<'a> Codegen<'a> {
         self.make_struct_type0(*def, field_tys)
     }
 
+    fn make_slice_type(&mut self, slt: &check::SliceType, genv: &GenericEnv) -> TypeRef {
+        let &check::SliceType { item, len } = slt;
+        let item = self.type_(item, genv);
+        if let Some(len) = len {
+            self.llvm.array_type(item, len)
+        } else {
+            self.llvm.struct_type(&mut [
+                self.llvm.pointer_type(item),
+                self.llvm.size_type(),
+            ])
+        }
+    }
+
     fn make_struct_type0(&mut self, def: Option<GlobalNodeId>, fields: &mut [TypeRef]) -> TypeRef {
         let shape = self.llvm.struct_type(fields);
         if let Some(def) = def {
@@ -764,7 +816,7 @@ impl<'a> Codegen<'a> {
             I32 | U32 | Char => self.llvm.int_type(32),
             I64 | U64 => self.llvm.int_type(64),
             I128 | U128 => self.llvm.int_type(128),
-            ISize | USize => self.llvm.int_type(self.llvm.pointer_size_bits()),
+            ISize | USize => self.llvm.size_type(),
         }
     }
 
@@ -773,21 +825,130 @@ impl<'a> Codegen<'a> {
     }
 
     fn alloca(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> Value {
-        let ty = ctx.package.check_data.typing(node);
-        let ty = self.type_(ty, ctx.genv);
         if ctx.allocas.contains_key(&node) {
             ctx.allocas[&node]
         } else {
-            let r = self.alloca_new(ty, name, ctx);
+            let r = self.alloca_new(node, name, ctx);
             assert!(ctx.allocas.insert(node, r).is_none());
             r
         }
     }
 
-    fn alloca_new(&mut self, ty: TypeRef, name: &str, ctx: &mut ExprCtx) -> Value {
+    fn alloca_new(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> Value {
+        let ty = ctx.package.check_data.typing(node);
+        let ty = self.normalized(ty);
+        let ty_ll = self.type_(ty, ctx.genv);
+
+        if let &TypeData::Slice(check::SliceType { item, len: Some(len) }) = &self.packages.underlying_type(ty).data {
+            let slot_ty = ty_ll.pointer();
+            let slot = self.alloca_new_ty(slot_ty, name, ctx).ptr();
+            let item_ty = self.type_(item, ctx.genv);
+            let ptr = self.gc_malloc(item_ty, self.llvm.size_type().const_int(len as u128), node, ctx);
+            let ptr = self.bodyb.bitcast(ptr, slot_ty);
+            self.bodyb.store(ptr, slot);
+            ptr.indirect()
+        } else {
+            self.alloca_new_ty(ty_ll, name, ctx)
+        }
+    }
+
+    fn alloca_new_ty(&mut self, ty: TypeRef, name: &str, ctx: &mut ExprCtx) -> Value {
         ctx.alloca_count += 1;
         self.headerb.position_at_end(ctx.fn_.entry_bb());
         self.headerb.alloca(name, ty).indirect()
+    }
+
+    /// Returns `item_ty*`
+    fn gc_malloc(&self, item_ty: TypeRef, len: ValueRef, node: NodeId, ctx: &mut ExprCtx) -> ValueRef {
+        let item_size = self.llvm.size_type().const_int(self.llvm.abi_size_bytes(item_ty) as u128);
+        let len_bytes = self.bodyb.mul(len, item_size);
+        let file = ctx.package.hir.sources()
+            [ctx.package.discover_data.source_of(node, &ctx.package.hir)]
+            .path.to_string_lossy();
+        let line = ctx.package.hir.node_kind(node).span.start; // FIXME
+        let ptr = self.llvm.intrinsic::<intrinsic::GcDebugMalloc>()
+            .call(&self.llvm, self.bodyb, len_bytes, &file, line as u32);
+        self.bodyb.bitcast(ptr, item_ty.pointer())
+    }
+
+    fn fn_call(&mut self, node: NodeId, callee_ty: TypeId, callee: ValueRef, args: &[NodeId], ctx: &mut ExprCtx) -> Value {
+        let callee_ty = self.normalized(callee_ty);
+        let intrinsic = self.packages.as_lang_item(callee_ty)
+            .and_then(|v| v.into_intrinsic().ok());
+        if let Some(intr) = intrinsic {
+            match intr {
+                IntrinsicItem::Trap => {
+                    assert!(args.is_empty());
+                    self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb);
+                    self.unit_literal()
+                }
+                IntrinsicItem::Transmute => {
+                    assert_eq!(args.len(), 1);
+                    let src_ty = ctx.package.check_data.typing(args[0]);
+                    let src_ty = self.type_(src_ty, ctx.genv);
+                    let src_size = self.llvm.abi_size_bytes(src_ty);
+
+                    let src = self.expr(args[0], ctx);
+                    let src = self.make_ptr(src, ctx);
+
+                    let dst_ty = self.packages.underlying_type(callee_ty).data.as_fn().unwrap().result;
+                    let dst_ty = self.type_(dst_ty, ctx.genv);
+                    let dst_size = self.llvm.abi_size_bytes(dst_ty);
+
+                    if src_size != dst_size {
+                        todo!("must fail in frontend");
+                    }
+
+                    let dst = self.alloca_new_ty(dst_ty, "", ctx);
+
+                    let i8ptr = self.llvm.int_type(8).pointer();
+                    let src_ptr = self.bodyb.bitcast(src, i8ptr);
+                    let dst_ptr = self.bodyb.bitcast(dst.ptr(), i8ptr);
+                    match self.llvm.pointer_size_bits() {
+                        32 => self.llvm.intrinsic::<intrinsic::Memcpy32>().call(self.bodyb,
+                            dst_ptr, src_ptr,
+                            self.llvm.int_type(32).const_int(src_size as u128),
+                            self.llvm.int_type(1).const_int(0)),
+                        64 => self.llvm.intrinsic::<intrinsic::Memcpy64>().call(self.bodyb,
+                            dst_ptr, src_ptr,
+                            self.llvm.int_type(64).const_int(src_size as u128),
+                            self.llvm.int_type(1).const_int(0)),
+                        _ => unreachable!(),
+                    }
+
+                    dst
+                }
+            }
+        } else {
+            let mut args_ll = Vec::new();
+            for &arg in args {
+                args_ll.push(self.expr(arg, ctx));
+            }
+            if let Some(slice_ty) = ctx.package.check_data.method_call_self_coercion(node) {
+                // [T; N] -> [T]
+                let const_len_slice_ty = self.normalized(ctx.package.check_data.typing(args[0]));
+                let const_len_slice_ty = self.packages.underlying_type(const_len_slice_ty).data.as_slice().unwrap();
+                let item_ty = const_len_slice_ty.item;
+                let len = const_len_slice_ty.len.unwrap();
+                let item_ty = self.type_(item_ty, ctx.genv);
+
+                debug_assert!(matches!(self.packages.underlying_type(slice_ty).data, TypeData::Slice(_)));
+                let slice_ty = self.type_(slice_ty, ctx.genv);
+
+                let slice_var = self.alloca_new_ty(slice_ty, "slice_coercion", ctx).ptr();
+                let ptr = self.make_ptr(args_ll[0], ctx);
+                let ptr = self.bodyb.bitcast(ptr, item_ty.pointer());
+                self.bodyb.store(ptr, self.bodyb.struct_gep(slice_var, 0));
+                self.bodyb.store(self.llvm.size_type().const_int(len as u128), self.bodyb.struct_gep(slice_var, 1));
+
+                args_ll[0] = slice_var.indirect();
+            };
+
+            let mut args_ll: Vec<_> = args_ll.into_iter()
+                .map(|v| v.deref(self.bodyb))
+                .collect();
+            self.bodyb.call(callee, &mut args_ll).direct()
+        }
     }
 }
 

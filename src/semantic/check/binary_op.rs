@@ -79,6 +79,16 @@ impl PassImpl<'_> {
                 }
                 left_ty
             }
+            Index => {
+                let left_ty = self.normalize(left_ty);
+                if self.underlying_type(left_ty).data.as_slice().is_some() {
+                    self.check_slice_index_op(node, left_ty, right_ty)?
+                } else {
+                    self.error(node, format!("index operation is not defined for type `{}`",
+                        self.display_type(left_ty)));
+                    return Err(());
+                }
+            }
             _ => todo!("{:?}", kind),
         };
         Ok(ty)

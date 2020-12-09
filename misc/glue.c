@@ -118,6 +118,10 @@ void print_char_hex(uint32_t v) {
     printf("\\u{%" PRIx32 "}", v);
 }
 
+uintptr_t f32_to_usize(float v) {
+    return v;
+}
+
 int main() {
     setlocale(LC_ALL, "");
     setvbuf(stdout, NULL, _IONBF, 0);

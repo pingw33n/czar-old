@@ -1,0 +1,21 @@
+fn main() {
+    fn f() {}
+    [=42; f()];
+
+    let z = 42;
+    let v: [u8; z];
+
+    fn f2() -> usize { 42 }
+    [=42; f2()];
+
+    [42, 42i32, "test", true];
+
+    let sl = ["test"];
+    sl[0u8];
+    sl[0u32..0];
+    sl[false..=true];
+    sl[0u32..];
+    sl[..""];
+    sl[..=' '];
+    42[0];
+}

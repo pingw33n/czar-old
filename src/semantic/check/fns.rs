@@ -100,12 +100,19 @@ impl PassImpl<'_> {
         };
 
         let fn_ty = self.normalize(fn_ty);
-        let params = self.underlying_type(fn_ty).data.as_fn().unwrap().params.clone();
+        let (res_ty, params) = {
+            let fn_ty = self.underlying_type(fn_ty).data.as_fn().unwrap();
+            (fn_ty.result, fn_ty.params.clone())
+        };
         assert_eq!(args.len(), params.len());
 
         for (arg, &param_ty) in args
             .iter()
             .zip(params.iter())
+            // Skip checking of `self`:
+            // - It's already been checked as part of method resolution.
+            // - It could have been coerced to different type.
+            .skip(if matches!(kind, FnCallKind::Method) { 1 } else { 0 })
         {
             let arg_ty = if let Ok(ty) = self.typing(arg.value) {
                 ty
@@ -123,8 +130,6 @@ impl PassImpl<'_> {
             }
         }
 
-        let res_ty = self.underlying_type(fn_ty).data.as_fn().unwrap().result;
-
         Ok(res_ty)
     }
 
@@ -133,7 +138,6 @@ impl PassImpl<'_> {
         assert_eq!(fnc.kind, FnCallKind::Method);
 
         let (path_end_node, path_end_item) = fnc.callee_path_item(self.hir);
-        let name = &path_end_item.ident;
 
         let receiver = fnc.args[0].value;
         let receiver_ty = self.ensure_typing(receiver)?;
@@ -145,15 +149,47 @@ impl PassImpl<'_> {
 
         let fn_name = PathItem::from_hir(path_end_node, path_end_item);
         let sign = FnParamsSignature::from_call(fn_call, self.hir);
-        if let Some((fn_def, fn_ty)) = self.check_impl_fn(receiver_ty, fn_name, &sign)? {
+        if let Ok((fn_def, fn_ty)) = self.check_method_call_manual(fn_call, receiver_ty, fn_name, &sign) {
             self.check_data.insert_path_to_target(fnc.callee, fn_def);
             self.check_data.insert_typing(fnc.callee, fn_ty);
-
             Ok((fn_def, fn_ty))
         } else {
-            self.error(fnc.callee, format!(
+            Err(())
+        }
+    }
+
+    pub fn check_method_call_manual(&mut self,
+        node: NodeId,
+        receiver_ty: TypeId,
+        name: PathItem,
+        sign: &FnParamsSignature,
+    ) -> Result<(GlobalNodeId, TypeId)> {
+        let name_ = name.clone();
+
+        let mut r = self.check_impl_fn(receiver_ty, name.clone(), &sign)?;
+
+        // Coerce [T; N] -> [T]
+        if_chain! {
+            if r.is_none();
+            let receiver_ty = self.normalize(receiver_ty);
+            let receiver_ty = self.type_(receiver_ty);
+            if let &TypeData::Slice(SliceType { item, len }) = &receiver_ty.data;
+            if len.is_some();
+            then {
+                let receiver_ty = self.type_data_id((self.package_id, node), TypeData::Slice(SliceType { item, len: None }));
+                r = self.check_impl_fn(receiver_ty, name, &sign)?;
+                if r.is_some() {
+                    assert!(self.check_data.method_call_self_coercions.insert(node, receiver_ty).is_none());
+                }
+            }
+        };
+
+        if let Some((fn_def, fn_ty)) = r {
+            Ok((fn_def, fn_ty))
+        } else {
+            self.error_span(name_.node, name_.name.span, format!(
                 "method `{}` not found for type `{}`",
-                sign.display_with_name(&name.value),
+                sign.display_with_name(&name_.name.value),
                 self.display_type(receiver_ty)));
             Err(())
         }

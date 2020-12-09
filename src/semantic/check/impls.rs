@@ -323,6 +323,9 @@ impl PassImpl<'_> {
             (_, &TypeData::Var(Var::Param(id))) => {
                 self.match_type_param(ty, pat, id, ctx)
             }
+            (TypeData::Slice(ty), TypeData::Slice(pat)) => {
+                self.match_slice_type(ty, pat, ctx)
+            }
             (TypeData::Struct(ty), TypeData::Struct(pat)) => {
                 self.match_struct_type(ty, pat, ctx)
             }
@@ -358,10 +361,16 @@ impl PassImpl<'_> {
         }
     }
 
+    fn match_slice_type(&self, ty: &SliceType, pat: &SliceType, ctx: &mut MatchTypeCtx) -> bool {
+        if ty.len == pat.len {
+            self.match_type0(ty.item, pat.item, ctx)
+        } else {
+            false
+        }
+    }
+
     fn match_struct_type(&self, ty: &StructType, pat: &StructType, ctx: &mut MatchTypeCtx) -> bool {
-        if ty.name.is_some() || pat.name.is_some() {
-            ty.name == pat.name
-        } else if ty.fields.len() == pat.fields.len() {
+        if ty.name == pat.name && ty.fields.len() == pat.fields.len() {
             let mut ok = true;
             for (StructTypeField { name, ty },
                 StructTypeField { name: pat_name, ty: pat_ty })
@@ -379,9 +388,7 @@ impl PassImpl<'_> {
     }
 
     fn match_fn_type(&self, ty: &FnType, pat: &FnType, ctx: &mut MatchTypeCtx) -> bool {
-        if ty.name.is_some() || pat.name.is_some() {
-            ty.name == pat.name
-        } else if ty.params.len() == pat.params.len() {
+        if ty.name == pat.name && ty.params.len() == pat.params.len() {
             for (&ty, &pat) in ty.params.iter().zip(pat.params.iter()) {
                 if !self.match_type0(ty, pat, ctx) {
                     return false;

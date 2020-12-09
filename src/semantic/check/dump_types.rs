@@ -50,6 +50,9 @@ impl PassImpl<'_> {
             TypeData::Instance(TypeInstance { ty, args }) => {
                 write!(s, "Instance(ty: {}, args: {})", self.type_id_str(*ty), self.type_list_str(args)).unwrap();
             }
+            &TypeData::Slice(SliceType { item, len }) => {
+                write!(s, "Slice(item: {}, len: {:?})", self.type_id_str(item), len).unwrap();
+            }
             TypeData::Struct(StructType { name, fields }) => {
                 write!(s, "Struct(").unwrap();
                 if let &Some(name) = name {

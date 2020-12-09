@@ -8,6 +8,7 @@ mod impls;
 mod lang;
 mod lex_path;
 mod range;
+mod slice;
 mod structs;
 mod unary_op;
 
@@ -27,9 +28,10 @@ use discover::{DiscoverData, NsKind};
 use resolve::{self, Resolution, ResolutionKind, Resolver, ResolveData};
 
 use inference::{InferenceCtx, InferenceVar};
-pub use data::CheckData;
+pub use data::{CheckData, OpImpl};
 pub use impls::{Impl, Impls, ImplValueItem};
 pub use lang::{IntrinsicItem, LangItem, Lang, NumberKind, NumberType, PrimitiveType, RangeItem};
+pub use slice::SliceType;
 pub use structs::{StructType, StructTypeField};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -41,7 +43,7 @@ pub struct FnType {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct LocalTypeId(usize);
+pub struct LocalTypeId(pub usize);
 
 pub type TypeId = (PackageId, LocalTypeId);
 
@@ -68,6 +70,7 @@ pub enum TypeData {
     Fn(FnType),
     Incomplete(IncompleteType),
     Instance(TypeInstance),
+    Slice(SliceType),
     Struct(StructType),
     Var(Var),
 }
@@ -81,6 +84,7 @@ impl TypeData {
             | Self::GenericEnv(_)
             | Self::Incomplete(_)
             | Self::Instance(_)
+            | Self::Slice(_)
             | Self::Var(_)
             => None,
         }
@@ -93,6 +97,7 @@ impl TypeData {
             Self::Instance(TypeInstance { ty: _, args: _ }) => &[],
             | Self::Fn(_)
             | Self::GenericEnv(_)
+            | Self::Slice(_)
             | Self::Struct(_)
             | Self::Var(_)
             => &[],
@@ -329,7 +334,7 @@ impl PassImpl<'_> {
         self.hir.traverse(self);
 
         // println!();
-        // imp.dump_all_types();
+        // self.dump_all_types();
 
         for ty in self.check_data.types() {
             assert_eq!(ty.id.0, self.package_id);
@@ -357,7 +362,7 @@ impl PassImpl<'_> {
         }
 
         // println!();
-        // imp.dump_all_types();
+        // self.dump_all_types();
 
         self.normalize_all();
 
@@ -518,7 +523,7 @@ impl PassImpl<'_> {
                 NodeKind::TypeAlias => {
                     self.check_data.finish_type_alias(incomplete_ty.1, ty);
                 }
-                _ => unreachable!(),
+                _ => unreachable!("{:?}", self.hir.node_kind(node)),
             }
         } else {
             self.check_data.insert_typing(node, ty)
@@ -579,6 +584,7 @@ impl PassImpl<'_> {
             | NodeKind::PathEndStar
             | NodeKind::PathSegment
             | NodeKind::Range
+            | NodeKind::SliceLiteral
             | NodeKind::StructLiteral
             | NodeKind::StructLiteralField
             | NodeKind::StructType
@@ -589,7 +595,6 @@ impl PassImpl<'_> {
             | NodeKind::BlockFlowCtl
             | NodeKind::Cast
             | NodeKind::Loop
-            | NodeKind::SliceLiteral
             => todo!("{:?}", self.hir.node_kind(ctx.node)),
         }
         Ok(())
@@ -729,6 +734,7 @@ impl PassImpl<'_> {
             NodeKind::Struct => {
                 self.typing(self.hir.struct_(ctx.node).ty)?
             }
+            NodeKind::SliceLiteral => self.check_slice_literal(ctx.node)?,
             NodeKind::StructType => self.check_struct_type(ctx.node)?,
             NodeKind::StructLiteralField => {
                 let value = self.hir.struct_literal_field(ctx.node).value;
@@ -739,7 +745,7 @@ impl PassImpl<'_> {
                 let TyExpr { muta: _, data } = self.hir.ty_expr(ctx.node);
                 match &data.value {
                     TyData::Ref(_) => unimplemented!(),
-                    TyData::Slice(_) => unimplemented!(),
+                    TyData::Slice(v) => self.check_slice_type(ctx.node, v)?,
                     | &TyData::Path(node)
                     | &TyData::Struct(node)
                     => {
@@ -843,12 +849,20 @@ impl PassImpl<'_> {
                 }
                 Ok(())
             }
+            &TypeData::Slice(SliceType { item, len }) => {
+                write!(f, "[")?;
+                self.display_type0(item, f)?;
+                if let Some(len) = len {
+                    write!(f, "; {}", len)?;
+                }
+                write!(f, "]")
+            }
             TypeData::Struct(sty) => self.display_struct_type(sty, f),
             &TypeData::Var(var) => {
                 match var {
                     Var::Inference(ivar) => {
                         match ivar {
-                            InferenceVar::Any => write!(f, "<?T'{}>", (ty.id.1).0),
+                            InferenceVar::Any => write!(f, "_"),
                             InferenceVar::Number(n) => match n {
                                 NumberKind::Float => write!(f, "<float>"),
                                 NumberKind::Int => write!(f, "<integer>"),

@@ -95,7 +95,7 @@ impl PassImpl<'_> {
         self.check_data.set_lvalue(node);
         let hir::FieldAccess { receiver, name: field } = self.hir.field_access(node);
         let struct_ty = self.typing(*receiver)?;
-        self.resolve_struct_field(struct_ty, node, field)
+        self.check_struct_field(struct_ty, node, field)
     }
 
     fn check_struct_literal_fields(&mut self,
@@ -112,7 +112,7 @@ impl PassImpl<'_> {
                 self.hir.node_kind(field.value).span.spanned(FieldAccessName::Index(i as u32))
             };
 
-            let expected_ty = if let Ok(v) = self.resolve_struct_field(ty, field_node, &name) {
+            let expected_ty = if let Ok(v) = self.check_struct_field(ty, field_node, &name) {
                 v
             } else {
                 continue;
@@ -246,7 +246,7 @@ impl PassImpl<'_> {
         })))
     }
 
-    fn resolve_struct_field(&mut self,
+    fn check_struct_field(&mut self,
         struct_ty: TypeId,
         field_node: NodeId,
         field_name: &S<FieldAccessName>,

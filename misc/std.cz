@@ -38,6 +38,7 @@ pub module prelude {
     pub unsafe fn println();
     pub unsafe fn print_sep();
     pub unsafe fn prints(_ s: String);
+    pub unsafe fn f32_to_usize(_ v: f32) -> usize;
 }
 
 pub struct f32 {{}}
@@ -58,7 +59,7 @@ pub struct bool {{}}
 pub struct char {{}}
 
 pub module string {
-    pub /*FIXME ref */struct String {
+    pub struct String {
         ptr: super::ptr::Ptr<u8>,
         len: usize,
     }
@@ -104,6 +105,81 @@ module intrinsic {
     unsafe fn trap();
 
     unsafe fn transmute<T, U>(_ v: T) -> U;
+}
+
+pub module slice {
+    struct Repr<T> {
+        ptr: super::ptr::Ptr<T>,
+        len: usize,
+    }
+
+    impl<T> Repr<T> {
+        fn from(_ v: [T]) -> Self {
+            super::intrinsic::transmute(v)
+        }
+    }
+
+    impl<T> [T] {
+        pub fn ptr(self) -> super::ptr::Ptr<T> {
+            Repr::from(self).ptr
+        }
+
+        pub fn len(self) -> usize {
+            Repr::from(self).len
+        }
+
+        fn __index_usize(self, _ i: usize) -> super::ptr::Ptr<T> {
+            if i >= self.len() {
+                super::intrinsic::trap();
+            }
+            self.ptr() + super::intrinsic::transmute<usize, isize>(i) /*FIXME*/
+        }
+
+        fn __index_range(self, _ r: super::ops::Range<usize>) -> Self {
+            if r.start > r.end {
+                super::intrinsic::trap();
+            }
+            if r.start > self.len() {
+                super::intrinsic::trap();
+            }
+            if r.end > self.len() {
+                super::intrinsic::trap();
+            }
+            let ptr = self.ptr() + super::intrinsic::transmute<usize, isize>(r.start) /*FIXME*/;
+            let len = r.end - r.start;
+            let repr = Repr { ptr: ptr, len: len };
+            super::intrinsic::transmute(repr)
+        }
+
+        fn __index_range_from(self, _ r: super::ops::RangeFrom<usize>) -> Self {
+            if r.start > self.len() {
+                super::intrinsic::trap();
+            }
+            self.__index_range(r.start..self.len())
+        }
+
+        fn __index_range_full(self, _ _r: super::ops::RangeFull) -> Self {
+            self
+        }
+
+        fn __index_range_inclusive(self, _ r: super::ops::RangeInclusive<usize>) -> Self {
+            self.__index_range(r.start..r.end + 1)
+        }
+
+        fn __index_range_to(self, _ r: super::ops::RangeTo<usize>) -> Self {
+            if r.end > self.len() {
+                super::intrinsic::trap();
+            }
+            self.__index_range(0..r.end)
+        }
+
+        fn __index_range_to_inclusive(self, _ r: super::ops::RangeToInclusive<usize>) -> Self {
+            if r.end > self.len() {
+                super::intrinsic::trap();
+            }
+            self.__index_range(0..r.end + 1)
+        }
+    }
 }
 
 type Unit = {};

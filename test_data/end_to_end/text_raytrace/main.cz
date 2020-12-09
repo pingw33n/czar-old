@@ -190,12 +190,8 @@ fn main() {
             }
 
             let c = if hit_found {
-                let shade = truncf(shade_pixel(ray: ray, obj: hit.obj, tval: hit.tval) * 5.0);
-                if shade == 0.0 { '░' }
-                else if shade == 1.0 { '▒' }
-                else if shade == 2.0 { '▓' }
-                else if shade == 3.0 { '█' }
-                else if shade == 4.0 { '█' }
+                let shade = f32_to_usize(shade_pixel(ray: ray, obj: hit.obj, tval: hit.tval) * 5.0);
+                ['░', '▒', '▓', '█', '█'][shade]
             } else {
                 ' '
             };

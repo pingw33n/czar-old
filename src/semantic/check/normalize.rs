@@ -25,7 +25,11 @@ impl PassImpl<'_> {
     }
 
     pub fn normalize_all(&mut self) {
-        let types: Vec<_> = self.check_data.typings.values().copied().collect();
+        let types: Vec<_> =
+            self.check_data.typings.values().copied()
+                .chain(self.check_data.op_impls.values().map(|v| v.callee_ty))
+                .chain(self.check_data.method_call_self_coercions.values().copied())
+                .collect();
         for ty in types {
             self.normalize(ty);
         }
@@ -60,6 +64,7 @@ impl PassImpl<'_> {
                         | TypeData::Incomplete(_)
                         | TypeData::Instance(_)
                         | TypeData::GenericEnv(_)
+                        | TypeData::Slice(_)
                         | TypeData::Struct(_)
                         | TypeData::Var(_)
                         => {
@@ -71,6 +76,7 @@ impl PassImpl<'_> {
                 }
                 | TypeData::GenericEnv(_)
                 | TypeData::Fn(_)
+                | TypeData::Slice(_)
                 | TypeData::Struct(_)
                 => break ty,
                 &TypeData::Var(var) => {
@@ -114,6 +120,7 @@ impl PassImpl<'_> {
                 }))
             }
             | data @ TypeData::Fn(_)
+            | data @ TypeData::Slice(_)
             | data @ TypeData::Struct(_)
             | data @ TypeData::Var(_)
             => {
@@ -161,6 +168,10 @@ impl PassImpl<'_> {
                 let data = TypeData::Fn(self.normalize_fn(v, vars, ctx));
                 (self.type_data_id(node, data), true)
             }
+            TypeData::Slice(v) => {
+                let data = TypeData::Slice(self.normalize_slice(v, vars, ctx));
+                (self.type_data_id(node, data), false)
+            }
             TypeData::Struct(v) => {
                 let def = v.name.is_some();
                 let data = TypeData::Struct(self.normalize_struct(v, vars, ctx));
@@ -178,7 +189,7 @@ impl PassImpl<'_> {
         }
     }
 
-    fn type_data_id(&mut self, node: GlobalNodeId, data: TypeData) -> TypeId {
+    pub fn type_data_id(&mut self, node: GlobalNodeId, data: TypeData) -> TypeId {
         match self.type_data_ids.entry(data) {
             hash_map::Entry::Occupied(e) => {
                 *e.get()
@@ -217,6 +228,14 @@ impl PassImpl<'_> {
         }
 
         sty
+    }
+
+    fn normalize_slice(&mut self, mut slt: SliceType, vars: &TypeVarMap, ctx: &mut Ctx) -> SliceType {
+        let SliceType { item, len: _ } = &mut slt;
+
+        *item = self.normalize1(*item, vars.clone(), ctx);
+
+        slt
     }
 
     fn insert_normalized_type(&mut self, ty: TypeId, norm_ty: TypeId) {

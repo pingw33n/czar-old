@@ -14,6 +14,11 @@ fn end_to_end() {
     let root = env!("CARGO_MANIFEST_DIR");
     let path: PathBuf = [root, "test_data", "end_to_end"].iter().collect();
 
+    let libgc_path = [root, "bdwgc/.libs/libgc.a"].iter().collect::<PathBuf>();
+    if !libgc_path.exists() {
+        panic!("{:?} doesn't exist");
+    }
+
     let packages = &mut Packages::default();
 
     let std_path: PathBuf = [root, "misc", source_file_name("std").to_str().unwrap()].iter().collect();
@@ -45,12 +50,13 @@ fn end_to_end() {
         if !e.path().is_dir() {
             continue;
         }
-        let glue_obj_path = glue_obj_path.path().to_path_buf();
         let packages = packages.clone();
         let errors = errors.clone();
+        let glue_obj_path = glue_obj_path.path().to_path_buf();
+        let libgc_path = libgc_path.clone();
         tp.execute(move || {
             println!("###### test: {}", e.path().file_name().unwrap().to_string_lossy());
-            if let Err(err) = run(&e.path(), &glue_obj_path, packages.clone()) {
+            if let Err(err) = run(&e.path(), &[&glue_obj_path, &libgc_path], packages.clone()) {
                 errors.lock().unwrap().push(err);
             }
         })
@@ -71,7 +77,7 @@ struct Error {
     expected: String,
 }
 
-fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) -> Result<(), Error> {
+fn run(path: &Path, objs: &[&Path], mut packages: Packages) -> Result<(), Error> {
     let run_stdout_txt = path.join("run.stdout.txt");
     let stderr_txt = path.join("stderr.txt");
     let run_stdout_txt_exists = run_stdout_txt.exists();
@@ -116,7 +122,7 @@ fn run(path: &Path, glue_obj_path: &Path, mut packages: Packages) -> Result<(), 
                 measure_time::print_time!("link time");
                 exec(Command::new("cc")
                     .arg(obj_path.to_str().unwrap())
-                    .arg(glue_obj_path.to_str().unwrap())
+                    .args(objs.iter().map(|v| v.to_str().unwrap()))
                     .arg("-o")
                     .arg(exe_path.to_str().unwrap()));
             }

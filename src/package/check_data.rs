@@ -47,6 +47,7 @@ impl Packages {
             match &ty.data {
                 | TypeData::Fn(_)
                 | TypeData::Incomplete(_)
+                | TypeData::Slice(_)
                 | TypeData::Struct(_)
                 | TypeData::Var(_)
                 => break ty,

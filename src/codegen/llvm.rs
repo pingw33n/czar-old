@@ -285,6 +285,18 @@ impl Llvm {
         g
     }
 
+    pub fn add_global_string_const(&self, s: &str) -> ValueRef {
+        let g = self.add_global_const(self.const_string(s));
+        self.const_pointer_cast(g, self.pointer_type(self.int_type(8)))
+    }
+
+    pub fn add_global_cstring_const(&self, s: &str) -> ValueRef {
+        let mut cs = String::with_capacity(s.len() + 1);
+        cs.push_str(s);
+        cs.push('\0');
+        self.add_global_string_const(&cs)
+    }
+
     fn add_global(&self, ty: TypeRef) -> ValueRef {
         NonNull::new(unsafe {
             LLVMAddGlobal(self.m.as_ptr(), ty.as_ptr(), empty_cstr())
@@ -348,6 +360,22 @@ impl Llvm {
         }.into()
     }
 
+    pub fn array_type(&self, item: TypeRef, len: u32) -> TypeRef {
+        NonNull::new(unsafe {
+            LLVMArrayType(item.as_ptr(), len)
+        }).unwrap().into()
+    }
+
+    pub fn pointer_type(&self, inner: TypeRef) -> TypeRef {
+        NonNull::new(unsafe {
+            LLVMPointerType(inner.as_ptr(), 0)
+        }).unwrap().into()
+    }
+
+    pub fn size_type(&self) -> TypeRef {
+        self.int_type(self.pointer_size_bits())
+    }
+
     pub fn emit(&self, out: &mut impl std::io::Write, format: OutputFormat) -> std::io::Result<()> {
         match format {
             OutputFormat::IR => {
@@ -366,7 +394,7 @@ impl Llvm {
                     OutputFormat::IR => unreachable!(),
                 };
                 unsafe {
-                    let r = LLVMVerifyModule(self.m.as_ptr(), LLVMVerifierFailureAction::LLVMReturnStatusAction, ptr::null_mut());
+                    let r = LLVMVerifyModule(self.m.as_ptr(), LLVMVerifierFailureAction::LLVMPrintMessageAction, ptr::null_mut());
                     assert!(r == 0, "LLVMVerifyModule failed");
 
                     let mut error = ptr::null_mut();

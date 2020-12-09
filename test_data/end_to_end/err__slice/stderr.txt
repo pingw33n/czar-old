@@ -1,0 +1,54 @@
+error: invalid type of slice literal length: expected `usize`, found `{}`
+  --> main.cz:3:11
+3 |     [=42; f()];
+              ~~~
+
+error: expected constant expression
+  --> main.cz:6:17
+6 |     let v: [u8; z];
+                    ~
+
+error: expected constant expression
+  --> main.cz:9:11
+9 |     [=42; f2()];
+              ~~~~
+
+error: mismatching types of slice literal items: expected `i32`, found `String`
+  --> main.cz:11:17
+11 |     [42, 42i32, "test", true];
+                     ~~~~~~
+
+error: type `[String]` cannot be indexed by `u8`
+  --> main.cz:14:5
+14 |     sl[0u8];
+         ~~~~~~~
+
+error: type `[String]` cannot be indexed by `Range`
+  --> main.cz:15:5
+15 |     sl[0u32..0];
+         ~~~~~~~~~~~
+
+error: type `[String]` cannot be indexed by `RangeInclusive`
+  --> main.cz:16:5
+16 |     sl[false..=true];
+         ~~~~~~~~~~~~~~~~
+
+error: type `[String]` cannot be indexed by `RangeFrom`
+  --> main.cz:17:5
+17 |     sl[0u32..];
+         ~~~~~~~~~~
+
+error: type `[String]` cannot be indexed by `RangeTo`
+  --> main.cz:18:5
+18 |     sl[..""];
+         ~~~~~~~~
+
+error: type `[String]` cannot be indexed by `RangeToInclusive`
+  --> main.cz:19:5
+19 |     sl[..=' '];
+         ~~~~~~~~~~
+
+error: index operation is not defined for type `<integer>`
+  --> main.cz:20:5
+20 |     42[0];
+         ~~~~~

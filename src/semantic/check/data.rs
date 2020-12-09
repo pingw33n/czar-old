@@ -1,5 +1,12 @@
 use super::*;
 
+#[derive(Clone, Copy, Debug)]
+pub struct OpImpl {
+    pub fn_def: GlobalNodeId,
+    pub callee_ty: TypeId,
+    pub lvalue_result: bool,
+}
+
 pub struct CheckData {
     pub(in super) package_id: PackageId,
     types: Slab<Type>,
@@ -13,6 +20,8 @@ pub struct CheckData {
     pub(in super) impls: Impls,
     pub(in super) entry_point: Option<TypeId>,
     pub(in super) normalized_types: TypeMap<TypeId>,
+    pub(in super) op_impls: NodeMap<OpImpl>,
+    pub(in super) method_call_self_coercions: NodeMap<TypeId>,
 }
 
 impl CheckData {
@@ -28,6 +37,8 @@ impl CheckData {
             impls: Default::default(),
             entry_point: None,
             normalized_types: Default::default(),
+            op_impls: Default::default(),
+            method_call_self_coercions: Default::default(),
         }
     }
 
@@ -104,5 +115,13 @@ impl CheckData {
 
     pub fn normalized_type(&self, ty: TypeId) -> TypeId {
         self.normalized_types[&ty]
+    }
+
+    pub fn op_impl(&self, node: NodeId) -> Option<OpImpl> {
+        self.op_impls.get(&node).copied()
+    }
+
+    pub fn method_call_self_coercion(&self, node: NodeId) -> Option<TypeId> {
+        self.method_call_self_coercions.get(&node).copied()
     }
 }
