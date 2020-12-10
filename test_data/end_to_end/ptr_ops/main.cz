@@ -16,6 +16,20 @@ fn loads() {
     print_u8(*p); println();
 }
 
+fn writes() {
+    let a = [1, 2, 3];
+    let p = a.ptr();
+
+    *p = 4;
+    *(p + 1) = 5;
+    let i = -2;
+    *(p + 4 + i) = 6;
+    print_u8(*p); println();
+    print_u8(*(p + 1)); println();
+    print_u8(*(p + 2)); println();
+}
+
 fn main() {
     loads();
+    writes();
 }
