@@ -313,9 +313,9 @@ impl<'a> Codegen<'a> {
                 let &Let { def } = ctx.package.hir.let_(node);
 
                 let &LetDef { init, .. } = ctx.package.hir.let_def(def);
+                let p = self.expr(def, ctx).ptr();
 
                 if let Some(init) = init {
-                    let p = self.expr(def, ctx).ptr();
                     let v = self.expr(init, ctx).deref(self.bodyb);
                     self.bodyb.store(v, p);
                 }

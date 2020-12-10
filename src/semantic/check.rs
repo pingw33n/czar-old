@@ -667,8 +667,7 @@ impl PassImpl<'_> {
                 } else if let Some(init) = init {
                     self.typing(init)?
                 } else {
-                    self.error(ctx.node, "can't infer variable type".into());
-                    return Err(());
+                    self.new_inference_var(ctx.node, InferenceVar::Any)
                 }
             }
             NodeKind::Literal => {

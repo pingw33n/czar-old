@@ -39,7 +39,8 @@ fn ret_usize() -> usize {
 }
 
 fn expr1() {
-    let a = 1;
+    let a;
+    a = 1; // Checking `let` without type and init block.
     let b = a + 2;
     let c = b - 10isize;
     let b1 = c < b;
