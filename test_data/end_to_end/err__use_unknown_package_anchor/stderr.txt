@@ -1,0 +1,4 @@
+error: can't resolve path: package `unknown` not found
+  --> main.cz:1:13
+1 | use package(unknown)::bar;
+                ~~~~~~~

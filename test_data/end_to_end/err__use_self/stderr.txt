@@ -44,6 +44,6 @@ error: `self` import can only be used in path with prefix
                                  ~~~~
 
 error: `self` import can only be used in path with prefix
-  --> main.cz:9:19
-9 |     use package::{self};
-                      ~~~~
+  --> main.cz:9:12
+9 |     use ::{self};
+               ~~~~

@@ -1,21 +1,21 @@
 pub module prelude {
-    pub use package::bool;
-    pub use package::char;
-    pub use package::i8;
-    pub use package::u8;
-    pub use package::i16;
-    pub use package::u16;
-    pub use package::i32;
-    pub use package::u32;
-    pub use package::i64;
-    pub use package::u64;
-    pub use package::i128;
-    pub use package::u128;
-    pub use package::isize;
-    pub use package::usize;
-    pub use package::f32;
-    pub use package::f64;
-    pub use package::string::String;
+    pub use ::bool;
+    pub use ::char;
+    pub use ::i8;
+    pub use ::u8;
+    pub use ::i16;
+    pub use ::u16;
+    pub use ::i32;
+    pub use ::u32;
+    pub use ::i64;
+    pub use ::u64;
+    pub use ::i128;
+    pub use ::u128;
+    pub use ::isize;
+    pub use ::usize;
+    pub use ::f32;
+    pub use ::f64;
+    pub use ::string::String;
 
     // FIXME these are temporary, for testing
     pub unsafe fn print_bool(_ v: bool);
@@ -60,7 +60,7 @@ pub struct char {{}}
 
 pub module string {
     pub struct String {
-        ptr: super::ptr::Ptr<u8>,
+        ptr: ::ptr::Ptr<u8>,
         len: usize,
     }
 
@@ -109,18 +109,18 @@ module intrinsic {
 
 pub module slice {
     struct Repr<T> {
-        ptr: super::ptr::Ptr<T>,
+        ptr: ::ptr::Ptr<T>,
         len: usize,
     }
 
     impl<T> Repr<T> {
         fn from(_ v: [T]) -> Self {
-            super::intrinsic::transmute(v)
+            ::intrinsic::transmute(v)
         }
     }
 
     impl<T> [T] {
-        pub fn ptr(self) -> super::ptr::Ptr<T> {
+        pub fn ptr(self) -> ::ptr::Ptr<T> {
             Repr::from(self).ptr
         }
 
@@ -128,54 +128,54 @@ pub module slice {
             Repr::from(self).len
         }
 
-        fn __index_usize(self, _ i: usize) -> super::ptr::Ptr<T> {
+        fn __index_usize(self, _ i: usize) -> ::ptr::Ptr<T> {
             if i >= self.len() {
-                super::intrinsic::trap();
+                ::intrinsic::trap();
             }
-            self.ptr() + super::intrinsic::transmute<usize, isize>(i) /*FIXME*/
+            self.ptr() + ::intrinsic::transmute<usize, isize>(i) /*FIXME*/
         }
 
-        fn __index_range(self, _ r: super::ops::Range<usize>) -> Self {
+        fn __index_range(self, _ r: ::ops::Range<usize>) -> Self {
             if r.start > r.end {
-                super::intrinsic::trap();
+                ::intrinsic::trap();
             }
             if r.start > self.len() {
-                super::intrinsic::trap();
+                ::intrinsic::trap();
             }
             if r.end > self.len() {
-                super::intrinsic::trap();
+                ::intrinsic::trap();
             }
-            let ptr = self.ptr() + super::intrinsic::transmute<usize, isize>(r.start) /*FIXME*/;
+            let ptr = self.ptr() + ::intrinsic::transmute<usize, isize>(r.start) /*FIXME*/;
             let len = r.end - r.start;
             let repr = Repr { ptr: ptr, len: len };
-            super::intrinsic::transmute(repr)
+            ::intrinsic::transmute(repr)
         }
 
-        fn __index_range_from(self, _ r: super::ops::RangeFrom<usize>) -> Self {
+        fn __index_range_from(self, _ r: ::ops::RangeFrom<usize>) -> Self {
             if r.start > self.len() {
-                super::intrinsic::trap();
+                ::intrinsic::trap();
             }
             self.__index_range(r.start..self.len())
         }
 
-        fn __index_range_full(self, _ _r: super::ops::RangeFull) -> Self {
+        fn __index_range_full(self, _ _r: ::ops::RangeFull) -> Self {
             self
         }
 
-        fn __index_range_inclusive(self, _ r: super::ops::RangeInclusive<usize>) -> Self {
+        fn __index_range_inclusive(self, _ r: ::ops::RangeInclusive<usize>) -> Self {
             self.__index_range(r.start..r.end + 1)
         }
 
-        fn __index_range_to(self, _ r: super::ops::RangeTo<usize>) -> Self {
+        fn __index_range_to(self, _ r: ::ops::RangeTo<usize>) -> Self {
             if r.end > self.len() {
-                super::intrinsic::trap();
+                ::intrinsic::trap();
             }
             self.__index_range(0..r.end)
         }
 
-        fn __index_range_to_inclusive(self, _ r: super::ops::RangeToInclusive<usize>) -> Self {
+        fn __index_range_to_inclusive(self, _ r: ::ops::RangeToInclusive<usize>) -> Self {
             if r.end > self.len() {
-                super::intrinsic::trap();
+                ::intrinsic::trap();
             }
             self.__index_range(0..r.end + 1)
         }

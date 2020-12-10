@@ -299,7 +299,7 @@ impl Hir {
         anchor: Option<S<PathAnchor>>,
         mut items: Vec<PathItem>,
     ) -> NodeId {
-        let start = anchor.map(|v| v.span.start)
+        let start = anchor.as_ref().map(|v| v.span.start)
             .unwrap_or(items[0].ident.span.start);
 
         let suffix = items.pop().unwrap();
@@ -798,10 +798,11 @@ pub struct PathEndIdent {
     pub renamed_as: Option<S<Ident>>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum PathAnchor {
-    Package,
-    Root,
+    Package {
+        name: Option<S<Ident>>,
+    },
     Super {
         count: u32,
     },

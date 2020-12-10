@@ -606,10 +606,13 @@ impl Display<'_> {
     fn path(&self, node: NodeId, p: &mut Printer) -> Result {
         let Path { anchor, segment } = self.hir.path(node);
         if let Some(anchor) = anchor {
-            match anchor.value {
-                PathAnchor::Package => p.print("package::"),
-                PathAnchor::Root => p.print("::"),
-                PathAnchor::Super { count } => p.repeat("super::", count),
+            match &anchor.value {
+                PathAnchor::Package { name } => if let Some(name) = name {
+                    p.print(format!("package({})::", name.value))
+                } else {
+                    p.print("::")
+                }
+                &PathAnchor::Super { count } => p.repeat("super::", count),
             }?
         }
         self.path_segment(*segment, p)

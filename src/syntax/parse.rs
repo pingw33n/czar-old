@@ -271,7 +271,7 @@ impl<'a> ParserImpl<'a> {
         let segment = self.use_path_segment()?;
         self.expect(Token::Semi)?;
         let segment_span = self.hir.node_kind(segment).span;
-        let path_start = anchor.map(|v| v.span.start)
+        let path_start = anchor.as_ref().map(|v| v.span.start)
             .unwrap_or(segment_span.start);
         let path = self.hir.insert_path(Span::new(path_start, segment_span.end).spanned(
             Path {
@@ -527,16 +527,19 @@ impl<'a> ParserImpl<'a> {
             tok.with_value(match tok.value {
                 Token::ColonColon => {
                     self.lex.consume();
-                    PathAnchor::Root
+                    PathAnchor::Package { name: None }
                 }
                 Token::Keyword(Keyword::Package) => {
                     self.lex.consume();
-                    PathAnchor::Package
+                    self.expect(Token::BlockOpen(lex::Block::Paren))?;
+                    let name = self.ident()?;
+                    self.expect(Token::BlockClose(lex::Block::Paren))?;
+                    PathAnchor::Package { name: Some(name) }
                 }
                 _ => return Ok(None),
             })
         };
-        if !matches!(r.value, PathAnchor::Root) {
+        if !matches!(r.value, PathAnchor::Package { name: None }) {
             self.expect(Token::ColonColon)?;
         }
         Ok(Some(r))

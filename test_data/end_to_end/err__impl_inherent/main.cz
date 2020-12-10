@@ -49,7 +49,7 @@ fn dup() {
     module m1 {
         module m2 {
             module m3 {
-                impl package::Foo {
+                impl ::Foo {
                     fn foo(s: String) {}
                     fn foo(self, str: String) {}
 

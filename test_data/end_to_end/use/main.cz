@@ -43,8 +43,36 @@ fn f3() {
     prints(S2{s: "f3"}.s); println();
 }
 
+module m3 {
+    module m4 {
+        use ::foo;
+        use ::m3::foo as bar;
+
+        fn test() {
+            foo(v: "test1");
+            bar(42);
+        }
+    }
+
+    fn foo(_ v: i32) {
+        print_i32(v); println()
+    }
+}
+
+fn foo(v: String) {
+    prints(v); println()
+}
+
+fn f4() {
+    println();
+    m3::m4::test();
+    package(std)::prelude::prints("test2"); println()
+}
+
+
 fn main() {
     f1();
     f2();
     f3();
+    f4();
 }

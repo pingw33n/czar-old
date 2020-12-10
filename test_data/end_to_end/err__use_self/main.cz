@@ -6,7 +6,7 @@ module m {
     use super::{self, self};
     use super::super::{self};
     use super::super::{self, self};
-    use package::{self};
+    use ::{self};
 }
 
 fn main() {}

@@ -348,7 +348,7 @@ impl Resolver<'_> {
             &mut reso,
             self.hir.root,
             (self.hir.root, 0),
-            Some(PathAnchor::Package),
+            Some(&PathAnchor::Package { name: None }),
             path_items,
             &mut HashSet::new(),
         )?;
@@ -402,7 +402,8 @@ impl Resolver<'_> {
             return Ok(reso);
         }
 
-        let anchor = self.hir.path(self.discover_data.find_path_start(path, self.hir).unwrap()).anchor;
+        let anchor = self.hir.path(self.discover_data.find_path_start(path, self.hir).unwrap()).anchor
+            .as_ref().map(|v| v.as_ref());
         let path_items = self.make_path_items(path);
         let r = self.resolve0(&mut reso, path, anchor, path_items, paths);
 
@@ -432,7 +433,7 @@ impl Resolver<'_> {
     fn resolve0(&self,
         reso: &mut Resolution,
         path: NodeId,
-        anchor: Option<S<PathAnchor>>,
+        anchor: Option<S<&PathAnchor>>,
         path_items: Vec<PathItem2>,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<()> {
@@ -440,9 +441,20 @@ impl Resolver<'_> {
         assert!(reso.is_empty());
         if let Some(anchor) = anchor {
             let node = match anchor.value {
-                PathAnchor::Package => (self.package_id, self.hir.root),
-                PathAnchor::Root => unimplemented!(),
-                PathAnchor::Super { count } => {
+                PathAnchor::Package { name } => {
+                    if let Some(name) = name {
+                        if let Some(pkg) = self.packages.try_by_name(&name.value) {
+                            (pkg.id, pkg.hir.root)
+                        } else {
+                            self.error(path, name.span, format!(
+                                "can't resolve path: package `{}` not found", name.value));
+                            return Err(());
+                        }
+                    } else {
+                        (self.package_id, self.hir.root)
+                    }
+                }
+                &PathAnchor::Super { count } => {
                     assert!(count > 0);
                     let mut scope = path;
                     for _ in 0..=count {
@@ -503,7 +515,7 @@ impl Resolver<'_> {
         reso: &mut Resolution,
         node: NodeId, // For error reporting
         mut scope: ScopeVid,
-        anchor: Option<PathAnchor>,
+        anchor: Option<&PathAnchor>,
         items: Vec<PathItem2>,
         paths: &mut HashSet<GlobalNodeId>,
     ) -> Result<()> {
@@ -579,10 +591,13 @@ impl Resolver<'_> {
             } else {
                 let place = if i == 0 {
                     match anchor.unwrap() {
-                        PathAnchor::Package => "package root",
-                        PathAnchor::Root => "root",
-                        PathAnchor::Super { .. } => "parent module",
-                    }.into()
+                        PathAnchor::Package { name } => if let Some(name) = name {
+                            format!("package `{}`", name.value)
+                        } else {
+                            "package root".into()
+                        }
+                        PathAnchor::Super { .. } => "parent module".into(),
+                    }
                 } else {
                     format!("`{}`", items[i - 1].name().value.unwrap())
                 };

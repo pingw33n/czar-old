@@ -3,8 +3,11 @@ pub use one::two;
 use super::one::two::*;
 use super::super::{*,self,foo,BAR,};
 use optional::comma::{a,b};
-use package::{};
-use package::*;
+use package(foo)::{};
+use package(stuff)::*;
+use ::stuff;
+use ::*;
+use ::{};
 pub use foo::{
   bar::{baz::{
       self,A,

@@ -1,0 +1,3 @@
+use package(unknown)::bar;
+
+fn main() {}
