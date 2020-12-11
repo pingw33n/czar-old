@@ -552,11 +552,6 @@ impl PassImpl<'_> {
         *self.reso_ctxs.last().unwrap()
     }
 
-    fn normalized_lang_type(&mut self, lang_item: LangItem) -> TypeId {
-        let ty = self.std().type_(lang_item);
-        self.normalize(ty)
-    }
-
     fn do_pre_typing(&mut self, ctx: HirVisitorCtx) -> Result<()> {
         match ctx.kind {
             NodeKind::FnDef => self.pre_check_fn_def(ctx.node)?,
@@ -630,7 +625,7 @@ impl PassImpl<'_> {
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = self.hir.if_expr(ctx.node);
                 if let Ok(actual_cond_ty) = self.typing(cond) {
-                    if self.normalize(actual_cond_ty) != self.normalized_lang_type(LangItem::Primitive(PrimitiveType::Bool)) {
+                    if self.as_primitive(actual_cond_ty) != Some(PrimitiveType::Bool) {
                         self.error(cond, format!(
                             "invalid type of `if` condition: expected `bool`, found `{}`",
                             self.display_type(actual_cond_ty)));
@@ -765,7 +760,7 @@ impl PassImpl<'_> {
             => {
                 let cond = self.hir.while_(ctx.node).cond;
                 if let Ok(actual_cond_ty) = self.typing(cond) {
-                    if self.normalize(actual_cond_ty) != self.normalized_lang_type(LangItem::Primitive(PrimitiveType::Bool)) {
+                    if self.as_primitive(actual_cond_ty) != Some(PrimitiveType::Bool) {
                         self.error(cond, format!(
                             "invalid type of `while` condition: expected `bool`, found `{}`",
                             self.display_type(actual_cond_ty)));

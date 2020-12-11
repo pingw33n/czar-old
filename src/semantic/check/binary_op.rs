@@ -39,7 +39,7 @@ impl PassImpl<'_> {
                     // Unit
                     || self.is_unit_type(left_ty) && self.is_unit_type(right_ty)
                     // String
-                    || matches!(lli, Some(v) if lli == rli && matches!(v, LangItem::String))
+                    || matches!(lli, Some(LangItem::String)) && lli == rli
                     // Any number.
                     || matches!((self.as_any_number(left_ty), self.as_any_number(right_ty)),
                         (Some(l), Some(r)) if l == r);

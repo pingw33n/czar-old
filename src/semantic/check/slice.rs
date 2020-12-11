@@ -69,7 +69,7 @@ impl PassImpl<'_> {
                 if matches!(self.as_any_number(range_item_ty), Some(NumberKind::Int)) {
                     self.unify(range_item_ty, self.std().type_(LangItem::Primitive(PrimitiveType::USize)));
                 }
-                if !matches!(self.as_lang_item(range_item_ty), Some(LangItem::Primitive(PrimitiveType::USize))) {
+                if !matches!(self.as_primitive(range_item_ty), Some(PrimitiveType::USize)) {
                     self.err_cant_index_slice(node, slice_ty, index_ty);
                     return Err(())
                 }

@@ -90,11 +90,14 @@ impl PassImpl<'_> {
                 }
             }
             (&TypeData::Slice(SliceType { item: item1, len: len1 }),
-                    &TypeData::Slice(SliceType { item: item2, len: len2 }))
-                    if len1 == len2
-                => {
+                &TypeData::Slice(SliceType { item: item2, len: len2 }))
+            => {
+                if len1 == len2 {
                     self.unify0(item1, item2)
+                } else {
+                    false
                 }
+            }
             (TypeData::Struct(StructType { name: name1, fields: fields1 }),
                 TypeData::Struct(StructType { name: name2, fields: fields2 }))
             => {
