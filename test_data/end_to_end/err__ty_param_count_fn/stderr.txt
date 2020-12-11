@@ -8,16 +8,6 @@ error: couldn't find function `a::()`: none of existing functions matches the si
 14 |     a<>();
          ~~~~~
 
-error: can't infer type
-  --> main.cz:15:5
-15 |     b();
-         ~
-
-error: can't infer type
-  --> main.cz:15:5
-15 |     b();
-         ~
-
 error: wrong number of type arguments: expected 2, found 1
   --> main.cz:16:6
 16 |     b<u32>();

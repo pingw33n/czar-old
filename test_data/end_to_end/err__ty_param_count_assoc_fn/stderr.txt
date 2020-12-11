@@ -1,15 +1,3 @@
-error: can't infer type
-  --> main.cz
-
-error: can't infer type
-  --> main.cz
-
-error: can't infer type
-  --> main.cz
-
-error: can't infer type
-  --> main.cz
-
 error: associated item `foo` not found for type `S3`
   --> main.cz:4:9
 4 |     S3::foo;

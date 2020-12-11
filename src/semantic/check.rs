@@ -276,6 +276,7 @@ impl<'a> Check<'a> {
             resolve_data: self.resolve_data,
             inference_ctxs: Vec::new(),
             type_data_ids: Default::default(),
+            error_count_before_fn_def: 0,
         }.run()?;
 
         Ok(check_data)
@@ -319,6 +320,7 @@ struct PassImpl<'a> {
     resolve_data: &'a ResolveData,
     inference_ctxs: Vec<InferenceCtx>,
     type_data_ids: HashMap<TypeData, TypeId>,
+    error_count_before_fn_def: u32,
 }
 
 impl PassImpl<'_> {
@@ -996,6 +998,7 @@ impl HirVisitor for PassImpl<'_> {
             self.reso_ctxs.push(v);
         }
         if ctx.kind == NodeKind::FnDef {
+            self.error_count_before_fn_def = self.diag.borrow().error_count() as u32;
             self.begin_inference();
         }
 
@@ -1015,8 +1018,12 @@ impl HirVisitor for PassImpl<'_> {
         }
 
         if ctx.kind == NodeKind::FnDef {
-            self.finish_inference();
+            let error_count = self.diag.borrow().error_count() as u32 - self.error_count_before_fn_def;
+            if error_count == 0 {
+                self.finish_inference();
+            }
         }
+
         if let Some(v) = reso_ctx(ctx.link) {
             assert_eq!(self.reso_ctxs.pop().unwrap(), v);
         }

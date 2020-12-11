@@ -1,0 +1,14 @@
+error: can't infer type
+  --> main.cz:2:5
+2 |     [];
+        ~~
+
+error: can't infer type
+  --> main.cz:6:5
+6 |     [][1];
+        ~~
+
+error: type `[_]` cannot be indexed by `u8`
+  --> main.cz:10:5
+10 |     [][1u8];
+         ~~~~~~~
