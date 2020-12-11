@@ -1,0 +1,9 @@
+fn f(_ cond: bool) -> i32 {
+    if cond {
+        42
+    }
+}
+
+fn main() {
+    f(false);
+}

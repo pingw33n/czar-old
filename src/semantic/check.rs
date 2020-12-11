@@ -645,8 +645,10 @@ impl PassImpl<'_> {
                             self.display_type(if_true_ty),
                             self.display_type(if_false_ty)));
                     }
+                    if_true_ty
+                } else {
+                    self.std().unit_type()
                 }
-                if_true_ty
             }
             NodeKind::Impl => unreachable!(),
             NodeKind::Let => {

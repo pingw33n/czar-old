@@ -1,0 +1,4 @@
+error: mismatching return types: function `f::(_)` expects `i32`, found `{}`
+  --> main.cz:2:5
+2 |     if cond {
+        ~~~~~~~~~
