@@ -16,8 +16,8 @@ impl Hir {
 #[derive(Clone, Copy, Debug)]
 pub enum NodeLink {
     BlockExpr,
-    BlockFlowCtlValue,
     Cast(CastLink),
+    CtlFlowAbortValue,
     FieldAccessReceiver,
     FnCall(FnCallLink),
     Fn(FnLink),
@@ -191,16 +191,16 @@ impl<T: HirVisitor> Traverser<'_, T> {
                     self.traverse0(expr, NodeLink::BlockExpr);
                 }
             },
-            NodeKind::BlockFlowCtl => {
-                let BlockFlowCtl { value, .. } = self.hir.block_flow_ctl(node);
-                if let &Some(value) = value {
-                    self.traverse0(value, NodeLink::BlockFlowCtlValue);
-                }
-            },
             NodeKind::Cast => {
                 let Cast { expr, ty, .. } = self.hir.cast(node);
                 self.traverse0(*expr, NodeLink::Cast(CastLink::Expr));
                 self.traverse0(*ty, NodeLink::Cast(CastLink::Type));
+            },
+            NodeKind::CtlFlowAbort => {
+                let CtlFlowAbort { value, .. } = self.hir.ctl_flow_abort(node);
+                if let &Some(value) = value {
+                    self.traverse0(value, NodeLink::CtlFlowAbortValue);
+                }
             },
             NodeKind::FieldAccess => {
                 let FieldAccess { receiver, .. } = self.hir.field_access(node);

@@ -461,8 +461,8 @@ impl DiscoverData {
             NodeKind::TypeAlias => hir.type_alias(node).name.clone(),
 
             | NodeKind::Block
-            | NodeKind::BlockFlowCtl
             | NodeKind::Cast
+            | NodeKind::CtlFlowAbort
             | NodeKind::FieldAccess
             | NodeKind::FnCall
             | NodeKind::IfExpr
@@ -513,8 +513,8 @@ impl DiscoverData {
             | NodeKind::Module
             | NodeKind::Struct
             | NodeKind::Block
-            | NodeKind::BlockFlowCtl
             | NodeKind::Cast
+            | NodeKind::CtlFlowAbort
             | NodeKind::FieldAccess
             | NodeKind::FnCall
             | NodeKind::IfExpr
@@ -553,8 +553,8 @@ impl DiscoverData {
             NodeKind::TypeParam => "type parameter",
 
             | NodeKind::Block
-            | NodeKind::BlockFlowCtl
             | NodeKind::Cast
+            | NodeKind::CtlFlowAbort
             | NodeKind::FieldAccess
             | NodeKind::FnCall
             | NodeKind::IfExpr
@@ -751,8 +751,8 @@ fn creates_scope(kind: NodeKind) -> bool {
         | TypeAlias
         => true,
 
-        | BlockFlowCtl
         | Cast
+        | CtlFlowAbort
         | FieldAccess
         | FnCall
         | FnDefParam

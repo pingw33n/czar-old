@@ -66,12 +66,18 @@ impl Display<'_> {
                 }
                 p.print("}")?;
             }
-            NodeKind::BlockFlowCtl => {
-                let BlockFlowCtl { kind, label, value } = self.hir.block_flow_ctl(node);
+            NodeKind::Cast => {
+                let Cast { expr, ty } = self.hir.cast(node);
+                self.expr(*expr, p)?;
+                p.print(" as ")?;
+                self.node(*ty, None, p)?;
+            }
+            NodeKind::CtlFlowAbort => {
+                let CtlFlowAbort { kind, label, value } = self.hir.ctl_flow_abort(node);
                 match kind {
-                    BlockFlowCtlKind::Break => p.print("break")?,
-                    BlockFlowCtlKind::Continue => p.print("continue")?,
-                    BlockFlowCtlKind::Return => p.print("return")?,
+                    CtlFlowAbortKind::Break => p.print("break")?,
+                    CtlFlowAbortKind::Continue => p.print("continue")?,
+                    CtlFlowAbortKind::Return => p.print("return")?,
                 }
                 if let Some(label) = label {
                     p.print(' ')?;
@@ -81,12 +87,6 @@ impl Display<'_> {
                     p.print(' ')?;
                     self.node(value, None, p)?;
                 }
-            }
-            NodeKind::Cast => {
-                let Cast { expr, ty } = self.hir.cast(node);
-                self.expr(*expr, p)?;
-                p.print(" as ")?;
-                self.node(*ty, None, p)?;
             }
             NodeKind::FieldAccess => {
                 let FieldAccess { receiver, name: field } = self.hir.field_access(node);

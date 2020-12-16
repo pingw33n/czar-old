@@ -978,16 +978,16 @@ impl<'a> ParserImpl<'a> {
                 let span_end = label.as_ref().map(|t| t.span.end)
                     .or(value.map(|v| self.hir.node_kind(v).span.end))
                     .unwrap_or(tok.span.end);
-                self.hir.insert_block_flow_ctl(tok.span.extended(span_end).spanned(BlockFlowCtl {
-                    kind: BlockFlowCtlKind::Break,
+                self.hir.insert_ctl_flow_abort(tok.span.extended(span_end).spanned(CtlFlowAbort {
+                    kind: CtlFlowAbortKind::Break,
                     label,
                     value,
                 }))
             }
             Token::Keyword(Keyword::Continue) => {
                 self.lex.consume();
-               self.hir.insert_block_flow_ctl(tok.span.spanned(BlockFlowCtl {
-                    kind: BlockFlowCtlKind::Continue,
+               self.hir.insert_ctl_flow_abort(tok.span.spanned(CtlFlowAbort {
+                    kind: CtlFlowAbortKind::Continue,
                     label: None,
                     value: None,
                 }))
@@ -998,8 +998,8 @@ impl<'a> ParserImpl<'a> {
                 let span_end = value.map(|v| self.hir.node_kind(v).span.end)
                     .unwrap_or(tok.span.end);
 
-                self.hir.insert_block_flow_ctl(tok.span.extended(span_end).spanned(BlockFlowCtl {
-                    kind: BlockFlowCtlKind::Return,
+                self.hir.insert_ctl_flow_abort(tok.span.extended(span_end).spanned(CtlFlowAbort {
+                    kind: CtlFlowAbortKind::Return,
                     label: None,
                     value,
                 }))
@@ -1917,8 +1917,8 @@ pub fn needs_trailing_semi(kind: NodeKind) -> bool {
         | While
         => false,
 
-        | BlockFlowCtl
         | Cast
+        | CtlFlowAbort
         | FieldAccess
         | FnCall
         | FnDefParam

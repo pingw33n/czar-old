@@ -33,8 +33,8 @@ impl Default for NodeId {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NodeKind {
     Block,
-    BlockFlowCtl,
     Cast,
+    CtlFlowAbort,
     FieldAccess,
     FnCall,
     FnDef,
@@ -92,8 +92,8 @@ impl NodeKind {
             => true,
 
             | Block
-            | BlockFlowCtl
             | Cast
+            | CtlFlowAbort
             | FieldAccess
             | FnCall
             | FnDefParam
@@ -167,8 +167,8 @@ pub fn source_file_name(mod_name: &str) -> PathBuf {
 pub struct Hir {
     nodes: Slab<S<NodeKind>>,
     blocks: NodeMap<Block>,
-    block_flow_ctls: NodeMap<BlockFlowCtl>,
     casts: NodeMap<Cast>,
+    ctl_flow_aborts: NodeMap<CtlFlowAbort>,
     field_accesses: NodeMap<FieldAccess>,
     fn_defs: NodeMap<FnDef>,
     fn_def_params: NodeMap<FnDefParam>,
@@ -343,8 +343,8 @@ impl Hir {
 
     node_ops! {
         insert_block, block, block_mut, try_block, try_block_mut, blocks, Block;
-        insert_block_flow_ctl, block_flow_ctl, block_flow_ctl_mut, try_block_flow_ctl, try_block_flow_ctl_mut, block_flow_ctls, BlockFlowCtl;
         insert_cast, cast, cast_mut, try_cast, try_cast_mut, casts, Cast;
+        insert_ctl_flow_abort, ctl_flow_abort, ctl_flow_abort_mut, try_ctl_flow_abort, try_ctl_flow_abort_mut, ctl_flow_aborts, CtlFlowAbort;
         insert_field_access, field_access, field_access_mut, try_field_access, try_field_access_mut, field_accesses, FieldAccess;
         insert_fn_def, fn_def, fn_def_mut, try_fn_def, try_fn_def_mut, fn_defs, FnDef;
         insert_fn_def_param, fn_def_param, fn_def_param_mut, try_fn_def_param, try_fn_def_param_mut, fn_def_params, FnDefParam;
@@ -529,15 +529,15 @@ impl Block {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BlockFlowCtlKind {
+pub enum CtlFlowAbortKind {
     Break,
     Continue,
     Return,
 }
 
 #[derive(Debug)]
-pub struct BlockFlowCtl {
-    pub kind: BlockFlowCtlKind,
+pub struct CtlFlowAbort {
+    pub kind: CtlFlowAbortKind,
     pub label: Option<S<Label>>,
     pub value: Option<NodeId>,
 }

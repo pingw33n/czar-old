@@ -589,8 +589,8 @@ impl PassImpl<'_> {
             | NodeKind::Use
             | NodeKind::While
             => {},
-            | NodeKind::BlockFlowCtl
             | NodeKind::Cast
+            | NodeKind::CtlFlowAbort
             | NodeKind::Loop
             => todo!("{:?}", self.hir.node_kind(ctx.node)),
         }
@@ -1031,8 +1031,8 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
     use NodeLink::*;
     Some(match link {
         | BlockExpr
-        | BlockFlowCtlValue
         | Cast(CastLink::Expr)
+        | CtlFlowAbortValue
         | FieldAccessReceiver
         | FnCall(_)
         | Fn(FnLink::Body)
