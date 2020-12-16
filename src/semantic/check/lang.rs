@@ -41,6 +41,7 @@ pub enum PrimitiveType {
     ISize,
     USize,
     Char,
+    Ptr,
 }
 
 impl PrimitiveType {
@@ -69,6 +70,7 @@ impl PrimitiveType {
 
             | Bool
             | Char
+            | Ptr
             => return None,
         })
     }
@@ -78,7 +80,6 @@ impl PrimitiveType {
 pub enum LangItem {
     Intrinsic(IntrinsicItem),
     Primitive(PrimitiveType),
-    Ptr,
     Range(RangeItem),
     String,
 }
@@ -169,7 +170,7 @@ impl PassImpl<'_> {
                 (L::Primitive(U128), &["u128"][..]),
                 (L::Primitive(ISize), &["isize"][..]),
                 (L::Primitive(USize), &["usize"][..]),
-                (L::Ptr, &["ptr", "Ptr"][..]),
+                (L::Primitive(Ptr), &["ptr", "Ptr"][..]),
                 (L::Range(R::Range), &["ops", "Range"][..]),
                 (L::Range(R::RangeFrom), &["ops", "RangeFrom"][..]),
                 (L::Range(R::RangeFull), &["ops", "RangeFull"][..]),
@@ -230,7 +231,7 @@ impl PassImpl<'_> {
     }
 
     pub fn as_any_number(&self, ty: TypeId) -> Option<NumberKind> {
-        self.packages.as_number_type_ctx(ty, self.cdctx()).map(|v| v.kind())
+        self.packages.as_number_ctx(ty, self.cdctx()).map(|v| v.kind())
             .or_else(|| self.type_(self.underlying_type(ty).id).data.as_inference_var()
                 .and_then(|v| v.as_number().copied()))
     }

@@ -74,20 +74,24 @@ impl Packages {
         self.as_lang_item_ctx(ty, ctx)?.into_primitive().ok()
     }
 
-    pub fn as_number_type(&self, ty: TypeId) -> Option<NumberType> {
-        self.as_number_type_ctx(ty, None)
+    pub fn as_primitive(&self, ty: TypeId) -> Option<PrimitiveType> {
+        self.as_primitive_ctx(ty, None)
     }
 
-    pub fn as_number_type_ctx(&self, ty: TypeId, ctx: Option<Ctx>) -> Option<NumberType> {
+    pub fn as_number(&self, ty: TypeId) -> Option<NumberType> {
+        self.as_number_ctx(ty, None)
+    }
+
+    pub fn as_number_ctx(&self, ty: TypeId, ctx: Option<Ctx>) -> Option<NumberType> {
         self.as_lang_item_ctx(ty, ctx)?
             .as_number()
     }
 
-    pub fn is_unit_type(&self, ty: TypeId) -> bool {
-        self.is_unit_type_ctx(ty, None)
+    pub fn is_unit(&self, ty: TypeId) -> bool {
+        self.is_unit_ctx(ty, None)
     }
 
-    pub fn is_unit_type_ctx(&self, ty: TypeId, ctx: Option<Ctx>) -> bool {
+    pub fn is_unit_ctx(&self, ty: TypeId, ctx: Option<Ctx>) -> bool {
         self.underlying_type_ctx(ty, ctx).data.as_struct().map(|v| v.is_unit()).unwrap_or(false)
     }
 }

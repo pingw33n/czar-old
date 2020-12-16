@@ -402,7 +402,7 @@ impl<'a> Codegen<'a> {
                                 let leftv = leftv.deref(self.bodyb);
                                 match kind.value {
                                     Add | Sub => {
-                                        if let Some(num) = self.packages.as_number_type(left_ty) {
+                                        if let Some(num) = self.packages.as_number(left_ty) {
                                             match kind.value {
                                                 Add => match num {
                                                     NumberType::Float => self.bodyb.fadd(leftv, rightv),
@@ -415,7 +415,7 @@ impl<'a> Codegen<'a> {
                                                 _ => unreachable!(),
                                             }
                                         } else {
-                                            assert_eq!(self.packages.as_lang_item(left_ty), Some(LangItem::Ptr));
+                                            assert_eq!(self.packages.as_primitive(left_ty), Some(PrimitiveType::Ptr));
                                             let rightv = if kind.value == BinaryOpKind::Sub {
                                                 self.bodyb.neg(rightv)
                                             } else {
@@ -431,10 +431,10 @@ impl<'a> Codegen<'a> {
                                     | Lt
                                     | LtEq
                                     | NotEq => {
-                                        if self.packages.is_unit_type(left_ty) {
+                                        if self.packages.is_unit(left_ty) {
                                             self.bool_literal(true)
                                         } else {
-                                            match self.packages.as_number_type(left_ty).expect("todo") {
+                                            match self.packages.as_number(left_ty).expect("todo") {
                                                 NumberType::Float => {
                                                     use RealPredicate::*;
                                                     let pred = match kind.value {
@@ -465,7 +465,7 @@ impl<'a> Codegen<'a> {
                                         }
                                     },
                                     Mul => {
-                                        match self.packages.as_number_type(left_ty).expect("todo") {
+                                        match self.packages.as_number(left_ty).expect("todo") {
                                             NumberType::Float => self.bodyb.fmul(leftv, rightv),
                                             NumberType::Int { signed: _ } => self.bodyb.mul(leftv, rightv),
                                         }.direct()
@@ -494,11 +494,11 @@ impl<'a> Codegen<'a> {
                             use UnaryOpKind::*;
                             match kind.value {
                                 Deref => {
-                                    assert_eq!(self.packages.as_lang_item(arg_ty), Some(LangItem::Ptr));
+                                    assert_eq!(self.packages.as_primitive(arg_ty), Some(PrimitiveType::Ptr));
                                     argv.indirect()
                                 }
                                 Neg => {
-                                    match self.packages.as_number_type(arg_ty).expect("todo") {
+                                    match self.packages.as_number(arg_ty).expect("todo") {
                                         NumberType::Float => self.bodyb.fneg(argv),
                                         NumberType::Int { signed: _ } => self.bodyb.neg(argv),
                                     }.direct()
@@ -671,7 +671,7 @@ impl<'a> Codegen<'a> {
         make_unsigned: impl FnOnce() -> ValueRef,
         make_float: impl FnOnce() -> ValueRef,
     ) -> Value {
-        match self.packages.as_number_type(left_ty).expect("todo") {
+        match self.packages.as_number(left_ty).expect("todo") {
             NumberType::Float => make_float(),
             NumberType::Int { signed } => {
                 let cond = self.bodyb.icmp(rightv, rightv.type_().const_int(0), IntPredicate::LLVMIntEQ);
@@ -759,11 +759,7 @@ impl<'a> Codegen<'a> {
         let check::StructType { name: def, fields } = sty;
         if let Some(def) = *def {
             if let Some(prim) = self.packages.std().check_data.lang().as_primitive(def) {
-                return self.make_prim_type(prim);
-            } else if let Some(LangItem::Ptr) = self.packages.std().check_data.lang().as_item(def) {
-                let pty = self.packages.type_(ty).data.as_generic_env().unwrap().vars.vals().next().unwrap();
-                let pty = self.type_(pty, genv);
-                return pty.pointer()
+                return self.make_prim_type(ty, prim, genv);
             }
         }
         let field_tys = &mut Vec::with_capacity(fields.len());
@@ -805,7 +801,7 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn make_prim_type(&self, prim_ty: PrimitiveType) -> TypeRef {
+    fn make_prim_type(&mut self, ty: TypeId, prim_ty: PrimitiveType, genv: &GenericEnv) -> TypeRef {
         use PrimitiveType::*;
         match prim_ty {
             Bool => self.llvm.int_type(1),
@@ -817,6 +813,11 @@ impl<'a> Codegen<'a> {
             I64 | U64 => self.llvm.int_type(64),
             I128 | U128 => self.llvm.int_type(128),
             ISize | USize => self.llvm.size_type(),
+            Ptr => {
+                let pty = self.packages.type_(ty).data.as_generic_env().unwrap().vars.vals().next().unwrap();
+                let pty = self.type_(pty, genv);
+                pty.pointer()
+            }
         }
     }
 

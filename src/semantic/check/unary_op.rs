@@ -9,7 +9,7 @@ impl PassImpl<'_> {
         let ty = match kind.value {
             Deref => {
                 self.check_data.set_lvalue(node);
-                if self.as_lang_item(arg_ty) == Some(LangItem::Ptr) {
+                if self.as_primitive(arg_ty) == Some(PrimitiveType::Ptr) {
                     self.type_(arg_ty).data.as_generic_env().unwrap().vars.vals().next().unwrap()
                 } else {
                     self.err_unary_op_not_defined(node, kind, arg_ty);

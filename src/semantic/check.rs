@@ -841,7 +841,7 @@ impl PassImpl<'_> {
                     self.display_type0(param, f)?;
                 }
                 write!(f, ")")?;
-                if !self.is_unit_type(*result) {
+                if !self.is_unit(*result) {
                     write!(f, " -> ")?;
                     self.display_type0(*result, f)?;
                 }
@@ -945,7 +945,7 @@ impl PassImpl<'_> {
         assert_eq!(fn_.params.len(), 0);
         let fn_def = self.hir.fn_def(node);
         let mut err = false;
-        if !self.is_unit_type(fn_.result) {
+        if !self.is_unit(fn_.result) {
             self.error(fn_def.ret_ty.unwrap(),
                 "`main` function must have unit return type".into());
             err = true;

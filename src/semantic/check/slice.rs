@@ -103,7 +103,7 @@ impl PassImpl<'_> {
         let callee_ty = self.normalize(callee_ty);
         let res_ty = self.underlying_type(callee_ty).data.as_fn().unwrap().result;
         let res_ty = if lvalue_result {
-            debug_assert_eq!(self.as_lang_item(res_ty), Some(LangItem::Ptr));
+            debug_assert_eq!(self.as_primitive(res_ty), Some(PrimitiveType::Ptr));
             self.type_(res_ty).data.as_generic_env().unwrap().vars.vals().next().unwrap()
         } else {
             res_ty

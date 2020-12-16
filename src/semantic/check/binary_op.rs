@@ -37,7 +37,7 @@ impl PassImpl<'_> {
                     // Any primitive.
                     matches!((lli, rli), (Some(LangItem::Primitive(l)), Some(LangItem::Primitive(r))) if l == r)
                     // Unit
-                    || self.is_unit_type(left_ty) && self.is_unit_type(right_ty)
+                    || self.is_unit(left_ty) && self.is_unit(right_ty)
                     // String
                     || matches!(lli, Some(LangItem::String)) && lli == rli
                     // Any number.
@@ -61,7 +61,7 @@ impl PassImpl<'_> {
                 if !ok {
                     // Ptr {+|-} usize
                     ok = matches!(kind.value, Add | Sub)
-                        && matches!(self.as_lang_item(left_ty), Some(LangItem::Ptr))
+                        && matches!(self.as_primitive(left_ty), Some(PrimitiveType::Ptr))
                         && matches!(self.as_any_number(right_ty), Some(NumberKind::Int));
                     if ok {
                         self.unify(right_ty, self.std().type_(LangItem::Primitive(PrimitiveType::ISize)));

@@ -276,7 +276,7 @@ impl PassImpl<'_> {
         }
     }
 
-    pub fn is_unit_type(&self, ty: TypeId) -> bool {
-        self.packages.is_unit_type_ctx(ty, self.cdctx())
+    pub fn is_unit(&self, ty: TypeId) -> bool {
+        self.packages.is_unit_ctx(ty, self.cdctx())
     }
 }
