@@ -43,15 +43,12 @@ impl PassImpl<'_> {
         let src_var = self.underlying_type(src).data.as_inference_var();
         let dst_var = self.underlying_type(dst).data.as_inference_var();
         match (src_var, dst_var) {
-            | (Some(InferenceVar::Any), None)
-            | (Some(InferenceVar::Any), Some(InferenceVar::Number(_)))
-            => true,
+            (Some(InferenceVar::Any), _)
+                => true,
             (Some(InferenceVar::Number(src_num)), None)
-                if Some(src_num) == self.as_any_number(dst)
-                => true,
+                => Some(src_num) == self.as_any_number(dst),
             (Some(InferenceVar::Number(src_num)), Some(InferenceVar::Number(dst_num)))
-                if src_num == dst_num
-                => true,
+                => src_num == dst_num,
             _ => false,
         }
     }

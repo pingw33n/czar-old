@@ -56,7 +56,7 @@ fn end_to_end() {
         let libgc_path = libgc_path.clone();
         tp.execute(move || {
             println!("###### test: {}", e.path().file_name().unwrap().to_string_lossy());
-            if let Err(err) = run(&e.path(), &[&glue_obj_path, &libgc_path], packages.clone()) {
+            if let Err(err) = execute(&e.path(), &[&glue_obj_path, &libgc_path], packages.clone()) {
                 errors.lock().unwrap().push(err);
             }
         })
@@ -77,12 +77,19 @@ struct Error {
     expected: String,
 }
 
-fn run(path: &Path, objs: &[&Path], mut packages: Packages) -> Result<(), Error> {
+fn execute(path: &Path, objs: &[&Path], mut packages: Packages) -> Result<(), Error> {
     let run_stdout_txt = path.join("run.stdout.txt");
-    let stderr_txt = path.join("stderr.txt");
     let run_stdout_txt_exists = run_stdout_txt.exists();
+
+    let stderr_txt = path.join("stderr.txt");
     let stderr_txt_exists = stderr_txt.exists();
-    assert_ne!(run_stdout_txt_exists, stderr_txt_exists);
+
+    let check = path.join("check");
+    let check_exists = check.exists();
+    assert!(!check_exists || { let m = std::fs::metadata(&check).unwrap(); m.is_file() && m.len() == 0 });
+
+    fn i(b: bool) -> i32 { if b { 1 } else { 0 }}
+    assert_eq!(i(run_stdout_txt_exists) + i(stderr_txt_exists) + i(check_exists), 1);
 
     let packages = &mut packages;
     let main: PathBuf = [path, &source_file_name("main")].iter().collect();
@@ -127,18 +134,20 @@ fn run(path: &Path, objs: &[&Path], mut packages: Packages) -> Result<(), Error>
                     .arg(exe_path.to_str().unwrap()));
             }
 
-            let out = Command::new(exe_path.to_str().unwrap())
-                .output()
-                .unwrap();
+            if !check_exists {
+                let out = Command::new(exe_path.to_str().unwrap())
+                    .output()
+                    .unwrap();
 
-            let stdout_exp = fs::read_to_string(run_stdout_txt).unwrap();
-            let stdout_act = std::str::from_utf8(&out.stdout).unwrap();
-            if stdout_act != &stdout_exp {
-                return Err(Error {
-                    test_name: path.file_name().unwrap().to_string_lossy().into(),
-                    actual: stdout_act.into(),
-                    expected: stdout_exp,
-                });
+                let stdout_exp = fs::read_to_string(run_stdout_txt).unwrap();
+                let stdout_act = std::str::from_utf8(&out.stdout).unwrap();
+                if stdout_act != &stdout_exp {
+                    return Err(Error {
+                        test_name: path.file_name().unwrap().to_string_lossy().into(),
+                        actual: stdout_act.into(),
+                        expected: stdout_exp,
+                    });
+                }
             }
         }
         Err(err) => {
@@ -154,10 +163,6 @@ fn run(path: &Path, objs: &[&Path], mut packages: Packages) -> Result<(), Error>
             }
         }
     }
-
-
-
-
 
     Ok(())
 }

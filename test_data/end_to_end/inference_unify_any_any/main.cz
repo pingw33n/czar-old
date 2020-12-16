@@ -1,0 +1,30 @@
+fn f1() {
+    let mut a = [];
+    let mut b = [];
+    a[0] = b[0];
+    b[0] = 42;
+}
+
+fn f2() {
+    struct S<T> { T }
+
+    impl<T> S<T> {
+        fn new() -> Self {
+            let v: Self/* = std::mem::zeroed() FIXME*/;
+            v
+        }
+
+        fn get(self) -> T { self.0 }
+        fn set(self, _ v: T) -> Self { self.0 = v; self }
+    }
+
+    let a = S::new();
+    let b = S::new();
+    a.set(b.get());
+    b.set(42);
+}
+
+fn main() {
+    f1();
+    f2();
+}
