@@ -305,8 +305,10 @@ impl<'a> Codegen<'a> {
             NodeKind::FnCall => {
                 let fnc = ctx.package.hir.fn_call(node);
                 let callee_ty = ctx.package.check_data.typing(fnc.callee);
-                let callee = self.expr(fnc.callee, ctx).deref(self.bodyb);
-                let args = fnc.args.iter().map(|v| v.value).collect::<Vec<_>>();
+                let callee = self.expr(fnc.callee, ctx);
+                let args = fnc.args.iter()
+                    .map(|v| self.expr(v.value, ctx))
+                    .collect::<Vec<_>>();
                 self.fn_call(node, callee_ty, callee, &args, ctx)
             }
             NodeKind::Let => {
@@ -375,12 +377,17 @@ impl<'a> Codegen<'a> {
             }
             NodeKind::Op => {
                 if let Some(OpImpl { fn_def, callee_ty, lvalue_result }) = ctx.package.check_data.op_impl(node) {
-                    let callee = self.fn_def(fn_def, callee_ty, ctx.genv).deref(self.bodyb);
+                    let callee = self.fn_def(fn_def, callee_ty, ctx.genv);
                     let r = match ctx.package.hir.op(node) {
-                        &Op::Binary(BinaryOp { kind: _, left, right }) =>
-                            self.fn_call(node, callee_ty, callee, &[left, right], ctx),
-                        &Op::Unary(UnaryOp { kind: _, arg }) =>
-                            self.fn_call(node, callee_ty, callee, &[arg], ctx),
+                        &Op::Binary(BinaryOp { kind: _, left, right }) => {
+                            let left = self.expr(left, ctx);
+                            let right = self.expr(right, ctx);
+                            self.fn_call(node, callee_ty, callee, &[left, right], ctx)
+                        }
+                        &Op::Unary(UnaryOp { kind: _, arg }) => {
+                            let arg = self.expr(arg, ctx);
+                            self.fn_call(node, callee_ty, callee, &[arg], ctx)
+                        }
                     };
                     if lvalue_result {
                         r.ptr().indirect()
@@ -871,7 +878,7 @@ impl<'a> Codegen<'a> {
         self.bodyb.bitcast(ptr, item_ty.pointer())
     }
 
-    fn fn_call(&mut self, node: NodeId, callee_ty: TypeId, callee: ValueRef, args: &[NodeId], ctx: &mut ExprCtx) -> Value {
+    fn fn_call(&mut self, node: NodeId, callee_ty: TypeId, callee: Value, args: &[Value], ctx: &mut ExprCtx) -> Value {
         let callee_ty = self.normalized(callee_ty);
         let intrinsic = self.packages.as_lang_item(callee_ty)
             .and_then(|v| v.into_intrinsic().ok());
@@ -884,12 +891,9 @@ impl<'a> Codegen<'a> {
                 }
                 IntrinsicItem::Transmute => {
                     assert_eq!(args.len(), 1);
-                    let src_ty = ctx.package.check_data.typing(args[0]);
-                    let src_ty = self.type_(src_ty, ctx.genv);
-                    let src_size = self.llvm.abi_size_bytes(src_ty);
-
-                    let src = self.expr(args[0], ctx);
+                    let src = args[0];
                     let src = self.make_ptr(src, ctx);
+                    let src_size = self.llvm.abi_size_bytes(src.type_().inner());
 
                     let dst_ty = self.packages.underlying_type(callee_ty).data.as_fn().unwrap().result;
                     let dst_ty = self.type_(dst_ty, ctx.genv);
@@ -916,34 +920,30 @@ impl<'a> Codegen<'a> {
                 }
             }
         } else {
-            let mut args_ll = Vec::new();
-            for &arg in args {
-                args_ll.push(self.expr(arg, ctx));
-            }
+            let mut args = args.to_vec();
             if let Some(slice_ty) = ctx.package.check_data.method_call_self_coercion(node) {
                 // [T; N] -> [T]
-                let const_len_slice_ty = self.normalized(ctx.package.check_data.typing(args[0]));
-                let const_len_slice_ty = self.packages.underlying_type(const_len_slice_ty).data.as_slice().unwrap();
-                let item_ty = const_len_slice_ty.item;
-                let len = const_len_slice_ty.len.unwrap();
-                let item_ty = self.type_(item_ty, ctx.genv);
+                let arr = self.make_ptr(args[0], ctx);
+                let arr_ty = arr.type_().inner();
+                let item_ty = arr_ty.inner();
+                let len = arr_ty.array_len();
 
                 debug_assert!(matches!(self.packages.underlying_type(slice_ty).data, TypeData::Slice(_)));
                 let slice_ty = self.type_(slice_ty, ctx.genv);
 
                 let slice_var = self.alloca_new_ty(slice_ty, "slice_coercion", ctx).ptr();
-                let ptr = self.make_ptr(args_ll[0], ctx);
-                let ptr = self.bodyb.bitcast(ptr, item_ty.pointer());
+                let ptr = self.bodyb.bitcast(arr, item_ty.pointer());
                 self.bodyb.store(ptr, self.bodyb.struct_gep(slice_var, 0));
                 self.bodyb.store(self.llvm.size_type().const_int(len as u128), self.bodyb.struct_gep(slice_var, 1));
 
-                args_ll[0] = slice_var.indirect();
+                args[0] = slice_var.indirect();
             };
 
-            let mut args_ll: Vec<_> = args_ll.into_iter()
+            let mut args: Vec<_> = args.into_iter()
                 .map(|v| v.deref(self.bodyb))
                 .collect();
-            self.bodyb.call(callee, &mut args_ll).direct()
+            let callee = callee.deref(self.bodyb);
+            self.bodyb.call(callee, &mut args).direct()
         }
     }
 }

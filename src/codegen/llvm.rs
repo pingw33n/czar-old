@@ -105,6 +105,16 @@ impl TypeRef {
             LLVMPointerType(self.as_ptr(), 0)
         }).unwrap().into()
     }
+
+    pub fn inner(self) -> Self {
+        NonNull::new(unsafe {
+            LLVMGetElementType(self.0.as_ptr())
+        }).unwrap().into()
+    }
+
+    pub fn array_len(self) -> u32 {
+        unsafe { LLVMGetArrayLength(self.0.as_ptr()) }
+    }
 }
 
 impl From<NonNull<LLVMType>> for TypeRef {
