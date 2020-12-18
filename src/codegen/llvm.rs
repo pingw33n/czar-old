@@ -433,16 +433,15 @@ impl Llvm {
         v / 8
     }
 
-    pub fn intrinsic<T: Intrinsic>(&self) -> T {
-        let name = T::KIND.cname();
-        let func = match unsafe { NonNull::new(LLVMGetNamedFunction(self.m.as_ptr(), name.as_ptr())) } {
+    pub fn intrinsic(&self, kind: Intrinsic) -> ValueRef {
+        let name = kind.cname();
+        match unsafe { NonNull::new(LLVMGetNamedFunction(self.m.as_ptr(), name.as_ptr())) } {
             Some(v) => v.into(),
             None => {
-                let ty = T::func_type(self);
+                let ty = kind.type_(self);
                 self.add_function(name.to_str().unwrap(), ty)
             }
-        };
-        T::new(func)
+        }
     }
 }
 

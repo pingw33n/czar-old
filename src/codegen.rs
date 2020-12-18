@@ -691,7 +691,7 @@ impl<'a> Codegen<'a> {
         self.bodyb.cond_br(cond, panic_bb, succ_bb);
 
         self.bodyb.position_at_end(panic_bb);
-        self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb);
+        intrinsic::trap(&self.llvm, self.bodyb);
         self.bodyb.unreachable();
 
         self.bodyb.position_at_end(succ_bb);
@@ -867,8 +867,7 @@ impl<'a> Codegen<'a> {
             [ctx.package.discover_data.source_of(node, &ctx.package.hir)]
             .path.to_string_lossy();
         let line = ctx.package.hir.node_kind(node).span.start; // FIXME
-        let ptr = self.llvm.intrinsic::<intrinsic::GcDebugMalloc>()
-            .call(&self.llvm, self.bodyb, len_bytes, &file, line as u32);
+        let ptr = intrinsic::gc_debug_malloc(&self.llvm, self.bodyb, len_bytes, &file, line as u32);
         self.bodyb.bitcast(ptr, item_ty.pointer())
     }
 
@@ -880,7 +879,7 @@ impl<'a> Codegen<'a> {
             match intr {
                 IntrinsicItem::Trap => {
                     assert!(args.is_empty());
-                    self.llvm.intrinsic::<intrinsic::Trap>().call(self.bodyb);
+                    intrinsic::trap(&self.llvm, self.bodyb);
                     self.unit_literal()
                 }
                 IntrinsicItem::Transmute => {
@@ -905,17 +904,13 @@ impl<'a> Codegen<'a> {
                     let i8ptr = self.llvm.int_type(8).pointer();
                     let src_ptr = self.bodyb.bitcast(src, i8ptr);
                     let dst_ptr = self.bodyb.bitcast(dst.ptr(), i8ptr);
-                    match self.llvm.pointer_size_bits() {
-                        32 => self.llvm.intrinsic::<intrinsic::Memcpy32>().call(self.bodyb,
-                            dst_ptr, src_ptr,
-                            self.llvm.int_type(32).const_int(src_size as u128),
-                            self.llvm.int_type(1).const_int(0)),
-                        64 => self.llvm.intrinsic::<intrinsic::Memcpy64>().call(self.bodyb,
-                            dst_ptr, src_ptr,
-                            self.llvm.int_type(64).const_int(src_size as u128),
-                            self.llvm.int_type(1).const_int(0)),
+                    let len = match self.llvm.pointer_size_bits() {
+                        32 => self.llvm.int_type(32),
+                        64 => self.llvm.int_type(64),
                         _ => unreachable!(),
-                    }
+                    }.const_int(src_size as u128);
+                    intrinsic::memcpy(&self.llvm, self.bodyb, dst_ptr, src_ptr, len,
+                        self.llvm.int_type(1).const_int(0));
 
                     dst
                 }
