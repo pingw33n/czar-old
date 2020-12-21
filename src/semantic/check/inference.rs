@@ -41,14 +41,11 @@ impl PassImpl<'_> {
 
     pub fn can_unify_inference_var(&self, src: TypeId, dst: TypeId) -> bool {
         let src_var = self.underlying_type(src).data.as_inference_var();
-        let dst_var = self.underlying_type(dst).data.as_inference_var();
-        match (src_var, dst_var) {
-            (Some(InferenceVar::Any), _)
+        match src_var {
+            Some(InferenceVar::Any)
                 => true,
-            (Some(InferenceVar::Number(src_num)), None)
+            Some(InferenceVar::Number(src_num))
                 => Some(src_num) == self.as_any_number(dst),
-            (Some(InferenceVar::Number(src_num)), Some(InferenceVar::Number(dst_num)))
-                => src_num == dst_num,
             _ => false,
         }
     }
