@@ -23,7 +23,6 @@ struct ExprCtx<'a> {
     package: &'a Package,
     fn_: ValueRef,
     allocas: &'a mut NodeMap<Value>,
-    alloca_count: usize,
     genv: &'a GenericEnv,
 }
 
@@ -79,7 +78,7 @@ struct FnMonoRequest {
 pub struct Codegen<'a> {
     llvm: Llvm,
     bodyb: BuilderRef,
-    headerb: BuilderRef,
+    last_alloca: Option<ValueRef>,
     packages: &'a Packages,
     fn_decls: HashMap<TopLevelMonoId, FnDecl>,
     fn_mono_reqs: HashMap<TopLevelMonoId, FnMonoRequest>,
@@ -91,11 +90,10 @@ impl<'a> Codegen<'a> {
     pub fn new(packages: &'a Packages) -> Self {
         let mut llvm = Llvm::new();
         let bodyb = llvm.new_builder();
-        let headerb = llvm.new_builder();
         Self {
             llvm,
             bodyb,
-            headerb,
+            last_alloca: None,
             packages,
             fn_decls: HashMap::new(),
             fn_mono_reqs: HashMap::new(),
@@ -237,22 +235,20 @@ impl<'a> Codegen<'a> {
         let FnDef { params, body, .. } = package.hir.fn_def(fn_def.1);
         if let Some(body) = *body {
             let FnDecl { ll: fn_ } = self.fn_decls[&id];
-            self.llvm.append_new_bb(fn_, "entry");
-
             let allocas = &mut HashMap::new();
             let ctx = &mut ExprCtx {
                 package,
                 fn_,
                 allocas,
-                alloca_count: 0,
                 genv: &GenericEnv {
                     id: id.1,
                     vars: req.genv_vars,
                 },
             };
 
-            let body_bb = self.llvm.append_new_bb(fn_, "body");
-            self.bodyb.position_at_end(body_bb);
+            let entry_bb = self.llvm.append_new_bb(fn_, "entry");
+            self.bodyb.position_at_end(entry_bb);
+            self.last_alloca = None;
 
             for (i, &param) in params.iter().enumerate() {
                 let name = &package.hir.fn_def_param(param).name.value;
@@ -264,13 +260,6 @@ impl<'a> Codegen<'a> {
             let ret = self.expr(body, ctx);
             let ret = ret.deref(self.bodyb);
             self.bodyb.ret(ret);
-
-            if ctx.alloca_count == 0 {
-                fn_.entry_bb().delete();
-            } else {
-                self.headerb.position_at_end(fn_.entry_bb());
-                self.headerb.br(body_bb);
-            }
         }
     }
 
@@ -526,7 +515,6 @@ impl<'a> Codegen<'a> {
                         package,
                         fn_: ctx.fn_,
                         allocas: ctx.allocas,
-                        alloca_count: ctx.alloca_count,
                         genv: ctx.genv,
                     })
                 }
@@ -861,9 +849,16 @@ impl<'a> Codegen<'a> {
     }
 
     fn alloca_new_ty(&mut self, ty: TypeRef, name: &str, ctx: &mut ExprCtx) -> Value {
-        ctx.alloca_count += 1;
-        self.headerb.position_at_end(ctx.fn_.entry_bb());
-        self.headerb.alloca(name, ty).indirect()
+        let cur_bb = self.bodyb.cur_bb().unwrap();
+        if let Some(last_alloca) = self.last_alloca {
+            self.bodyb.position_after(last_alloca);
+        } else {
+            self.bodyb.position_at_start(ctx.fn_.entry_bb());
+        }
+        let r = self.bodyb.alloca(name, ty);
+        self.last_alloca = Some(r);
+        self.bodyb.position_at_end(cur_bb);
+        r.indirect()
     }
 
     /// Returns `item_ty*`
