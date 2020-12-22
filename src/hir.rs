@@ -922,12 +922,12 @@ pub struct IfExpr {
 #[derive(Debug)]
 pub struct While {
     pub cond: NodeId,
-    pub block: NodeId,
+    pub body: NodeId,
 }
 
 #[derive(Debug)]
 pub struct Loop {
-    pub block: NodeId,
+    pub body: NodeId,
 }
 
 #[derive(Debug)]

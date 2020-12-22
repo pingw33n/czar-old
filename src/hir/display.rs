@@ -290,9 +290,9 @@ impl Display<'_> {
                 }
             }
             NodeKind::Loop => {
-                let Loop { block } = self.hir.loop_(node);
+                let Loop { body } = self.hir.loop_(node);
                 p.print("loop ")?;
-                self.node(*block, None, p)?;
+                self.node(*body, None, p)?;
                 p.println("")?;
             }
             NodeKind::Module => {
@@ -578,11 +578,11 @@ impl Display<'_> {
                 p.println(";")?;
             }
             NodeKind::While => {
-                let While { cond, block } = self.hir.while_(node);
+                let While { cond, body } = self.hir.while_(node);
                 p.print("while (")?;
                 self.node(*cond, Some(BlockStart::Expr), p)?;
                 p.print(") ")?;
-                self.node(*block, None, p)?;
+                self.node(*body, None, p)?;
                 p.println("")?;
             }
         }

@@ -1116,18 +1116,18 @@ impl<'a> ParserImpl<'a> {
                     return self.error(self.hir.node_kind(cond).span,
                         "parentheses are required here".into());
                 }
-                let block = self.block()?;
-                self.hir.insert_while(tok.span.extended(self.hir.node_kind(block).span.end).spanned(While {
+                let body = self.block()?;
+                self.hir.insert_while(tok.span.extended(self.hir.node_kind(body).span.end).spanned(While {
                     cond,
-                    block,
+                    body,
                 }))
             }
             // `loop` expression
             Token::Keyword(Keyword::Loop) => {
                 self.lex.consume();
-                let block = self.block()?;
-                self.hir.insert_loop(tok.span.extended(self.hir.node_kind(block).span.end).spanned(Loop {
-                    block,
+                let body = self.block()?;
+                self.hir.insert_loop(tok.span.extended(self.hir.node_kind(body).span.end).spanned(Loop {
+                    body,
                 }))
             }
             // Slice literal:

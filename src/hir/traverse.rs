@@ -24,7 +24,7 @@ pub enum NodeLink {
     FnDefParamType,
     IfExpr(IfExprLink),
     Impl(ImplLink),
-    LoopBlock,
+    LoopBody,
     ModuleItem,
     Op(OpLink),
     Path(PathLink),
@@ -126,7 +126,7 @@ pub enum LetLink {
 #[derive(Clone, Copy, Debug)]
 pub enum WhileLink {
     Cond,
-    Block,
+    Body,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -276,11 +276,11 @@ impl<T: HirVisitor> Traverser<'_, T> {
             },
             NodeKind::Literal => {},
             NodeKind::Loop => {
-                let &Loop { block, .. } = self.hir.loop_(node);
-                self.traverse0(block, NodeLink::LoopBlock);
+                let &Loop { body } = self.hir.loop_(node);
+                self.traverse0(body, NodeLink::LoopBody);
             },
             NodeKind::Module => {
-                let Module { items, .. } = self.hir.module(node);
+                let Module { source_id: _, name: _, items } = self.hir.module(node);
                 for &item in items {
                     self.traverse0(item, NodeLink::ModuleItem);
                 }
@@ -397,9 +397,9 @@ impl<T: HirVisitor> Traverser<'_, T> {
                 self.traverse0(*path, NodeLink::UsePath);
             },
             NodeKind::While => {
-                let &While { cond, block, .. } = self.hir.while_(node);
+                let &While { cond, body } = self.hir.while_(node);
                 self.traverse0(cond, NodeLink::While(WhileLink::Cond));
-                self.traverse0(block, NodeLink::While(WhileLink::Block));
+                self.traverse0(body, NodeLink::While(WhileLink::Body));
             },
         }
         self.after_node(node, kind, link_kind);

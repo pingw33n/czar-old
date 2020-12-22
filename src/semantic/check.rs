@@ -1038,7 +1038,7 @@ fn reso_ctx(link: NodeLink) -> Option<ResoCtx> {
         | Fn(FnLink::Body)
         | IfExpr(_)
         | Let(LetLink::Init)
-        | LoopBlock
+        | LoopBody
         | Op(_)
         | Range(_)
         | SliceLiteral(_)

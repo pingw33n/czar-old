@@ -635,20 +635,20 @@ impl<'a> Codegen<'a> {
             }
             NodeKind::StructLiteralField => unreachable!(),
             NodeKind::While => {
-                let &While { cond, block } = ctx.package.hir.while_(node);
+                let &While { cond, body } = ctx.package.hir.while_(node);
 
                 let cond_bb = self.llvm.append_new_bb(ctx.fn_, "__while_cond");
-                let block_bb = self.llvm.append_new_bb(ctx.fn_, "__while_block");
+                let body_bb = self.llvm.append_new_bb(ctx.fn_, "__while_body");
                 let succ_bb = self.llvm.append_new_bb(ctx.fn_, "__while_succ");
 
                 self.bodyb.br(cond_bb);
 
                 self.bodyb.position_at_end(cond_bb);
                 let cond = self.expr(cond, ctx).deref(self.bodyb);
-                self.bodyb.cond_br(cond, block_bb, succ_bb);
+                self.bodyb.cond_br(cond, body_bb, succ_bb);
 
-                self.bodyb.position_at_end(block_bb);
-                self.expr(block, ctx);
+                self.bodyb.position_at_end(body_bb);
+                self.expr(body, ctx);
                 self.bodyb.br(cond_bb);
 
                 self.bodyb.position_at_end(succ_bb);
