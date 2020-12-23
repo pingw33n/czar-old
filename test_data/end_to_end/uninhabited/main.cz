@@ -1,14 +1,16 @@
+unsafe fn dead_code();
+
 fn generic_arg() {
     fn f<T>(_ v: T) {
     }
     f(panic("generic_arg"));
-    prints("dead code");
+    dead_code();
 }
 
 fn panic_in_if_condition() {
     if panic("panic_in_if_condition") {
     }
-    prints("dead code");
+    dead_code();
 }
 
 fn panic_in_if_true() {
@@ -21,11 +23,11 @@ fn panic_in_if_true() {
     }
 
     fn f2(_ v: i32) {
-        prints("dead code");
+        prints("unreachable");
     }
 
     f2(f1());
-    prints("dead code");
+    prints("unreachable");
 }
 
 fn panic_in_if_false() {
@@ -38,11 +40,11 @@ fn panic_in_if_false() {
     }
 
     fn f2(_ v: i32) {
-        prints("dead code");
+        prints("unreachable");
     }
 
     f2(f1());
-    prints("dead code");
+    prints("unreachable");
 }
 
 fn panic_in_if_true_false() -> Never {
@@ -51,31 +53,33 @@ fn panic_in_if_true_false() -> Never {
     } else {
         panic("nope")
     };
-    prints("dead code");
+    dead_code();
     r
 }
 
 fn panic_in_while_cond() {
     while panic("panic_in_while_cond") {}
-    prints("dead code");
+    dead_code();
 }
 
 fn panic_in_while_body() {
     while true {
         panic("panic_in_while_body");
     }
-    prints("dead code");
+    prints("unreachable");
 }
 
 fn never_param() {
     fn f(_ v: Never) {
-        prints("dead code");
+        prints("unreachable");
     }
     f(panic("never_param"));
-    prints("dead code");
+    dead_code();
 }
 
 module generic2 {
+    use super::dead_code;
+
     struct S<T, U> {T, U}
     fn id<T, U>(_ v: S<T, U>) -> S<T, U> {
         v
@@ -83,12 +87,12 @@ module generic2 {
 
     fn f1() {
         print_i64(id(S { 42, panic("generic2::f1") }).0);
-        prints("dead code");
+        dead_code();
     }
 
     fn f2() {
         prints(id(S { 42, panic("generic2::f2") }).1);
-        prints("dead code");
+        dead_code();
     }
 }
 

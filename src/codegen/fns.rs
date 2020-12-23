@@ -55,6 +55,7 @@ impl Codegen<'_> {
         if let Some(body) = *body {
             let fn_ = self.fn_decls[&id];
             let allocas = &mut HashMap::new();
+            let loops = &mut HashMap::new();
             let ctx = &mut ExprCtx {
                 package,
                 fn_,
@@ -63,6 +64,7 @@ impl Codegen<'_> {
                     id: id.1,
                     vars: req.genv_vars,
                 },
+                loops,
             };
 
             let entry_bb = self.llvm.append_new_bb(fn_, "entry");

@@ -1,5 +1,6 @@
 mod fns;
 mod llvm;
+mod loops;
 mod types;
 
 use std::collections::{hash_map, HashMap};
@@ -11,6 +12,7 @@ use crate::syntax::*;
 
 use fns::*;
 use llvm::*;
+use loops::Loop;
 use types::{*, GenericEnv};
 
 pub use llvm::OutputFormat;
@@ -20,6 +22,7 @@ pub struct ExprCtx<'a> {
     fn_: ValueRef,
     allocas: &'a mut NodeMap<Value>,
     genv: &'a GenericEnv,
+    loops: &'a mut HashMap<NodeId, Loop>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -130,10 +133,7 @@ impl<'a> Codegen<'a> {
                 r.unwrap_or_else(|| self.unit_literal().into())
             }
             NodeKind::CtlFlowAbort => {
-                let CtlFlowAbort { kind, label, value } = ctx.package.hir.ctl_flow_abort(node);
-                if label.is_some() {
-                    todo!();
-                }
+                let CtlFlowAbort { kind, label: _, value } = ctx.package.hir.ctl_flow_abort(node);
 
                 let value = if let &Some(v) = value {
                     self.expr(v, ctx)?
@@ -145,8 +145,17 @@ impl<'a> Codegen<'a> {
                         let v = value.deref(self.bodyb);
                         self.bodyb.ret(v);
                     }
-                    CtlFlowAbortKind::Break => todo!(),
-                    CtlFlowAbortKind::Continue => todo!(),
+                    CtlFlowAbortKind::Break | CtlFlowAbortKind::Continue => {
+                        let (pkg, target) = ctx.package.check_data.target_of(node);
+                        assert_eq!(pkg, ctx.package.id);
+                        let loop_ = ctx.loops[&target];
+                        let bb = match *kind {
+                            CtlFlowAbortKind::Break => loop_.break_bb,
+                            CtlFlowAbortKind::Continue => loop_.continue_bb,
+                            CtlFlowAbortKind::Return => unreachable!(),
+                        };
+                        self.bodyb.br(bb);
+                    }
                 }
                 return Err(());
             }
@@ -405,6 +414,7 @@ impl<'a> Codegen<'a> {
                         fn_: ctx.fn_,
                         allocas: ctx.allocas,
                         genv: ctx.genv,
+                        loops: ctx.loops,
                     })?
                 }
             }
@@ -516,28 +526,7 @@ impl<'a> Codegen<'a> {
                 }
             }
             NodeKind::StructLiteralField => unreachable!(),
-            NodeKind::While => {
-                let &While { cond, body } = ctx.package.hir.while_(node);
-
-                let cond_bb = self.llvm.append_new_bb(ctx.fn_, "__while_cond");
-                self.bodyb.br(cond_bb);
-
-                self.bodyb.position_at_end(cond_bb);
-                let cond = self.expr(cond, ctx)?.deref(self.bodyb);
-
-                let wbody_bb = self.llvm.append_new_bb(ctx.fn_, "__while_body");
-                let succ_bb = self.llvm.append_new_bb(ctx.fn_, "__while_succ");
-                self.bodyb.cond_br(cond, wbody_bb, succ_bb);
-
-                self.bodyb.position_at_end(wbody_bb);
-                if self.expr(body, ctx).is_ok() {
-                    self.bodyb.br(cond_bb);
-                }
-
-                self.bodyb.position_at_end(succ_bb);
-
-                self.unit_literal().into()
-            }
+            NodeKind::While => self.while_(node, ctx)?,
             // FnDef here is only reachable directly.
             // Indirect case is handled within the Path case.
             | NodeKind::FnDef

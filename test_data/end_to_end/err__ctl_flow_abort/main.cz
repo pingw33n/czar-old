@@ -1,0 +1,13 @@
+fn main() {
+    break;
+    continue;
+    return 42;
+    break 42;
+    while true {
+        break {};
+    }
+    while (break) {}
+    while (break 42) {}
+    while (break {}) {}
+    while continue {}
+}

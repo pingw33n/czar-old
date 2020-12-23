@@ -303,12 +303,13 @@ impl DiscoverData {
         }
     }
 
-    pub fn find_closest_parent(&self, kind: NodeKind, mut node: NodeId, hir: &Hir) -> Option<NodeId> {
+    pub fn find_closest_parent(&self, node: NodeId, f: impl Fn(NodeId, NodeLink) -> bool) -> Option<(NodeId, NodeLink)> {
+        let mut n = self.try_parent_of(node)?;
         loop {
-            if hir.node_kind(node).value == kind {
-                break Some(node);
+            if f(n.0, n.1) {
+                break Some(n);
             }
-            node = self.try_parent_of(node)?.0;
+            n = self.try_parent_of(n.0)?;
         }
     }
 

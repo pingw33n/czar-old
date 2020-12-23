@@ -621,23 +621,56 @@ impl PassImpl<'_> {
             NodeKind::CtlFlowAbort => {
                 let CtlFlowAbort { kind, label, value } = self.hir.ctl_flow_abort(ctx.node);
 
-                if *kind != CtlFlowAbortKind::Return {
-                    todo!();
-                }
+                let kind = *kind;
+
                 if label.is_some() {
                     todo!();
                 }
 
-                let fn_def = self.discover_data.find_closest_parent(NodeKind::FnDef, ctx.node, self.hir).unwrap();
-                let expected_ty = if let Some(ret_ty) = self.hir.fn_def(fn_def).ret_ty {
-                    self.typing(ret_ty)?
-                } else {
-                    self.std().unit_type()
-                };
                 let actual_ty = if let &Some(v) = value {
                     self.typing(v)?
                 } else {
                     self.std().unit_type()
+                };
+
+                let expected_ty = match kind {
+                    CtlFlowAbortKind::Break | CtlFlowAbortKind::Continue => {
+                        let kind_name = match kind {
+                            CtlFlowAbortKind::Break => "break",
+                            CtlFlowAbortKind::Continue => "continue",
+                            CtlFlowAbortKind::Return => unreachable!(),
+                        };
+                        let target = self.discover_data.find_closest_parent(ctx.node,
+                            |n, _| matches!(self.hir.node_kind(n).value, NodeKind::While));
+                        if let Some((target, link)) = target {
+                            if matches!(link, NodeLink::While(WhileLink::Cond)) && label.is_none() {
+                                self.error(ctx.node, format!(
+                                    "`{}` without label in the condition of a `while` loop",
+                                    kind_name));
+                                actual_ty
+                            } else if value.is_some() {
+                                assert_eq!(kind, CtlFlowAbortKind::Break);
+                                self.error(ctx.node, "`break` with value from a `while` loop".into());
+                                actual_ty
+                            } else {
+                                self.check_data.insert_path_to_target(ctx.node, (self.package_id, target));
+                                self.std().unit_type()
+                            }
+                        } else {
+                            self.error(ctx.node, format!(
+                                "`{}` outside of a loop",
+                                kind_name));
+                            actual_ty
+                        }
+                    }
+                    CtlFlowAbortKind::Return => {
+                        let fn_def = self.discover_data.find_closest_parent(ctx.node,
+                            |n, _| self.hir.node_kind(n).value == NodeKind::FnDef)
+                            .unwrap().0;
+                        let fn_ty = self.typing(fn_def)?;
+                        let ret_ty = self.underlying_type(fn_ty).data.as_fn().unwrap().result;
+                        ret_ty
+                    }
                 };
 
                 self.unify(actual_ty, expected_ty);
@@ -648,7 +681,6 @@ impl PassImpl<'_> {
                         "mismatching types: expected `{}`, found `{}`",
                         self.display_type(expected_ty),
                         self.display_type(actual_ty)));
-                    return Err(());
                 }
 
                 self.new_inference_var(ctx.node, InferenceVar::Any { inhabited: false })

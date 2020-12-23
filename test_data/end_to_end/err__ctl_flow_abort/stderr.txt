@@ -1,0 +1,44 @@
+error: `break` outside of a loop
+  --> main.cz:2:5
+2 |     break;
+        ~~~~~
+
+error: `continue` outside of a loop
+  --> main.cz:3:5
+3 |     continue;
+        ~~~~~~~~
+
+error: mismatching types: expected `{}`, found `<integer>`
+  --> main.cz:4:12
+4 |     return 42;
+               ~~
+
+error: `break` outside of a loop
+  --> main.cz:5:5
+5 |     break 42;
+        ~~~~~~~~
+
+error: `break` with value from a `while` loop
+  --> main.cz:7:9
+7 |         break {};
+            ~~~~~~~~
+
+error: `break` without label in the condition of a `while` loop
+  --> main.cz:9:12
+9 |     while (break) {}
+               ~~~~~
+
+error: `break` without label in the condition of a `while` loop
+  --> main.cz:10:12
+10 |     while (break 42) {}
+                ~~~~~~~~
+
+error: `break` without label in the condition of a `while` loop
+  --> main.cz:11:12
+11 |     while (break {}) {}
+                ~~~~~~~~
+
+error: `continue` without label in the condition of a `while` loop
+  --> main.cz:12:11
+12 |     while continue {}
+               ~~~~~~~~
