@@ -152,9 +152,11 @@ fn main() {
     let GREEN   = Color::new(r: 0.0, g: 1.0, b: 0.0);
     let BLUE    = Color::new(r: 0.0, g: 0.0, b: 1.0);
 
-    let SPHERE1 = Sphere::new(center: Vec3::new(x: -1.0, y: 0.0, z: 3.0), radius: 0.3, color: RED);
-    let SPHERE2 = Sphere::new(center: Vec3::new(x:  0.0, y: 0.0, z: 3.0), radius: 0.8, color: GREEN);
-    let SPHERE3 = Sphere::new(center: Vec3::new(x:  1.0, y: 0.0, z: 3.0), radius: 0.3, color: BLUE);
+    let SPHERES = [
+        Sphere::new(center: Vec3::new(x: -1.0, y: 0.0, z: 3.0), radius: 0.3, color: RED),
+        Sphere::new(center: Vec3::new(x:  0.0, y: 0.0, z: 3.0), radius: 0.8, color: GREEN),
+        Sphere::new(center: Vec3::new(x:  1.0, y: 0.0, z: 3.0), radius: 0.3, color: BLUE),
+    ];
 
     let W = 20.0_f32 * 4.0;
     let H = 10.0_f32 * 4.0;
@@ -170,21 +172,14 @@ fn main() {
 
             let hit: {obj: Sphere, tval: f32};
             let hit_found = false;
-
-            let ret = SPHERE1.intersect(ray: ray);
-            if ret.hit {
-                hit = {obj: SPHERE1, tval: ret.tval};
-                hit_found = true;
-            }
-            let ret = SPHERE2.intersect(ray: ray);
-            if ret.hit {
-                hit = {obj: SPHERE2, tval: ret.tval};
-                hit_found = true;
-            }
-            let ret = SPHERE3.intersect(ray: ray);
-            if ret.hit {
-                hit = {obj: SPHERE3, tval: ret.tval};
-                hit_found = true;
+            let i = 0;
+            while i < SPHERES.len() {
+                let ret = SPHERES[i].intersect(ray: ray);
+                if ret.hit {
+                    hit = {obj: SPHERES[i], tval: ret.tval};
+                    hit_found = true;
+                }
+                i = i + 1;
             }
 
             let c = if hit_found {
