@@ -25,7 +25,6 @@ pub enum NumberKind {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum PrimitiveType {
-    Bool,
     F32,
     F64,
     I8,
@@ -40,7 +39,9 @@ pub enum PrimitiveType {
     U128,
     ISize,
     USize,
+    Bool,
     Char,
+    Never,
     Ptr,
 }
 
@@ -70,6 +71,7 @@ impl PrimitiveType {
 
             | Bool
             | Char
+            | Never
             | Ptr
             => return None,
         })
@@ -102,8 +104,9 @@ pub enum RangeItem {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum IntrinsicItem {
+    Panic,
     Transmute,
-    Trap,
+    Unreachable,
 }
 
 pub struct Lang {
@@ -138,7 +141,7 @@ impl PassImpl<'_> {
     pub fn make_lang(&mut self) -> Result<()> {
         assert!(self.package_id.is_std());
 
-        let unit_type = self.check_lang_type(&["Unit"]).expect("error checking Unit type");
+        let unit_type = self.check_lang_type(&["Unit"], None).expect("error checking Unit type");
 
         assert!(self.check_data.lang.replace(Box::new(Lang {
             item_to_type: HashMap::new(),
@@ -151,35 +154,40 @@ impl PassImpl<'_> {
             use LangItem as L;
             use PrimitiveType::*;
             use RangeItem as R;
-            for &(lang_item, path) in &[
-                (L::Intrinsic(I::Transmute), &["intrinsic", "transmute"][..]),
-                (L::Intrinsic(I::Trap), &["intrinsic", "trap"][..]),
-                (L::Primitive(Bool), &["bool"][..]),
-                (L::Primitive(Char), &["char"][..]),
-                (L::Primitive(F32), &["f32"][..]),
-                (L::Primitive(F64), &["f64"][..]),
-                (L::Primitive(I8), &["i8"][..]),
-                (L::Primitive(U8), &["u8"][..]),
-                (L::Primitive(I16), &["i16"][..]),
-                (L::Primitive(U16), &["u16"][..]),
-                (L::Primitive(I32), &["i32"][..]),
-                (L::Primitive(U32), &["u32"][..]),
-                (L::Primitive(I64), &["i64"][..]),
-                (L::Primitive(U64), &["u64"][..]),
-                (L::Primitive(I128), &["i128"][..]),
-                (L::Primitive(U128), &["u128"][..]),
-                (L::Primitive(ISize), &["isize"][..]),
-                (L::Primitive(USize), &["usize"][..]),
-                (L::Primitive(Ptr), &["ptr", "Ptr"][..]),
-                (L::Range(R::Range), &["ops", "Range"][..]),
-                (L::Range(R::RangeFrom), &["ops", "RangeFrom"][..]),
-                (L::Range(R::RangeFull), &["ops", "RangeFull"][..]),
-                (L::Range(R::RangeInclusive), &["ops", "RangeInclusive"][..]),
-                (L::Range(R::RangeTo), &["ops", "RangeTo"][..]),
-                (L::Range(R::RangeToInclusive), &["ops", "RangeToInclusive"][..]),
-                (L::String, &["string", "String"][..]),
+            for &(lang_item, path, fn_sign) in &[
+                (L::Intrinsic(I::Panic), &["panic", "panic"][..],
+                    Some(&FnParamsSignature::from_idents(&["_"]))),
+                (L::Intrinsic(I::Transmute), &["intrinsic", "transmute"][..],
+                    Some(&FnParamsSignature::from_idents(&["_"]))),
+                (L::Intrinsic(I::Unreachable), &["intrinsic", "unreachable"][..],
+                    Some(&FnParamsSignature::empty())),
+                (L::Primitive(Bool), &["bool"][..], None),
+                (L::Primitive(Char), &["char"][..], None),
+                (L::Primitive(F32), &["f32"][..], None),
+                (L::Primitive(F64), &["f64"][..], None),
+                (L::Primitive(I8), &["i8"][..], None),
+                (L::Primitive(U8), &["u8"][..], None),
+                (L::Primitive(I16), &["i16"][..], None),
+                (L::Primitive(U16), &["u16"][..], None),
+                (L::Primitive(I32), &["i32"][..], None),
+                (L::Primitive(U32), &["u32"][..], None),
+                (L::Primitive(I64), &["i64"][..], None),
+                (L::Primitive(U64), &["u64"][..], None),
+                (L::Primitive(I128), &["i128"][..], None),
+                (L::Primitive(U128), &["u128"][..], None),
+                (L::Primitive(ISize), &["isize"][..], None),
+                (L::Primitive(USize), &["usize"][..], None),
+                (L::Primitive(Never), &["Never"][..], None),
+                (L::Primitive(Ptr), &["ptr", "Ptr"][..], None),
+                (L::Range(R::Range), &["ops", "Range"][..], None),
+                (L::Range(R::RangeFrom), &["ops", "RangeFrom"][..], None),
+                (L::Range(R::RangeFull), &["ops", "RangeFull"][..], None),
+                (L::Range(R::RangeInclusive), &["ops", "RangeInclusive"][..], None),
+                (L::Range(R::RangeTo), &["ops", "RangeTo"][..], None),
+                (L::Range(R::RangeToInclusive), &["ops", "RangeToInclusive"][..], None),
+                (L::String, &["string", "String"][..], None),
             ] {
-                let ty = self.check_lang_type(path)?;
+                let ty = self.check_lang_type(path, fn_sign)?;
                 let (pkg, node) = self.underlying_type((PackageId::std(), ty)).data.name().unwrap();
 
                 let lang = self.check_data.lang.as_mut().unwrap();
@@ -196,13 +204,19 @@ impl PassImpl<'_> {
         self.check_data(PackageId::std()).lang()
     }
 
-    fn check_lang_type(&mut self, path: &[&str]) -> Result<LocalTypeId> {
+    fn check_lang_type(&mut self, path: &[&str], fn_sign: Option<&FnParamsSignature>) -> Result<LocalTypeId> {
         let (_, node) = self.resolver()
             .resolve_in_package(path)
             .unwrap()
             .nodes()
+            .filter(|&(_, n)| {
+                assert!(n.0.is_std());
+                self.discover_data.try_fn_def_signature(n.1) == fn_sign
+            })
             .exactly_one()
-            .ok_or(())?;
+            .ok_or(())
+            .map_err(|_| self.error(self.hir.root, format!(
+                "couldn't resolve lang type: {:?}", path)))?;
         assert!(node.0.is_std());
         let ty = self.ensure_typing(node.1)?;
         let ty = if let TypeData::Ctor(TypeCtor { ty: _, params }) = &self.type_(ty).data {

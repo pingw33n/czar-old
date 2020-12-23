@@ -16,6 +16,10 @@ pub module prelude {
     pub use ::f32;
     pub use ::f64;
     pub use ::string::String;
+    pub use ::Never;
+
+    pub use ::panic::panic;
+    pub use ::unreachable;
 
     // FIXME these are temporary, for testing
     pub unsafe fn print_bool(_ v: bool);
@@ -39,6 +43,7 @@ pub module prelude {
     pub unsafe fn print_sep();
     pub unsafe fn prints(_ s: String);
     pub unsafe fn f32_to_usize(_ v: f32) -> usize;
+    pub unsafe fn test_run_id() -> u32;
 }
 
 pub struct f32 {{}}
@@ -102,7 +107,7 @@ pub module ptr {
 }
 
 module intrinsic {
-    unsafe fn trap();
+    unsafe fn unreachable() -> Never;
 
     unsafe fn transmute<T, U>(_ v: T) -> U;
 }
@@ -130,20 +135,20 @@ pub module slice {
 
         fn __index_usize(self, _ i: usize) -> ::ptr::Ptr<T> {
             if i >= self.len() {
-                ::intrinsic::trap();
+                ::panic::index_out_of_bounds();
             }
             self.ptr() + ::intrinsic::transmute<usize, isize>(i) /*FIXME*/
         }
 
         fn __index_range(self, _ r: ::ops::Range<usize>) -> Self {
             if r.start > r.end {
-                ::intrinsic::trap();
+                ::panic::index_out_of_bounds();
             }
             if r.start > self.len() {
-                ::intrinsic::trap();
+                ::panic::index_out_of_bounds();
             }
             if r.end > self.len() {
-                ::intrinsic::trap();
+                ::panic::index_out_of_bounds();
             }
             let ptr = self.ptr() + ::intrinsic::transmute<usize, isize>(r.start) /*FIXME*/;
             let len = r.end - r.start;
@@ -153,7 +158,7 @@ pub module slice {
 
         fn __index_range_from(self, _ r: ::ops::RangeFrom<usize>) -> Self {
             if r.start > self.len() {
-                ::intrinsic::trap();
+                ::panic::index_out_of_bounds();
             }
             self.__index_range(r.start..self.len())
         }
@@ -168,18 +173,43 @@ pub module slice {
 
         fn __index_range_to(self, _ r: ::ops::RangeTo<usize>) -> Self {
             if r.end > self.len() {
-                ::intrinsic::trap();
+                ::panic::index_out_of_bounds();
             }
             self.__index_range(0..r.end)
         }
 
         fn __index_range_to_inclusive(self, _ r: ::ops::RangeToInclusive<usize>) -> Self {
             if r.end > self.len() {
-                ::intrinsic::trap();
+                ::panic::index_out_of_bounds();
             }
             self.__index_range(0..r.end + 1)
         }
     }
 }
 
+module panic {
+    fn panic(_ msg: String) -> Never {
+        unsafe fn abort();
+
+        prints(msg); println();
+        abort();
+
+        ::intrinsic::unreachable()
+    }
+
+    fn index_out_of_bounds() -> Never {
+        panic("index out of bounds")
+    }
+}
+
+fn unreachable() -> Never {
+    ::panic::panic("reached unreachable code")
+}
+
+fn unreachable(_ msg: String) -> Never {
+    ::panic::panic(msg)
+}
+
 type Unit = {};
+
+pub struct Never {{}}

@@ -78,18 +78,22 @@ struct Error {
 }
 
 fn execute(path: &Path, objs: &[&Path], mut packages: Packages) -> Result<(), Error> {
-    let run_stdout_txt = path.join("run.stdout.txt");
-    let run_stdout_txt_exists = run_stdout_txt.exists();
+    let run_stdout_re = regex::Regex::new(r#"^run\.((?P<id>.+)\.)txt$"#).unwrap();
+    let mut run_stdouts = Vec::new();
+    for p in path.read_dir().unwrap() {
+        let p = p.unwrap();
+        if let Some(cap) = run_stdout_re.captures(&p.file_name().to_string_lossy()) {
+            let id = cap.name("id").unwrap().as_str().to_owned();
+            run_stdouts.push((id, p.path()));
+        }
+
+    }
 
     let stderr_txt = path.join("stderr.txt");
     let stderr_txt_exists = stderr_txt.exists();
 
-    let check = path.join("check");
-    let check_exists = check.exists();
-    assert!(!check_exists || { let m = std::fs::metadata(&check).unwrap(); m.is_file() && m.len() == 0 });
-
     fn i(b: bool) -> i32 { if b { 1 } else { 0 }}
-    assert_eq!(i(run_stdout_txt_exists) + i(stderr_txt_exists) + i(check_exists), 1);
+    assert_eq!(i(!run_stdouts.is_empty()) + i(stderr_txt_exists), 1);
 
     let packages = &mut packages;
     let main: PathBuf = [path, &source_file_name("main")].iter().collect();
@@ -134,16 +138,22 @@ fn execute(path: &Path, objs: &[&Path], mut packages: Packages) -> Result<(), Er
                     .arg(exe_path.to_str().unwrap()));
             }
 
-            if !check_exists {
+            for (id, path) in run_stdouts {
                 let out = Command::new(exe_path.to_str().unwrap())
+                    .args(if id.is_empty() { vec![] } else { vec![&id] })
                     .output()
                     .unwrap();
 
-                let stdout_exp = fs::read_to_string(run_stdout_txt).unwrap();
+                let stdout_exp = fs::read_to_string(&path).unwrap();
                 let stdout_act = std::str::from_utf8(&out.stdout).unwrap();
                 if stdout_act != &stdout_exp {
+                    let mut test_name = path.file_name().unwrap().to_string_lossy().to_string();
+                    if !id.is_empty() {
+                        test_name.push('#');
+                        test_name.push_str(&id);
+                    }
                     return Err(Error {
-                        test_name: path.file_name().unwrap().to_string_lossy().into(),
+                        test_name,
                         actual: stdout_act.into(),
                         expected: stdout_exp,
                     });
@@ -151,7 +161,7 @@ fn execute(path: &Path, objs: &[&Path], mut packages: Packages) -> Result<(), Er
             }
         }
         Err(err) => {
-            assert!(!run_stdout_txt_exists, "{}", err);
+            assert!(run_stdouts.is_empty(), "{}", err);
             let stderr_exp = fs::read_to_string(stderr_txt).unwrap();
             let stderr_act = err.to_string();
             if stderr_act != stderr_exp {

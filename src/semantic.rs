@@ -34,8 +34,8 @@ impl FnParamsSignature {
         }
     }
 
-    pub fn from_def(node: NodeId, hir: &Hir) -> Self {
-        let params = &hir.fn_def(node).params;
+    pub fn from_def(fn_def: NodeId /*FnDef*/, hir: &Hir) -> Self {
+        let params = &hir.fn_def(fn_def).params;
         let it = params.iter()
             .map(|&param| hir.fn_def_param(param).label.value.as_ref()
                 .map(|v| v.clone())
@@ -43,8 +43,8 @@ impl FnParamsSignature {
         Self::from_iter(it)
     }
 
-    pub fn from_call(node: NodeId, hir: &Hir) -> FnParamsSignature {
-        let args = &hir.fn_call(node).args;
+    pub fn from_call(fn_call: NodeId /*FnCall*/, hir: &Hir) -> FnParamsSignature {
+        let args = &hir.fn_call(fn_call).args;
         let it = args.iter()
             .map(|arg| arg.name.as_ref()
                 .map(|v| v.value.clone())

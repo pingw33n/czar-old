@@ -73,7 +73,9 @@ impl PassImpl<'_> {
                 let var = match var {
                     Var::Inference(var) => {
                         match var {
-                            InferenceVar::Any => format!("?{}", ty.id.1.0),
+                            InferenceVar::Any { inhabited } => format!("?{}{}",
+                                if inhabited { "" } else { "Never'" },
+                                ty.id.1.0),
                             InferenceVar::Number(nk) => format!("?{:?}'{}", nk, ty.id.1.0)
                         }
                     }

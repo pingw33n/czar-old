@@ -23,6 +23,10 @@ impl BasicBlockRef {
         self.0.as_ptr()
     }
 
+    pub fn is_empty(self) -> bool {
+        unsafe { !LLVMGetFirstInstruction(self.0.as_ptr()).is_null() }
+    }
+
     pub fn delete(self) {
         unsafe { LLVMDeleteBasicBlock(self.0.as_ptr()) }
     }

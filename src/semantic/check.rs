@@ -566,6 +566,7 @@ impl PassImpl<'_> {
                 self.insert_typing(ctx.node, TypeData::Var(Var::Param((self.package_id, ctx.node))));
             }
             | NodeKind::Block
+            | NodeKind::CtlFlowAbort
             | NodeKind::FieldAccess
             | NodeKind::FnCall
             | NodeKind::FnDefParam
@@ -590,7 +591,6 @@ impl PassImpl<'_> {
             | NodeKind::While
             => {},
             | NodeKind::Cast
-            | NodeKind::CtlFlowAbort
             | NodeKind::Loop
             => todo!("{:?}", self.hir.node_kind(ctx.node)),
         }
@@ -618,13 +618,49 @@ impl PassImpl<'_> {
                     self.std().unit_type()
                 }
             }
+            NodeKind::CtlFlowAbort => {
+                let CtlFlowAbort { kind, label, value } = self.hir.ctl_flow_abort(ctx.node);
+
+                if *kind != CtlFlowAbortKind::Return {
+                    todo!();
+                }
+                if label.is_some() {
+                    todo!();
+                }
+
+                let fn_def = self.discover_data.find_closest_parent(NodeKind::FnDef, ctx.node, self.hir).unwrap();
+                let expected_ty = if let Some(ret_ty) = self.hir.fn_def(fn_def).ret_ty {
+                    self.typing(ret_ty)?
+                } else {
+                    self.std().unit_type()
+                };
+                let actual_ty = if let &Some(v) = value {
+                    self.typing(v)?
+                } else {
+                    self.std().unit_type()
+                };
+
+                self.unify(actual_ty, expected_ty);
+                let actual_ty = self.normalize(actual_ty);
+                let expected_ty = self.normalize(expected_ty);
+                if actual_ty != expected_ty {
+                    self.error(value.unwrap_or(ctx.node), format!(
+                        "mismatching types: expected `{}`, found `{}`",
+                        self.display_type(expected_ty),
+                        self.display_type(actual_ty)));
+                    return Err(());
+                }
+
+                self.new_inference_var(ctx.node, InferenceVar::Any { inhabited: false })
+            }
             NodeKind::FieldAccess => self.check_field_access(ctx.node)?,
-            NodeKind::FnCall => self.check_fn_call(&ctx)?,
+            NodeKind::FnCall => self.check_fn_call(ctx.node)?,
             NodeKind::FnDef => return Err(()),
             NodeKind::FnDefParam => self.check_fn_def_param(ctx.node)?,
             NodeKind::IfExpr => {
                 let &IfExpr { cond, if_true, if_false } = self.hir.if_expr(ctx.node);
                 if let Ok(actual_cond_ty) = self.typing(cond) {
+                    self.unify(actual_cond_ty, self.std().type_(LangItem::Primitive(PrimitiveType::Bool)));
                     if self.as_primitive(actual_cond_ty) != Some(PrimitiveType::Bool) {
                         self.error(cond, format!(
                             "invalid type of `if` condition: expected `bool`, found `{}`",
@@ -666,7 +702,7 @@ impl PassImpl<'_> {
                 } else if let Some(init) = init {
                     self.typing(init)?
                 } else {
-                    self.new_inference_var(ctx.node, InferenceVar::Any)
+                    self.new_inference_var(ctx.node, InferenceVar::Any { inhabited: true })
                 }
             }
             NodeKind::Literal => {
@@ -756,10 +792,10 @@ impl PassImpl<'_> {
                 self.typing(*ty)?
             }
             NodeKind::Use => self.std().unit_type(),
-            NodeKind::While
-            => {
+            NodeKind::While => {
                 let cond = self.hir.while_(ctx.node).cond;
                 if let Ok(actual_cond_ty) = self.typing(cond) {
+                    self.unify(actual_cond_ty, self.std().type_(LangItem::Primitive(PrimitiveType::Bool)));
                     if self.as_primitive(actual_cond_ty) != Some(PrimitiveType::Bool) {
                         self.error(cond, format!(
                             "invalid type of `while` condition: expected `bool`, found `{}`",
@@ -860,7 +896,7 @@ impl PassImpl<'_> {
                 match var {
                     Var::Inference(ivar) => {
                         match ivar {
-                            InferenceVar::Any => write!(f, "_"),
+                            InferenceVar::Any { inhabited: _ } => write!(f, "_"),
                             InferenceVar::Number(n) => match n {
                                 NumberKind::Float => write!(f, "<float>"),
                                 NumberKind::Int => write!(f, "<integer>"),

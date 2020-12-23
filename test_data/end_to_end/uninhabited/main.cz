@@ -1,0 +1,120 @@
+fn generic_arg() {
+    fn f<T>(_ v: T) {
+    }
+    f(panic("generic_arg"));
+    prints("dead code");
+}
+
+fn panic_in_if_condition() {
+    if panic("panic_in_if_condition") {
+    }
+    prints("dead code");
+}
+
+fn panic_in_if_true() {
+    fn f1() -> i32 {
+        if true {
+            panic("panic_in_if_true")
+        } else {
+            42
+        }
+    }
+
+    fn f2(_ v: i32) {
+        prints("dead code");
+    }
+
+    f2(f1());
+    prints("dead code");
+}
+
+fn panic_in_if_false() {
+    fn f1() -> i32 {
+        if false {
+            42
+        } else {
+            panic("panic_in_if_false")
+        }
+    }
+
+    fn f2(_ v: i32) {
+        prints("dead code");
+    }
+
+    f2(f1());
+    prints("dead code");
+}
+
+fn panic_in_if_true_false() -> Never {
+    let r = if true {
+        panic("panic_in_if_true_false")
+    } else {
+        panic("nope")
+    };
+    prints("dead code");
+    r
+}
+
+fn panic_in_while_cond() {
+    while panic("panic_in_while_cond") {}
+    prints("dead code");
+}
+
+fn panic_in_while_body() {
+    while true {
+        panic("panic_in_while_body");
+    }
+    prints("dead code");
+}
+
+fn never_param() {
+    fn f(_ v: Never) {
+        prints("dead code");
+    }
+    f(panic("never_param"));
+    prints("dead code");
+}
+
+module generic2 {
+    struct S<T, U> {T, U}
+    fn id<T, U>(_ v: S<T, U>) -> S<T, U> {
+        v
+    }
+
+    fn f1() {
+        print_i64(id(S { 42, panic("generic2::f1") }).0);
+        prints("dead code");
+    }
+
+    fn f2() {
+        prints(id(S { 42, panic("generic2::f2") }).1);
+        prints("dead code");
+    }
+}
+
+fn main() {
+    let id = test_run_id();
+    if id == 1 {
+        generic_arg();
+    } else if id == 2 {
+        panic_in_if_condition();
+    } else if id == 3 {
+        panic_in_if_true();
+    } else if id == 4 {
+        panic_in_if_false();
+    } else if id == 5 {
+        panic_in_if_true_false();
+    } else if id == 6 {
+        panic_in_while_cond();
+    } else if id == 7 {
+        panic_in_while_body();
+    } else if id == 8 {
+        never_param();
+    } else if id == 9 {
+        generic2::f1();
+    } else if id == 10 {
+        generic2::f2();
+    } else {
+        panic("invalid test_run_id");
+    }
+}

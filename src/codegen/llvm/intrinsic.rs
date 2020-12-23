@@ -5,7 +5,6 @@ pub enum Intrinsic {
     GcDebugMalloc,
     Memcpy32,
     Memcpy64,
-    Trap,
 }
 
 impl Intrinsic {
@@ -15,7 +14,6 @@ impl Intrinsic {
             GcDebugMalloc => b"GC_debug_malloc\0",
             Memcpy32 => b"llvm.memcpy.p0i8.p0i8.i32\0",
             Memcpy64 => b"llvm.memcpy.p0i8.p0i8.i64\0",
-            Trap => b"llvm.trap\0",
         })}
     }
 
@@ -38,13 +36,8 @@ impl Intrinsic {
                 let i8ptr = llvm.int_type(8).pointer();
                 TypeRef::function(llvm.void_type(), &mut [i8ptr, i8ptr, llvm.int_type(64), llvm.int_type(1)])
             }
-            Trap => TypeRef::function(llvm.void_type(), &mut []),
         }
     }
-}
-
-pub fn trap(llvm: &Llvm, b: BuilderRef) {
-    b.call(llvm.intrinsic(Intrinsic::Trap), &mut []);
 }
 
 pub fn gc_debug_malloc(llvm: &Llvm, b: BuilderRef, size: ValueRef, file: &str, line: u32) -> ValueRef {

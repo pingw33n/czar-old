@@ -73,12 +73,12 @@ impl PassImpl<'_> {
         self.typing(self.hir.fn_def_param(node).ty)
     }
 
-    pub fn check_fn_call(&mut self, ctx: &HirVisitorCtx) -> Result<TypeId> {
+    pub fn check_fn_call(&mut self, node: NodeId) -> Result<TypeId> {
         let FnCall {
             callee,
             kind,
             args,
-        } = self.hir.fn_call(ctx.node);
+        } = self.hir.fn_call(node);
         let (fn_def_node, fn_ty) = match *kind {
             FnCallKind::Free => {
                 let callee_ty = self.typing(*callee)?;
@@ -96,7 +96,7 @@ impl PassImpl<'_> {
                 };
                 (fn_def, callee_ty)
             }
-            FnCallKind::Method => self.check_method_call(ctx.node)?,
+            FnCallKind::Method => self.check_method_call(node)?,
         };
 
         let fn_ty = self.normalize(fn_ty);
@@ -130,7 +130,11 @@ impl PassImpl<'_> {
             }
         }
 
-        Ok(res_ty)
+        Ok(if self.as_primitive(res_ty) == Some(PrimitiveType::Never) {
+            self.new_inference_var(node, InferenceVar::Any { inhabited: false })
+        } else {
+            res_ty
+        })
     }
 
     fn check_method_call(&mut self, fn_call: NodeId) -> Result<(GlobalNodeId, TypeId)> {

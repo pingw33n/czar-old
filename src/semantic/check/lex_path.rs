@@ -257,7 +257,7 @@ impl PassImpl<'_> {
         } else {
             let node = path.last().unwrap().node;
             for _ in 0..params.len() {
-                r.push(self.new_inference_var(node, InferenceVar::Any));
+                r.push(self.new_inference_var(node, InferenceVar::Any { inhabited: true }));
             }
         }
         if err {

@@ -122,7 +122,7 @@ impl PassImpl<'_> {
         let expected = if let Some(&n) = items.first() {
             self.typing(n)?
         } else {
-            return Ok(self.new_inference_var(node, InferenceVar::Any));
+            return Ok(self.new_inference_var(node, InferenceVar::Any { inhabited: true }));
         };
         for &item in items.iter().skip(1) {
             let ty = self.typing(item)?;

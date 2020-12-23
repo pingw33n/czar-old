@@ -303,6 +303,15 @@ impl DiscoverData {
         }
     }
 
+    pub fn find_closest_parent(&self, kind: NodeKind, mut node: NodeId, hir: &Hir) -> Option<NodeId> {
+        loop {
+            if hir.node_kind(node).value == kind {
+                break Some(node);
+            }
+            node = self.try_parent_of(node)?;
+        }
+    }
+
     pub fn find_path_start(&self, mut node: NodeId, hir: &Hir) -> Option<NodeId> {
         let mut first = true;
         loop {

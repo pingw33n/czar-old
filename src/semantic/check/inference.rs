@@ -2,7 +2,9 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, EnumAsInner, Eq, Hash, PartialEq)]
 pub enum InferenceVar {
-    Any,
+    Any {
+        inhabited: bool,
+    },
     Number(NumberKind),
 }
 
@@ -42,8 +44,11 @@ impl PassImpl<'_> {
     pub fn can_unify_inference_var(&self, src: TypeId, dst: TypeId) -> bool {
         let src_var = self.underlying_type(src).data.as_inference_var();
         match src_var {
-            Some(InferenceVar::Any)
+            Some(InferenceVar::Any { inhabited: true })
                 => true,
+            Some(InferenceVar::Any { inhabited: false })
+                => !matches!(self.underlying_type(dst).data,
+                    TypeData::Var(Var::Inference(InferenceVar::Any { inhabited: true }))),
             Some(InferenceVar::Number(src_num))
                 => Some(src_num) == self.as_any_number(dst),
             _ => false,
@@ -131,11 +136,15 @@ impl PassImpl<'_> {
     pub fn finish_inference(&mut self) {
         for id in self.inference_ctx().vars.iter().copied().collect::<Vec<_>>() {
             match self.type_((self.package_id, id)).data.as_inference_var().unwrap() {
-                InferenceVar::Any => {
+                InferenceVar::Any { inhabited: true } => {
                     let ty = self.type_((self.package_id, id));
                     assert!(ty.data.as_var().is_some());
                     assert_eq!(ty.node.0, self.package_id);
                     self.error(ty.node.1, "can't infer type".into());
+                }
+                InferenceVar::Any { inhabited: false } => {
+                    let ty = self.std().type_(LangItem::Primitive(PrimitiveType::Never));
+                    self.finish_inference_var(id, ty);
                 }
                 InferenceVar::Number(n) => {
                     let fallback = match n {

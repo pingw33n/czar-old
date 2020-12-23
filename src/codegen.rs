@@ -75,6 +75,23 @@ struct FnMonoRequest {
     genv_vars: TypeVarMap,
 }
 
+#[derive(Clone, Copy)]
+struct TypeLl {
+    ty: TypeRef,
+    /// `false` means the lower-level type was constructed from uninhabited type.
+    inhabited: bool,
+}
+
+impl TypeLl {
+    fn inhabited(&self) -> Result<TypeRef> {
+        if self.inhabited {
+            Ok(self.ty)
+        } else {
+            Err(())
+        }
+    }
+}
+
 pub struct Codegen<'a> {
     llvm: Llvm,
     bodyb: BuilderRef,
@@ -82,7 +99,7 @@ pub struct Codegen<'a> {
     packages: &'a Packages,
     fn_decls: HashMap<TopLevelMonoId, FnDecl>,
     fn_mono_reqs: HashMap<TopLevelMonoId, FnMonoRequest>,
-    types: HashMap<MonoId, TypeRef>,
+    types: HashMap<MonoId, TypeLl>,
     defined_types: HashMap<TopLevelMonoId, TypeRef>,
 }
 
@@ -106,7 +123,7 @@ impl<'a> Codegen<'a> {
         let entry_point = self.packages[package_id].check_data.entry_point().unwrap();
         let node = self.packages.underlying_type(entry_point).data.name().unwrap();
 
-        self.fn_def(node, entry_point, &self.default_genv());
+        self.fn_def(node, entry_point, &self.default_genv()).unwrap();
 
         while let Some(&fnid) = self.fn_mono_reqs.keys().next() {
             let req = self.fn_mono_reqs.remove(&fnid).unwrap();
@@ -134,14 +151,14 @@ impl<'a> Codegen<'a> {
         self.packages[ty.0].check_data.normalized_type(ty)
     }
 
-    fn make_genv_id(&mut self, ty_vars: &TypeVarMap, genv: &GenericEnv) -> GenericEnvId {
+    fn make_genv_id(&mut self, ty_vars: &TypeVarMap, genv: &GenericEnv) -> Result<GenericEnvId> {
         let mut ty_vars: Vec<_> = ty_vars.iter().collect();
         ty_vars.sort_by_key(|&(k, _)| k);
         let mut genv_id = Vec::with_capacity(ty_vars.len());
         for (_, ty) in ty_vars {
-            genv_id.push(self.type_(ty, genv));
+            genv_id.push(self.type_(ty, genv)?);
         }
-        GenericEnvId(self.make_struct_type0(None, &mut genv_id))
+        Ok(GenericEnvId(self.make_struct_type0(None, &mut genv_id)))
     }
 
     fn find_type_param_deps(&self, ty: TypeId) -> Vec<TypeId> {
@@ -199,15 +216,27 @@ impl<'a> Codegen<'a> {
         r
     }
 
-    fn fn_def(&mut self, fn_def: GlobalNodeId, callee_ty: TypeId, genv: &GenericEnv) -> Value {
+    fn fn_def(&mut self, fn_def: GlobalNodeId, callee_ty: TypeId, genv: &GenericEnv) -> Result<Value> {
+        // Handle LLVM intrinsics.
+        if let Some(intrinsic) = self.packages.as_lang_item(callee_ty)
+            .and_then(|v| v.into_intrinsic().ok())
+        {
+            match intrinsic {
+                IntrinsicItem::Unreachable => return Ok(self.unit_literal()),
+                | IntrinsicItem::Panic
+                | IntrinsicItem::Transmute
+                => {},
+            }
+        }
+
         let callee_ty = self.normalized(callee_ty);
 
         let genv_vars = self.resolve_fn_genv_vars(callee_ty, genv);
-        let genv_id = self.make_genv_id(&genv_vars, genv);
+        let genv_id = self.make_genv_id(&genv_vars, genv)?;
 
         let mid = (fn_def, genv_id);
         if let Some(&v) = self.fn_decls.get(&mid) {
-            return v.ll.direct();
+            return Ok(v.ll.direct());
         }
 
         let package = &self.packages[fn_def.0];
@@ -217,7 +246,7 @@ impl<'a> Codegen<'a> {
             package.hir.fn_def(fn_def.1).name.value.as_str()
         };
         let ty = self.packages.type_(callee_ty);
-        let ty_ll = self.type_(ty.id, genv);
+        let ty_ll = self.type_(ty.id, genv)?;
         let fn_ = self.llvm.add_function(&name, ty_ll);
         assert!(self.fn_decls.insert(mid, FnDecl {
             ll: fn_,
@@ -226,7 +255,7 @@ impl<'a> Codegen<'a> {
             genv_vars,
         }).is_none());
 
-        fn_.direct()
+        Ok(fn_.direct())
     }
 
     fn mono_fn(&mut self, id: TopLevelMonoId, req: FnMonoRequest) {
@@ -257,9 +286,10 @@ impl<'a> Codegen<'a> {
                 self.bodyb.store(param, val.ptr());
             }
 
-            let ret = self.expr(body, ctx);
-            let ret = ret.deref(self.bodyb);
-            self.bodyb.ret(ret);
+            if let Ok(ret) = self.expr(body, ctx) {
+                let ret = ret.deref(self.bodyb);
+                self.bodyb.ret(ret);
+            }
         }
     }
 
@@ -274,50 +304,39 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn expr(&mut self, node: NodeId, ctx: &mut ExprCtx) -> Value {
-        match ctx.package.hir.node_kind(node).value {
+    fn expr(&mut self, node: NodeId, ctx: &mut ExprCtx) -> Result<Value> {
+        Ok(match ctx.package.hir.node_kind(node).value {
             NodeKind::Block => {
                 let Block { exprs } = ctx.package.hir.block(node);
                 let mut r = None;
                 for &expr in exprs {
-                    r = Some(self.expr(expr, ctx));
+                    r = Some(self.expr(expr, ctx)?);
+
                 }
                 r.unwrap_or_else(|| self.unit_literal().into())
             }
             NodeKind::FieldAccess => {
                 let receiver = ctx.package.hir.field_access(node).receiver;
-                let receiver = self.expr(receiver, ctx);
+                let receiver = self.expr(receiver, ctx)?;
                 let receiver = self.make_ptr(receiver, ctx).into();
                 let idx = ctx.package.check_data.struct_field_index(node);
                 self.bodyb.struct_gep(receiver, idx).indirect()
             }
             NodeKind::FnCall => {
                 let fnc = ctx.package.hir.fn_call(node);
-                let callee_ty = ctx.package.check_data.typing(fnc.callee);
-                let callee = self.expr(fnc.callee, ctx);
-                let args = fnc.args.iter()
-                    .map(|v| self.expr(v.value, ctx))
-                    .collect::<Vec<_>>();
-                self.fn_call(node, callee_ty, callee, &args, ctx)
-            }
-            NodeKind::Let => {
-                let &Let { def } = ctx.package.hir.let_(node);
-
-                let &LetDef { init, .. } = ctx.package.hir.let_def(def);
-                let p = self.expr(def, ctx).ptr();
-
-                if let Some(init) = init {
-                    let v = self.expr(init, ctx).deref(self.bodyb);
-                    self.bodyb.store(v, p);
+                let mut args = Vec::new();
+                for arg in &fnc.args {
+                    args.push(self.expr(arg.value, ctx)?);
                 }
-
-                self.bool_literal(true)
+                let callee_ty = ctx.package.check_data.typing(fnc.callee);
+                let callee = self.expr(fnc.callee, ctx)?;
+                self.fn_call(Some(node), callee_ty, callee, &args, ctx)?
             }
             NodeKind::IfExpr => {
                 let fn_ = ctx.fn_;
 
                 let &IfExpr { cond, if_true, if_false } = ctx.package.hir.if_expr(node);
-                let cond = self.expr(cond, ctx).deref(self.bodyb);
+                let cond = self.expr(cond, ctx)?.deref(self.bodyb);
 
                 let if_true_bb = self.llvm.append_new_bb(fn_, "__if_true");
                 let if_false_bb = self.llvm.append_new_bb(fn_, "__if_false");
@@ -325,24 +344,65 @@ impl<'a> Codegen<'a> {
 
                 self.bodyb.cond_br(cond, if_true_bb, if_false_bb);
 
-                let ret_var = self.alloca(node, "__if", ctx).ptr();
+                let ret_var = if if_false.is_some() {
+                    Some(self.alloca(node, "__if", ctx).ptr())
+                } else {
+                    None
+                };
 
                 self.bodyb.position_at_end(if_true_bb);
-                let v = self.expr(if_true, ctx).deref(self.bodyb);
-                self.bodyb.store(v, ret_var);
-                self.bodyb.br(succ_bb);
+                let if_true_diverges = if let Ok(v) = self.expr(if_true, ctx) {
+                    if let Some(ret_var) = ret_var {
+                        self.bodyb.store(v.deref(self.bodyb), ret_var);
+                    }
+                    self.bodyb.br(succ_bb);
+                    false
+                } else {
+                    true
+                };
 
                 self.bodyb.position_at_end(if_false_bb);
-                if let Some(if_false) = if_false {
-                    let v = self.expr(if_false, ctx).deref(self.bodyb);
-                    self.bodyb.store(v, ret_var);
+                let if_false_diverges = if let Some(if_false) = if_false {
+                    if let Ok(v) = self.expr(if_false, ctx) {
+                        self.bodyb.store(v.deref(self.bodyb), ret_var.unwrap());
+                        false
+                    } else {
+                        true
+                    }
+                } else {
+                    false
+                };
+                if !if_false_diverges {
+                    self.bodyb.br(succ_bb);
                 }
-                self.bodyb.br(succ_bb);
 
                 self.bodyb.position_at_end(succ_bb);
-                ret_var.indirect()
+
+                if if_true_diverges && if_false_diverges {
+                    self.bodyb.unreachable();
+                    return Err(());
+                }
+
+                if let Some(ret_var) = ret_var {
+                    ret_var.indirect()
+                } else {
+                    self.unit_literal()
+                }
             }
             NodeKind::FnDefParam => ctx.allocas[&node].into(),
+            NodeKind::Let => {
+                let &Let { def } = ctx.package.hir.let_(node);
+
+                let &LetDef { init, .. } = ctx.package.hir.let_def(def);
+                if let Some(init) = init {
+                    let var = self.expr(def, ctx)?.ptr();
+                    let val = self.expr(init, ctx)?.deref(self.bodyb);
+                    self.bodyb.store(val, var);
+                    self.bool_literal(true)
+                } else {
+                    self.unit_literal()
+                }
+            }
             NodeKind::LetDef => {
                 let name = ctx.package.hir.let_def(node).name.value.as_str();
                 self.alloca(node, name, ctx)
@@ -354,11 +414,11 @@ impl<'a> Codegen<'a> {
                     &Literal::Char(v) => self.char_literal(v),
                     Literal::String(v) => self.string_literal(v),
                     &Literal::Int(IntLiteral { value, .. }) => {
-                        let ty = self.typing((ctx.package.id, node), ctx.genv);
+                        let ty = self.typing((ctx.package.id, node), ctx.genv)?;
                         ty.const_int(value).direct()
                     },
                     &Literal::Float(FloatLiteral { value, .. }) => {
-                        let ty = self.typing((ctx.package.id, node), ctx.genv);
+                        let ty = self.typing((ctx.package.id, node), ctx.genv)?;
                         ty.const_real(value).direct()
                     },
                     Literal::Unit => self.unit_literal(),
@@ -366,16 +426,16 @@ impl<'a> Codegen<'a> {
             }
             NodeKind::Op => {
                 if let Some(OpImpl { fn_def, callee_ty, lvalue_result }) = ctx.package.check_data.op_impl(node) {
-                    let callee = self.fn_def(fn_def, callee_ty, ctx.genv);
+                    let callee = self.fn_def(fn_def, callee_ty, ctx.genv)?;
                     let r = match ctx.package.hir.op(node) {
                         &Op::Binary(BinaryOp { kind: _, left, right }) => {
-                            let left = self.expr(left, ctx);
-                            let right = self.expr(right, ctx);
-                            self.fn_call(node, callee_ty, callee, &[left, right], ctx)
+                            let left = self.expr(left, ctx)?;
+                            let right = self.expr(right, ctx)?;
+                            self.fn_call(Some(node), callee_ty, callee, &[left, right], ctx)?
                         }
                         &Op::Unary(UnaryOp { kind: _, arg }) => {
-                            let arg = self.expr(arg, ctx);
-                            self.fn_call(node, callee_ty, callee, &[arg], ctx)
+                            let arg = self.expr(arg, ctx)?;
+                            self.fn_call(Some(node), callee_ty, callee, &[arg], ctx)?
                         }
                     };
                     if lvalue_result {
@@ -387,8 +447,8 @@ impl<'a> Codegen<'a> {
                     let op = ctx.package.hir.op(node);
                     match op {
                         &Op::Binary(BinaryOp { kind, left, right }) => {
-                            let leftv = self.expr(left, ctx);
-                            let rightv = self.expr(right, ctx).deref(self.bodyb);
+                            let leftv = self.expr(left, ctx)?;
+                            let rightv = self.expr(right, ctx)?.deref(self.bodyb);
                             let left_ty = self.packages.typing((ctx.package.id, left));
                             use BinaryOpKind::*;
                             if kind.value == Assign {
@@ -467,16 +527,10 @@ impl<'a> Codegen<'a> {
                                         }.direct()
                                     },
                                     Div => {
-                                        self.div_or_rem(ctx, left_ty, rightv,
-                                            || self.bodyb.sdiv(leftv, rightv),
-                                            || self.bodyb.udiv(leftv, rightv),
-                                            || self.bodyb.fdiv(leftv, rightv))
+                                        self.div_or_rem(leftv, left_ty, rightv, true, ctx)
                                     },
                                     Rem => {
-                                        self.div_or_rem(ctx, left_ty, rightv,
-                                            || self.bodyb.srem(leftv, rightv),
-                                            || self.bodyb.urem(leftv, rightv),
-                                            || self.bodyb.frem(leftv, rightv))
+                                        self.div_or_rem(leftv, left_ty, rightv, false, ctx)
                                     },
                                     Index => unreachable!(),
 
@@ -485,7 +539,7 @@ impl<'a> Codegen<'a> {
                             }
                         },
                         &Op::Unary(UnaryOp { kind, arg }) => {
-                            let argv = self.expr(arg, ctx).deref(self.bodyb);
+                            let argv = self.expr(arg, ctx)?.deref(self.bodyb);
                             let arg_ty = self.packages.typing((ctx.package.id, arg));
                             use UnaryOpKind::*;
                             match kind.value {
@@ -509,32 +563,36 @@ impl<'a> Codegen<'a> {
                 let reso = ctx.package.check_data.target_of(node);
                 let package = &self.packages[reso.0];
                 if package.hir.node_kind(reso.1).value == NodeKind::FnDef {
-                    self.fn_def(reso, ctx.package.check_data.typing(node), ctx.genv)
+                    self.fn_def(reso, ctx.package.check_data.typing(node), ctx.genv)?
                 } else {
                     self.expr(reso.1, &mut ExprCtx {
                         package,
                         fn_: ctx.fn_,
                         allocas: ctx.allocas,
                         genv: ctx.genv,
-                    })
+                    })?
                 }
             }
             NodeKind::Range => {
                 let &Range { kind: _, start, end } = ctx.package.hir.range(node);
 
-                let struct_var = self.alloca(node, "range_literal", ctx);
-
                 let mut idx = 0;
+                let mut struct_var = None;
                 for &v in &[start, end] {
+                    let v = if let Some(v) = v {
+                        Some(self.expr(v, ctx)?.deref(self.bodyb))
+                    } else {
+                        None
+                    };
+                    struct_var = Some(self.alloca(node, "range_literal", ctx));
                     if let Some(v) = v {
-                        let v = self.expr(v, ctx).deref(self.bodyb);
-                        let ptr = self.bodyb.struct_gep(struct_var.ptr(), idx);
+                        let ptr = self.bodyb.struct_gep(struct_var.unwrap().ptr(), idx);
                         self.bodyb.store(v, ptr);
                         idx += 1;
                     }
                 }
 
-                struct_var
+                struct_var.unwrap()
             }
             NodeKind::SliceLiteral => {
                 let ty = self.normalized(self.packages.typing((ctx.package.id, node)));
@@ -546,13 +604,13 @@ impl<'a> Codegen<'a> {
                         self.llvm.size_type().const_int(ty.len.unwrap() as u128)
                     } else {
                         assert_eq!(items.len(), 1);
-                        self.expr(v, ctx).deref(self.bodyb)
+                        self.expr(v, ctx)?.deref(self.bodyb)
                     }
                 } else {
                     self.llvm.size_type().const_int(items.len() as u128)
                 };
 
-                let item_ty = self.type_(ty.item, ctx.genv);
+                let item_ty = self.type_(ty.item, ctx.genv)?;
 
                 let slice_var = self.alloca(node, "slice_literal", ctx).ptr();
 
@@ -566,7 +624,7 @@ impl<'a> Codegen<'a> {
                 };
 
                 if len.value.is_some() {
-                    let item_val = self.expr(items[0], ctx).deref(self.bodyb);
+                    let item_val = self.expr(items[0], ctx)?.deref(self.bodyb);
 
                     let cond_bb = self.llvm.append_new_bb(ctx.fn_, "__slice_init_cond");
                     let block_bb = self.llvm.append_new_bb(ctx.fn_, "__slice_init_block");
@@ -593,7 +651,7 @@ impl<'a> Codegen<'a> {
                     self.bodyb.position_at_end(succ_bb);
                 } else {
                     for (i, &item) in items.iter().enumerate() {
-                        let item_val = self.expr(item, ctx).deref(self.bodyb);
+                        let item_val = self.expr(item, ctx)?.deref(self.bodyb);
                         let item_ptr = self.bodyb.gep_in_bounds(ptr.into(), &mut [
                             self.llvm.int_type(32).const_int(i as u128),
                         ]);
@@ -607,18 +665,19 @@ impl<'a> Codegen<'a> {
                 let StructLiteral { fields, .. } = ctx.package.hir.struct_literal(node);
                 if fields.is_empty() {
                     let ty = ctx.package.check_data.typing(node);
-                    let ty = self.type_(ty, ctx.genv);
+                    let ty = self.type_(ty, ctx.genv)?;
                     ty.const_struct(&mut []).direct()
                 } else {
-                    let struct_var = self.alloca(node, "struct_literal", ctx);
+                    let mut struct_var = None;
                     for &field in fields {
                         let value = ctx.package.hir.struct_literal_field(field).value;
-                        let field_val = self.expr(value, ctx).deref(self.bodyb);
+                        let field_val = self.expr(value, ctx)?.deref(self.bodyb);
                         let idx = ctx.package.check_data.struct_field_index(field);
-                        let field_ptr = self.bodyb.struct_gep(struct_var.ptr(), idx);
+                        struct_var = Some(self.alloca(node, "struct_literal", ctx));
+                        let field_ptr = self.bodyb.struct_gep(struct_var.unwrap().ptr(), idx);
                         self.bodyb.store(field_val, field_ptr);
                     }
-                    struct_var.into()
+                    struct_var.unwrap().into()
                 }
             }
             NodeKind::StructLiteralField => unreachable!(),
@@ -626,18 +685,19 @@ impl<'a> Codegen<'a> {
                 let &While { cond, body } = ctx.package.hir.while_(node);
 
                 let cond_bb = self.llvm.append_new_bb(ctx.fn_, "__while_cond");
-                let body_bb = self.llvm.append_new_bb(ctx.fn_, "__while_body");
-                let succ_bb = self.llvm.append_new_bb(ctx.fn_, "__while_succ");
-
                 self.bodyb.br(cond_bb);
 
                 self.bodyb.position_at_end(cond_bb);
-                let cond = self.expr(cond, ctx).deref(self.bodyb);
-                self.bodyb.cond_br(cond, body_bb, succ_bb);
+                let cond = self.expr(cond, ctx)?.deref(self.bodyb);
 
-                self.bodyb.position_at_end(body_bb);
-                self.expr(body, ctx);
-                self.bodyb.br(cond_bb);
+                let wbody_bb = self.llvm.append_new_bb(ctx.fn_, "__while_body");
+                let succ_bb = self.llvm.append_new_bb(ctx.fn_, "__while_succ");
+                self.bodyb.cond_br(cond, wbody_bb, succ_bb);
+
+                self.bodyb.position_at_end(wbody_bb);
+                if self.expr(body, ctx).is_ok() {
+                    self.bodyb.br(cond_bb);
+                }
 
                 self.bodyb.position_at_end(succ_bb);
 
@@ -655,41 +715,60 @@ impl<'a> Codegen<'a> {
                 self.unit_literal().into()
             }
             _ => todo!("{:?}", ctx.package.hir.node_kind(node))
-        }
+        })
     }
 
-    fn div_or_rem(&self,
-        ctx: &ExprCtx,
+    fn div_or_rem(&mut self,
+        leftv: ValueRef,
         left_ty: TypeId,
         rightv: ValueRef,
-        make_signed: impl FnOnce() -> ValueRef,
-        make_unsigned: impl FnOnce() -> ValueRef,
-        make_float: impl FnOnce() -> ValueRef,
+        div: bool,
+        ctx: &mut ExprCtx,
     ) -> Value {
         match self.packages.as_number(left_ty).expect("todo") {
-            NumberType::Float => make_float(),
+            NumberType::Float => if div {
+                self.bodyb.fdiv(leftv, rightv)
+            } else {
+                self.bodyb.frem(leftv, rightv)
+            }
             NumberType::Int { signed } => {
                 let cond = self.bodyb.icmp(rightv, rightv.type_().const_int(0), IntPredicate::LLVMIntEQ);
-                self.panic_if(cond, ctx);
+                self.panic_if(cond, "integer division by zero", ctx);
                 if signed {
-                    make_signed()
+                    if div {
+                        self.bodyb.sdiv(leftv, rightv)
+                    } else {
+                        self.bodyb.srem(leftv, rightv)
+                    }
                 } else {
-                    make_unsigned()
+                    if div {
+                        self.bodyb.udiv(leftv, rightv)
+                    } else {
+                        self.bodyb.urem(leftv, rightv)
+                    }
                 }
             },
         }.direct()
     }
 
-    fn panic_if(&self, cond: ValueRef, ctx: &ExprCtx) {
+    fn panic_if(&mut self, cond: ValueRef, msg: &str, ctx: &mut ExprCtx) {
         let panic_bb = self.llvm.append_new_bb(ctx.fn_, "__panic");
         let succ_bb = self.llvm.append_new_bb(ctx.fn_, "__panic_succ");
         self.bodyb.cond_br(cond, panic_bb, succ_bb);
 
         self.bodyb.position_at_end(panic_bb);
-        intrinsic::trap(&self.llvm, self.bodyb);
-        self.bodyb.unreachable();
+        self.panic(msg, ctx);
 
         self.bodyb.position_at_end(succ_bb);
+    }
+
+    fn panic(&mut self, msg: &str, ctx: &mut ExprCtx) {
+        let callee_ty = self.packages.std().check_data.lang().type_(
+            LangItem::Intrinsic(IntrinsicItem::Panic));
+        let fn_def = self.packages.underlying_type(callee_ty).data.name().unwrap();
+        let callee = self.fn_def(fn_def, callee_ty, ctx.genv).unwrap();
+        let msg = self.string_literal(msg);
+        assert!(self.fn_call(None, callee_ty, callee, &[msg], ctx).is_err());
     }
 
     fn bool_literal(&mut self, v: bool) -> Value {
@@ -709,71 +788,100 @@ impl<'a> Codegen<'a> {
     }
 
     fn unit_literal(&mut self) -> Value {
-        self.type_(self.packages.std().check_data.lang().unit_type(), &self.default_genv())
+        self.type_(self.packages.std().check_data.lang().unit_type(), &self.default_genv()).unwrap()
             .const_struct(&mut [])
             .direct()
     }
 
-    fn typing(&mut self, node: GlobalNodeId, genv: &GenericEnv) -> TypeRef {
+    fn typing(&mut self, node: GlobalNodeId, genv: &GenericEnv) -> Result<TypeRef> {
         let ty = self.packages[node.0].check_data.typing(node.1);
         self.type_(ty, genv)
     }
 
-    fn type_(&mut self, ty: TypeId, genv: &GenericEnv) -> TypeRef {
+    fn type_(&mut self, ty: TypeId, genv: &GenericEnv) -> Result<TypeRef> {
+        self.type0(ty, genv).inhabited()
+    }
+
+    fn type_allow_uninhabited(&mut self, ty: TypeId, genv: &GenericEnv) -> TypeRef {
+        self.type0(ty, genv).ty
+    }
+
+    fn type0(&mut self, ty: TypeId, genv: &GenericEnv) -> TypeLl {
         let ty = self.normalized(ty);
         if let Some(&v) = self.types.get(&(ty, genv.id)) {
             return v;
         }
+        let ty_ll = self.type1(ty, genv);
+        assert!(self.types.insert((ty, genv.id), ty_ll).is_none());
+        ty_ll
+    }
+
+    fn type1(&mut self, ty: TypeId, genv: &GenericEnv) -> TypeLl {
         let uty = self.packages.underlying_type(ty);
-        let ty_ll = match &uty.data {
+        match &uty.data {
             TypeData::Fn(FnType { name: _, params, result, unsafe_: _, }) => {
+                let mut inhabited = true;
                 let param_tys = &mut Vec::with_capacity(params.len());
                 for &param in params {
-                    param_tys.push(self.type_(param, genv));
+                    let ty = self.type0(param, genv);
+                    param_tys.push(ty.ty);
+                    inhabited &= ty.inhabited;
                 }
-                let res_ty = self.type_(*result, genv);
-                TypeRef::function(res_ty, param_tys)
+                let res_ty = self.type0(*result, genv).ty;
+                TypeLl {
+                    ty: TypeRef::function(res_ty, param_tys),
+                    inhabited,
+                }
             }
-            TypeData::GenericEnv(check::GenericEnv { ty, vars: _ }) => self.type_(*ty, genv),
+            TypeData::GenericEnv(check::GenericEnv { ty, vars: _ }) => self.type0(*ty, genv),
             TypeData::Slice(v) => self.make_slice_type(v, genv),
             TypeData::Struct(v) => self.make_struct_type(ty, v, genv),
             TypeData::Var(_) => {
                 let ty = genv.vars.get(uty.id).unwrap();
-                self.type_(ty, genv)
+                self.type0(ty, genv)
             },
             | TypeData::Ctor(_)
             | TypeData::Incomplete(_)
             | TypeData::Instance(_)
             => unreachable!("{:?}", uty),
-        };
-        assert!(self.types.insert((ty, genv.id), ty_ll).is_none());
-        ty_ll
+        }
     }
 
-    fn make_struct_type(&mut self, ty: TypeId, sty: &check::StructType, genv: &GenericEnv) -> TypeRef {
+    fn make_struct_type(&mut self, ty: TypeId, sty: &check::StructType, genv: &GenericEnv) -> TypeLl {
         let check::StructType { name: def, fields } = sty;
         if let Some(def) = *def {
             if let Some(prim) = self.packages.std().check_data.lang().as_primitive(def) {
                 return self.make_prim_type(ty, prim, genv);
             }
         }
+        let mut inhabited = true;
         let field_tys = &mut Vec::with_capacity(fields.len());
         for &check::StructTypeField { name: _, ty } in fields {
-            field_tys.push(self.type_(ty, genv));
+            let ty = self.type0(ty, genv);
+            inhabited &= ty.inhabited;
+            field_tys.push(ty.ty);
         }
-        self.make_struct_type0(*def, field_tys)
+        let ty = self.make_struct_type0(*def, field_tys);
+        TypeLl {
+            ty,
+            inhabited,
+        }
     }
 
-    fn make_slice_type(&mut self, slt: &check::SliceType, genv: &GenericEnv) -> TypeRef {
+    fn make_slice_type(&mut self, slt: &check::SliceType, genv: &GenericEnv) -> TypeLl {
         let &check::SliceType { item, len } = slt;
-        let item = self.type_(item, genv);
-        if let Some(len) = len {
+        let item = self.type_allow_uninhabited(item, genv);
+        let ty = if let Some(len) = len {
             self.llvm.array_type(item, len)
         } else {
             self.llvm.struct_type(&mut [
                 self.llvm.pointer_type(item),
                 self.llvm.size_type(),
             ])
+        };
+        TypeLl {
+            ty,
+            inhabited: true,
         }
     }
 
@@ -796,9 +904,9 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn make_prim_type(&mut self, ty: TypeId, prim_ty: PrimitiveType, genv: &GenericEnv) -> TypeRef {
+    fn make_prim_type(&mut self, ty: TypeId, prim_ty: PrimitiveType, genv: &GenericEnv) -> TypeLl {
         use PrimitiveType::*;
-        match prim_ty {
+        let ty = match prim_ty {
             Bool => self.llvm.int_type(1),
             F32 => self.llvm.float_type(),
             F64 => self.llvm.double_type(),
@@ -808,16 +916,25 @@ impl<'a> Codegen<'a> {
             I64 | U64 => self.llvm.int_type(64),
             I128 | U128 => self.llvm.int_type(128),
             ISize | USize => self.llvm.size_type(),
+            Never => return TypeLl {
+                ty: self.llvm.struct_type(&mut []),
+                inhabited: false,
+            },
             Ptr => {
                 let pty = self.packages.type_(ty).data.as_generic_env().unwrap().vars.vals().next().unwrap();
-                let pty = self.type_(pty, genv);
+                let pty = self.type_allow_uninhabited(pty, genv);
                 pty.pointer()
             }
+        };
+        TypeLl {
+            ty,
+            inhabited: true,
         }
     }
 
     fn lang_type(&mut self, lang_item: LangItem) -> TypeRef {
-        self.type_(self.packages.std().check_data.lang().type_(lang_item), &self.default_genv())
+        assert_ne!(lang_item, LangItem::Primitive(PrimitiveType::Never));
+        self.type_(self.packages.std().check_data.lang().type_(lang_item), &self.default_genv()).unwrap()
     }
 
     fn alloca(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> Value {
@@ -833,12 +950,12 @@ impl<'a> Codegen<'a> {
     fn alloca_new(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> Value {
         let ty = ctx.package.check_data.typing(node);
         let ty = self.normalized(ty);
-        let ty_ll = self.type_(ty, ctx.genv);
+        let ty_ll = self.type_allow_uninhabited(ty, ctx.genv);
 
         if let &TypeData::Slice(check::SliceType { item, len: Some(len) }) = &self.packages.underlying_type(ty).data {
             let slot_ty = ty_ll.pointer();
             let slot = self.alloca_new_ty(slot_ty, name, ctx).ptr();
-            let item_ty = self.type_(item, ctx.genv);
+            let item_ty = self.type_allow_uninhabited(item, ctx.genv);
             let ptr = self.gc_malloc(item_ty, self.llvm.size_type().const_int(len as u128), node, ctx);
             let ptr = self.bodyb.bitcast(ptr, slot_ty);
             self.bodyb.store(ptr, slot);
@@ -873,17 +990,19 @@ impl<'a> Codegen<'a> {
         self.bodyb.bitcast(ptr, item_ty.pointer())
     }
 
-    fn fn_call(&mut self, node: NodeId, callee_ty: TypeId, callee: Value, args: &[Value], ctx: &mut ExprCtx) -> Value {
+    fn fn_call(&mut self,
+        callee_node: Option<NodeId>,
+        callee_ty: TypeId,
+        callee: Value,
+        args: &[Value],
+        ctx: &mut ExprCtx,
+    ) -> Result<Value> {
         let callee_ty = self.normalized(callee_ty);
         let intrinsic = self.packages.as_lang_item(callee_ty)
             .and_then(|v| v.into_intrinsic().ok());
-        if let Some(intr) = intrinsic {
+        let intrinsic = if let Some(intr) = intrinsic {
             match intr {
-                IntrinsicItem::Trap => {
-                    assert!(args.is_empty());
-                    intrinsic::trap(&self.llvm, self.bodyb);
-                    self.unit_literal()
-                }
+                IntrinsicItem::Panic => None,
                 IntrinsicItem::Transmute => {
                     assert_eq!(args.len(), 1);
                     let src = args[0];
@@ -891,7 +1010,11 @@ impl<'a> Codegen<'a> {
                     let src_size = self.llvm.abi_size_bytes(src.type_().inner());
 
                     let dst_ty = self.packages.underlying_type(callee_ty).data.as_fn().unwrap().result;
-                    let dst_ty = self.type_(dst_ty, ctx.genv);
+                    let dst_ty = if let Ok(v) = self.type_(dst_ty, ctx.genv) {
+                        v
+                    } else {
+                        todo!("must fail in frontend");
+                    };
                     let dst_size = self.llvm.abi_size_bytes(dst_ty);
 
                     if src_size != dst_size {
@@ -911,12 +1034,22 @@ impl<'a> Codegen<'a> {
                     intrinsic::memcpy(&self.llvm, self.bodyb, dst_ptr, src_ptr, len,
                         self.llvm.int_type(1).const_int(0));
 
-                    dst
+                    Some(dst)
+                }
+                IntrinsicItem::Unreachable => {
+                    assert!(args.is_empty());
+                    Some(self.unit_literal())
                 }
             }
         } else {
+            None
+        };
+
+        let r = if let Some(v) = intrinsic {
+            v
+        } else {
             let mut args = args.to_vec();
-            if let Some(slice_ty) = ctx.package.check_data.method_call_self_coercion(node) {
+            if let Some(slice_ty) = callee_node.and_then(|v| ctx.package.check_data.method_call_self_coercion(v)) {
                 // [T; N] -> [T]
                 let arr = self.make_ptr(args[0], ctx);
                 let arr_ty = arr.type_().inner();
@@ -924,7 +1057,7 @@ impl<'a> Codegen<'a> {
                 let len = arr_ty.array_len();
 
                 debug_assert!(matches!(self.packages.underlying_type(slice_ty).data, TypeData::Slice(_)));
-                let slice_ty = self.type_(slice_ty, ctx.genv);
+                let slice_ty = self.type_(slice_ty, ctx.genv)?;
 
                 let slice_var = self.alloca_new_ty(slice_ty, "slice_coercion", ctx).ptr();
                 let ptr = self.bodyb.bitcast(arr, item_ty.pointer());
@@ -939,6 +1072,14 @@ impl<'a> Codegen<'a> {
                 .collect();
             let callee = callee.deref(self.bodyb);
             self.bodyb.call(callee, &mut args).direct()
+        };
+
+        let ret_ty = self.packages.underlying_type(callee_ty).data.as_fn().unwrap().result;
+        if self.packages.as_primitive(ret_ty) == Some(PrimitiveType::Never) {
+            self.bodyb.unreachable();
+            Err(())
+        } else {
+            Ok(r)
         }
     }
 }

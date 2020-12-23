@@ -1,4 +1,5 @@
 fn f1() {
+    prints("f1"); println();
     let mut a = [];
     let mut b = [];
     a[0] = b[0];
@@ -6,6 +7,8 @@ fn f1() {
 }
 
 fn f2() {
+    prints("f2"); println();
+
     struct S<T> { T }
 
     impl<T> S<T> {
@@ -25,6 +28,12 @@ fn f2() {
 }
 
 fn main() {
-    f1();
-    f2();
+    let id = test_run_id();
+    if id == 1 {
+        f1();
+    } else if id == 2 {
+        f2();
+    } else {
+        panic("invalid test_run_id");
+    }
 }

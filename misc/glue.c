@@ -1,9 +1,14 @@
+#include <assert.h>
 #include <inttypes.h>
 #include <locale.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <wchar.h>
+
+static int ARGC;
+static char **ARGV;
 
 extern void __main();
 
@@ -122,7 +127,14 @@ uintptr_t f32_to_usize(float v) {
     return v;
 }
 
-int main() {
+uint32_t test_run_id() {
+    assert(ARGC == 2);
+    return atoi(ARGV[1]);
+}
+
+int main(int argc, char *argv[]) {
+    ARGC = argc;
+    ARGV = argv;
     setlocale(LC_ALL, "");
     setvbuf(stdout, NULL, _IONBF, 0);
     __main();
