@@ -8,7 +8,7 @@ fn f() {
   } ^= ({
     x |= y
   }?)) &= 0);
-  return break @foo -(*(&(!(&mut (&42)))));
+  return break #foo -(*(&(!(&mut (&42)))));
   continue;
   break return (y = {
     (0 += 42) = {

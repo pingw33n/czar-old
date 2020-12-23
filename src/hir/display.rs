@@ -711,7 +711,7 @@ impl Display<'_> {
     }
 
     fn label(&self, l: &S<Label>, p: &mut Printer) -> Result {
-        p.print(format_args!("@{}", &l.value))
+        p.print(format_args!("#{}", &l.value))
     }
 
     fn expr(&self, node: NodeId, p: &mut Printer) -> Result {

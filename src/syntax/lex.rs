@@ -646,7 +646,7 @@ impl<'a> Lexer<'a> {
             '"' => self.string(start),
             '\'' => self.char(start),
 
-            '@' if is_ident_start(self.nth_char(0)) => self.label(),
+            '#' if is_ident_start(self.nth_char(0)) => self.label(),
 
             c if c.is_ascii_digit() => self.number(c, start),
 
@@ -1266,7 +1266,7 @@ pub fn ident(s: &str, ctx: IdentContext) -> String {
 
 pub fn label(s: &str) -> String {
     assert!(s.len() > 1);
-    assert_eq!(s.as_bytes()[0], b'@');
+    assert_eq!(s.as_bytes()[0], b'#');
     s[1..].into()
 }
 
