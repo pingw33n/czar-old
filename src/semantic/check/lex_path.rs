@@ -8,7 +8,7 @@ impl PassImpl<'_> {
             if self.discover_data.find_use_node(node, self.hir).is_some();
             let ident = &path_end_ident.item.ident;
             if ident.value.is_self_lower();
-            if self.hir.path_segment(self.discover_data.parent_of(node)).prefix.is_empty();
+            if self.hir.path_segment(self.discover_data.parent_of(node).0).prefix.is_empty();
             then {
                 self.error_span(node, ident.span,
                     "`self` import can only be used in path with prefix".into());
@@ -188,7 +188,7 @@ impl PassImpl<'_> {
     fn check_path_node_ty_args(&mut self, path: NodeId /*PathEndIdent*/, ty: TypeId) -> Result<TypeId> {
         let path_start = self.discover_data.find_path_start(path, self.hir).unwrap();
 
-        let fully_inferrable = match self.hir.node_kind(self.discover_data.parent_of(path_start)).value {
+        let fully_inferrable = match self.hir.node_kind(self.discover_data.parent_of(path_start).0).value {
             | NodeKind::FnCall
             | NodeKind::StructLiteral
             => true,

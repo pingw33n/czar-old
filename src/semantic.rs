@@ -123,7 +123,7 @@ impl PathItem {
                 NodeKind::PathEndStar | NodeKind::PathEndEmpty => {}
                 _ => unreachable!(),
             }
-            n = discover_data.parent_of(n);
+            n = discover_data.parent_of(n).0;
         };
         r.reverse();
         r

@@ -181,7 +181,7 @@ pub struct DiscoverData {
     scope_to_parent: HashMap<ScopeUid, ScopeVid>,
     /// Node to scope where that node is defined.
     node_to_def_scope: NodeMap<ScopeVid>,
-    child_to_parent: NodeMap<NodeId>,
+    child_to_parent: NodeMap<(NodeId, NodeLink)>,
     node_to_module: NodeMap<NodeId>,
     fn_def_signatures: NodeMap<FnParamsSignature>,
     impls: Vec<NodeId>,
@@ -257,16 +257,16 @@ impl DiscoverData {
         assert!(self.scope_to_parent.insert(uid, (parent, version)).is_none());
     }
 
-    pub fn parent_of(&self, node: NodeId) -> NodeId {
+    pub fn parent_of(&self, node: NodeId) -> (NodeId, NodeLink) {
         self.child_to_parent[&node]
     }
 
-    pub fn try_parent_of(&self, node: NodeId) -> Option<NodeId> {
+    pub fn try_parent_of(&self, node: NodeId) -> Option<(NodeId, NodeLink)> {
         self.child_to_parent.get(&node).copied()
     }
 
-    fn set_parent_of(&mut self, child: NodeId, parent: NodeId) {
-        assert!(self.child_to_parent.insert(child, parent).is_none());
+    fn set_parent_of(&mut self, child: NodeId, parent: NodeId, link: NodeLink) {
+        assert!(self.child_to_parent.insert(child, (parent, link)).is_none());
     }
 
     pub fn module_of(&self, node: NodeId) -> NodeId {
@@ -308,7 +308,7 @@ impl DiscoverData {
             if hir.node_kind(node).value == kind {
                 break Some(node);
             }
-            node = self.try_parent_of(node)?;
+            node = self.try_parent_of(node)?.0;
         }
     }
 
@@ -321,7 +321,7 @@ impl DiscoverData {
                 | NodeKind::PathEndIdent
                 | NodeKind::PathEndStar
                 | NodeKind::PathSegment
-                => node = self.parent_of(node),
+                => node = self.parent_of(node).0,
                 _ => {
                     assert!(first);
                     break None;
@@ -332,7 +332,7 @@ impl DiscoverData {
     }
 
     pub fn find_use_node(&self, maybe_path: NodeId, hir: &Hir) -> Option<NodeId> {
-        let maybe_use = self.try_parent_of(self.find_path_start(maybe_path, hir)?)?;
+        let maybe_use = self.try_parent_of(self.find_path_start(maybe_path, hir)?)?.0;
         if hir.node_kind(maybe_use).value == NodeKind::Use {
             Some(maybe_use)
         } else {
@@ -342,7 +342,7 @@ impl DiscoverData {
 
     pub fn find_fn_call(&self, callee_path: NodeId, hir: &Hir) -> Option<NodeId> {
         let path_head = self.find_path_start(callee_path, hir)?;
-        let path_owner = self.parent_of(path_head);
+        let path_owner = self.parent_of(path_head).0;
         hir.try_fn_call(path_owner)
             .filter(|f| f.callee == path_head)
             .map(|_| path_owner)
@@ -457,7 +457,7 @@ impl DiscoverData {
                     renamed_as,
                 } = hir.path_end_ident(node);
                 if ident.value == Ident::self_lower() && (renamed_as.is_none() || original) {
-                    let parent = self.parent_of(node);
+                    let parent = self.parent_of(node).0;
                     ident.span.spanned(
                         // `prefix` list will be empty for `use {self}` construct.
                         hir.path_segment(parent).prefix.last()?.ident.value.clone())
@@ -651,7 +651,7 @@ impl Build<'_> {
 impl HirVisitor for Build<'_> {
     fn before_node(&mut self, ctx: HirVisitorCtx) {
         if let Some(&parent) = self.node_stack.last() {
-            self.data.set_parent_of(ctx.node, parent);
+            self.data.set_parent_of(ctx.node, parent, ctx.link);
         }
         if let Some(&module) = self.module_stack.last() {
             self.data.set_module_of(ctx.node, module);

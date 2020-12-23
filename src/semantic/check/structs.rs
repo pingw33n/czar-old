@@ -37,7 +37,7 @@ impl PassImpl<'_> {
 
     pub fn check_struct_type(&mut self, node: NodeId /*StructType*/) -> Result<TypeId> {
         let fields = &self.hir.struct_type(node).fields;
-        let named = self.hir.node_kind(self.discover_data.parent_of(node)).value == NodeKind::Struct;
+        let named = self.hir.node_kind(self.discover_data.parent_of(node).0).value == NodeKind::Struct;
 
         let mut err = false;
         let mut seen_named_fields = HashSet::new();
