@@ -1,6 +1,6 @@
 fn f() {
   while true {}
-  while ({}) {}
+  while {} {}
   while Foo::is_looping() {
     while !bar.is_done() {
         foo("bar");

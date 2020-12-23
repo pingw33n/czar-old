@@ -1022,11 +1022,7 @@ impl<'a> ParserImpl<'a> {
             // Block or unnamed struct
             Token::BlockOpen(lex::Block::Brace) => {
                 self.lex.consume();
-                if state.disable_struct_literal {
-                    self.block_inner(tok.span.start)
-                } else {
-                    self.block_or_struct(None, tok.span.start)
-                }?
+                self.block_or_struct_literal(None, tok.span.start)?
             }
             // Start-unbounded range
             Token::DotDot | Token::DotDotEq => {
@@ -1048,12 +1044,7 @@ impl<'a> ParserImpl<'a> {
             // `if` expression
             Token::Keyword(Keyword::If) => {
                 self.lex.consume();
-                let needs_parens = self.lex.nth(0).value == Token::BlockOpen(lex::Block::Brace);
                 let cond = self.expr(ExprState::disable_struct_literal())?;
-                if needs_parens {
-                    return self.error(self.hir.node_kind(cond).span,
-                        "parentheses are required here".into());
-                }
                 let if_true = self.block()?;
                 let if_false = if self.lex.maybe(Token::Keyword(Keyword::Else)).is_some() {
                     Some(if self.lex.nth(0).value == Token::Keyword(Keyword::If) {
@@ -1110,12 +1101,7 @@ impl<'a> ParserImpl<'a> {
             // `while` expression
             Token::Keyword(Keyword::While) => {
                 self.lex.consume();
-                let needs_parens = self.lex.nth(0).value == Token::BlockOpen(lex::Block::Brace);
                 let cond = self.expr(ExprState::disable_struct_literal())?;
-                if needs_parens {
-                    return self.error(self.hir.node_kind(cond).span,
-                        "parentheses are required here".into());
-                }
                 let body = self.block()?;
                 self.hir.insert_while(tok.span.extended(self.hir.node_kind(body).span.end).spanned(While {
                     cond,
@@ -1306,11 +1292,11 @@ impl<'a> ParserImpl<'a> {
                 self.binary_op(tok.span, left, simple, state)?
             } else {
                 match tok.value {
-                    // Named struct value.
+                    // Named struct literal.
                     Token::BlockOpen(lex::Block::Brace)
                         if self.hir.node_kind(left).value == NodeKind::Path =>
                     {
-                        self.block_or_struct(Some(left), self.hir.node_kind(left).span.start)?
+                        self.block_or_struct_literal(Some(left), self.hir.node_kind(left).span.start)?
                     }
 
                     Token::Dot => {
@@ -1664,7 +1650,7 @@ impl<'a> ParserImpl<'a> {
     }
 
     // Expects the first '{' be already consumed.
-    fn block_or_struct(&mut self, struct_name: Option<NodeId>, start: usize) -> PResult<NodeId> {
+    fn block_or_struct_literal(&mut self, struct_name: Option<NodeId>, start: usize) -> PResult<NodeId> {
         enum Probe {
             StructStart {
                 first_field: S<StructLiteralField>,
