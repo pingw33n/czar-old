@@ -1,4 +1,6 @@
+mod fns;
 mod llvm;
+mod types;
 
 use std::collections::{hash_map, HashMap};
 
@@ -7,19 +9,13 @@ use crate::package::{Package, Packages, GlobalNodeId, PackageId};
 use crate::semantic::check::{self, *};
 use crate::syntax::*;
 
+use fns::*;
 use llvm::*;
+use types::{*, GenericEnv};
 
 pub use llvm::OutputFormat;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct GenericEnvId(TypeRef);
-
-struct GenericEnv {
-    id: GenericEnvId,
-    vars: TypeVarMap,
-}
-
-struct ExprCtx<'a> {
+pub struct ExprCtx<'a> {
     package: &'a Package,
     fn_: ValueRef,
     allocas: &'a mut NodeMap<Value>,
@@ -27,7 +23,7 @@ struct ExprCtx<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum Value {
+pub enum Value {
     Direct(ValueRef),
     Indirect(ValueRef),
 }
@@ -63,41 +59,12 @@ impl FromValueRef for ValueRef {
     }
 }
 
-type TopLevelMonoId = (GlobalNodeId, GenericEnvId);
-type MonoId = (TypeId, GenericEnvId);
-
-#[derive(Clone, Copy)]
-struct FnDecl {
-    ll: ValueRef,
-}
-
-struct FnMonoRequest {
-    genv_vars: TypeVarMap,
-}
-
-#[derive(Clone, Copy)]
-struct TypeLl {
-    ty: TypeRef,
-    /// `false` means the lower-level type was constructed from uninhabited type.
-    inhabited: bool,
-}
-
-impl TypeLl {
-    fn inhabited(&self) -> Result<TypeRef> {
-        if self.inhabited {
-            Ok(self.ty)
-        } else {
-            Err(())
-        }
-    }
-}
-
 pub struct Codegen<'a> {
     llvm: Llvm,
     bodyb: BuilderRef,
     last_alloca: Option<ValueRef>,
     packages: &'a Packages,
-    fn_decls: HashMap<TopLevelMonoId, FnDecl>,
+    fn_decls: HashMap<TopLevelMonoId, ValueRef>,
     fn_mono_reqs: HashMap<TopLevelMonoId, FnMonoRequest>,
     types: HashMap<MonoId, TypeLl>,
     defined_types: HashMap<TopLevelMonoId, TypeRef>,
@@ -138,159 +105,6 @@ impl<'a> Codegen<'a> {
     pub fn emit_to_file(&self, path: impl AsRef<std::path::Path>, format: OutputFormat) -> std::io::Result<()> {
         let file = &mut std::fs::File::create(path)?;
         self.emit(file, format)
-    }
-
-    fn default_genv(&self) -> GenericEnv {
-        GenericEnv {
-            id: GenericEnvId(self.llvm.struct_type(&mut [])),
-            vars: TypeVarMap::default(),
-        }
-    }
-
-    fn normalized(&self, ty: TypeId) -> TypeId {
-        self.packages[ty.0].check_data.normalized_type(ty)
-    }
-
-    fn make_genv_id(&mut self, ty_vars: &TypeVarMap, genv: &GenericEnv) -> Result<GenericEnvId> {
-        let mut ty_vars: Vec<_> = ty_vars.iter().collect();
-        ty_vars.sort_by_key(|&(k, _)| k);
-        let mut genv_id = Vec::with_capacity(ty_vars.len());
-        for (_, ty) in ty_vars {
-            genv_id.push(self.type_(ty, genv)?);
-        }
-        Ok(GenericEnvId(self.make_struct_type0(None, &mut genv_id)))
-    }
-
-    fn find_type_param_deps(&self, ty: TypeId) -> Vec<TypeId> {
-        let mut r = Vec::new();
-        self.find_type_param_deps0(ty, &mut r);
-        r
-    }
-
-    fn find_type_param_deps0(&self, ty: TypeId, r: &mut Vec<TypeId>) {
-        match &self.packages.type_(ty).data {
-            TypeData::GenericEnv(_) => {}
-            TypeData::Fn(FnType { name, params, result, unsafe_: _ }) => {
-                assert!(name.is_none());
-                for &param in params {
-                    self.find_type_param_deps0(param, r);
-                }
-                self.find_type_param_deps0(*result, r);
-            }
-            &TypeData::Slice(check::SliceType { item, len: _ }) => {
-                self.find_type_param_deps0(item, r);
-            }
-            TypeData::Struct(check::StructType { name, fields }) => {
-                assert!(name.is_none());
-                for &check::StructTypeField { name: _, ty } in fields {
-                    self.find_type_param_deps0(ty, r);
-                }
-            }
-            TypeData::Var(Var::Param(_)) => r.push(ty),
-
-            | TypeData::Ctor(_)
-            | TypeData::Incomplete(_)
-            | TypeData::Instance(_)
-            | TypeData::Var(Var::Inference(_))
-            => unreachable!(),
-        }
-    }
-
-    fn resolve_fn_genv_vars(&self, ty: TypeId, outer: &GenericEnv) -> TypeVarMap {
-        let mut r = self.packages.type_(ty).data.as_generic_env().map(|v| v.vars.clone()).unwrap_or_default();
-        let mut more = Vec::new();
-        for (_, val) in r.iter_mut() {
-            if let Some(v) = outer.vars.get(*val) {
-                *val = v;
-            }
-            more.extend_from_slice(&self.find_type_param_deps(*val));
-        }
-        for var in more {
-            if r.get(var).is_none() {
-                if let Some(val) = outer.vars.get(var) {
-                    r.insert(var, val);
-                }
-            }
-        }
-
-        r
-    }
-
-    fn fn_def(&mut self, fn_def: GlobalNodeId, callee_ty: TypeId, genv: &GenericEnv) -> Result<Value> {
-        // Handle LLVM intrinsics.
-        if let Some(intrinsic) = self.packages.as_lang_item(callee_ty)
-            .and_then(|v| v.into_intrinsic().ok())
-        {
-            match intrinsic {
-                IntrinsicItem::Unreachable => return Ok(self.unit_literal()),
-                | IntrinsicItem::Panic
-                | IntrinsicItem::Transmute
-                => {},
-            }
-        }
-
-        let callee_ty = self.normalized(callee_ty);
-
-        let genv_vars = self.resolve_fn_genv_vars(callee_ty, genv);
-        let genv_id = self.make_genv_id(&genv_vars, genv)?;
-
-        let mid = (fn_def, genv_id);
-        if let Some(&v) = self.fn_decls.get(&mid) {
-            return Ok(v.ll.direct());
-        }
-
-        let package = &self.packages[fn_def.0];
-        let name = if package.check_data.entry_point() == Some(callee_ty) {
-            "__main"
-        } else {
-            package.hir.fn_def(fn_def.1).name.value.as_str()
-        };
-        let ty = self.packages.type_(callee_ty);
-        let ty_ll = self.type_(ty.id, genv)?;
-        let fn_ = self.llvm.add_function(&name, ty_ll);
-        assert!(self.fn_decls.insert(mid, FnDecl {
-            ll: fn_,
-        }).is_none());
-        assert!(self.fn_mono_reqs.insert(mid, FnMonoRequest {
-            genv_vars,
-        }).is_none());
-
-        Ok(fn_.direct())
-    }
-
-    fn mono_fn(&mut self, id: TopLevelMonoId, req: FnMonoRequest) {
-        let fn_def = id.0;
-        let package = &self.packages[fn_def.0];
-        let FnDef { params, body, .. } = package.hir.fn_def(fn_def.1);
-        if let Some(body) = *body {
-            let FnDecl { ll: fn_ } = self.fn_decls[&id];
-            let allocas = &mut HashMap::new();
-            let ctx = &mut ExprCtx {
-                package,
-                fn_,
-                allocas,
-                genv: &GenericEnv {
-                    id: id.1,
-                    vars: req.genv_vars,
-                },
-            };
-
-            let entry_bb = self.llvm.append_new_bb(fn_, "entry");
-            self.bodyb.position_at_end(entry_bb);
-            self.last_alloca = None;
-
-            for (i, &param) in params.iter().enumerate() {
-                let name = &package.hir.fn_def_param(param).name.value;
-                let val = self.alloca(param, name, ctx);
-                let param = fn_.param(i as u32);
-                self.bodyb.store(param, val.ptr());
-            }
-
-            if let Ok(ret) = self.expr(body, ctx) {
-                let ret = ret.deref(self.bodyb);
-                self.bodyb.ret(ret);
-            }
-        }
     }
 
     fn make_ptr(&mut self, v: Value, ctx: &mut ExprCtx) -> ValueRef {
@@ -793,191 +607,6 @@ impl<'a> Codegen<'a> {
             .direct()
     }
 
-    fn typing(&mut self, node: GlobalNodeId, genv: &GenericEnv) -> Result<TypeRef> {
-        let ty = self.packages[node.0].check_data.typing(node.1);
-        self.type_(ty, genv)
-    }
-
-    fn type_(&mut self, ty: TypeId, genv: &GenericEnv) -> Result<TypeRef> {
-        self.type0(ty, genv).inhabited()
-    }
-
-    fn type_allow_uninhabited(&mut self, ty: TypeId, genv: &GenericEnv) -> TypeRef {
-        self.type0(ty, genv).ty
-    }
-
-    fn type0(&mut self, ty: TypeId, genv: &GenericEnv) -> TypeLl {
-        let ty = self.normalized(ty);
-        if let Some(&v) = self.types.get(&(ty, genv.id)) {
-            return v;
-        }
-        let ty_ll = self.type1(ty, genv);
-        assert!(self.types.insert((ty, genv.id), ty_ll).is_none());
-        ty_ll
-    }
-
-    fn type1(&mut self, ty: TypeId, genv: &GenericEnv) -> TypeLl {
-        let uty = self.packages.underlying_type(ty);
-        match &uty.data {
-            TypeData::Fn(FnType { name: _, params, result, unsafe_: _, }) => {
-                let mut inhabited = true;
-                let param_tys = &mut Vec::with_capacity(params.len());
-                for &param in params {
-                    let ty = self.type0(param, genv);
-                    param_tys.push(ty.ty);
-                    inhabited &= ty.inhabited;
-                }
-                let res_ty = self.type0(*result, genv).ty;
-                TypeLl {
-                    ty: TypeRef::function(res_ty, param_tys),
-                    inhabited,
-                }
-            }
-            TypeData::GenericEnv(check::GenericEnv { ty, vars: _ }) => self.type0(*ty, genv),
-            TypeData::Slice(v) => self.make_slice_type(v, genv),
-            TypeData::Struct(v) => self.make_struct_type(ty, v, genv),
-            TypeData::Var(_) => {
-                let ty = genv.vars.get(uty.id).unwrap();
-                self.type0(ty, genv)
-            },
-            | TypeData::Ctor(_)
-            | TypeData::Incomplete(_)
-            | TypeData::Instance(_)
-            => unreachable!("{:?}", uty),
-        }
-    }
-
-    fn make_struct_type(&mut self, ty: TypeId, sty: &check::StructType, genv: &GenericEnv) -> TypeLl {
-        let check::StructType { name: def, fields } = sty;
-        if let Some(def) = *def {
-            if let Some(prim) = self.packages.std().check_data.lang().as_primitive(def) {
-                return self.make_prim_type(ty, prim, genv);
-            }
-        }
-        let mut inhabited = true;
-        let field_tys = &mut Vec::with_capacity(fields.len());
-        for &check::StructTypeField { name: _, ty } in fields {
-            let ty = self.type0(ty, genv);
-            inhabited &= ty.inhabited;
-            field_tys.push(ty.ty);
-        }
-        let ty = self.make_struct_type0(*def, field_tys);
-        TypeLl {
-            ty,
-            inhabited,
-        }
-    }
-
-    fn make_slice_type(&mut self, slt: &check::SliceType, genv: &GenericEnv) -> TypeLl {
-        let &check::SliceType { item, len } = slt;
-        let item = self.type_allow_uninhabited(item, genv);
-        let ty = if let Some(len) = len {
-            self.llvm.array_type(item, len)
-        } else {
-            self.llvm.struct_type(&mut [
-                self.llvm.pointer_type(item),
-                self.llvm.size_type(),
-            ])
-        };
-        TypeLl {
-            ty,
-            inhabited: true,
-        }
-    }
-
-    fn make_struct_type0(&mut self, def: Option<GlobalNodeId>, fields: &mut [TypeRef]) -> TypeRef {
-        let shape = self.llvm.struct_type(fields);
-        if let Some(def) = def {
-            match self.defined_types.entry((def, GenericEnvId(shape))) {
-                hash_map::Entry::Occupied(e) => {
-                    *e.get()
-                }
-                hash_map::Entry::Vacant(e) => {
-                    let name = &self.packages[def.0].hir.struct_(def.1).name.value;
-                    let ty = self.llvm.named_struct_type(name, fields);
-                    e.insert(ty);
-                    ty
-                }
-            }
-        } else {
-            shape
-        }
-    }
-
-    fn make_prim_type(&mut self, ty: TypeId, prim_ty: PrimitiveType, genv: &GenericEnv) -> TypeLl {
-        use PrimitiveType::*;
-        let ty = match prim_ty {
-            Bool => self.llvm.int_type(1),
-            F32 => self.llvm.float_type(),
-            F64 => self.llvm.double_type(),
-            I8 | U8 => self.llvm.int_type(8),
-            I16 | U16 => self.llvm.int_type(16),
-            I32 | U32 | Char => self.llvm.int_type(32),
-            I64 | U64 => self.llvm.int_type(64),
-            I128 | U128 => self.llvm.int_type(128),
-            ISize | USize => self.llvm.size_type(),
-            Never => return TypeLl {
-                ty: self.llvm.struct_type(&mut []),
-                inhabited: false,
-            },
-            Ptr => {
-                let pty = self.packages.type_(ty).data.as_generic_env().unwrap().vars.vals().next().unwrap();
-                let pty = self.type_allow_uninhabited(pty, genv);
-                pty.pointer()
-            }
-        };
-        TypeLl {
-            ty,
-            inhabited: true,
-        }
-    }
-
-    fn lang_type(&mut self, lang_item: LangItem) -> TypeRef {
-        assert_ne!(lang_item, LangItem::Primitive(PrimitiveType::Never));
-        self.type_(self.packages.std().check_data.lang().type_(lang_item), &self.default_genv()).unwrap()
-    }
-
-    fn alloca(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> Value {
-        if ctx.allocas.contains_key(&node) {
-            ctx.allocas[&node]
-        } else {
-            let r = self.alloca_new(node, name, ctx);
-            assert!(ctx.allocas.insert(node, r).is_none());
-            r
-        }
-    }
-
-    fn alloca_new(&mut self, node: NodeId, name: &str, ctx: &mut ExprCtx) -> Value {
-        let ty = ctx.package.check_data.typing(node);
-        let ty = self.normalized(ty);
-        let ty_ll = self.type_allow_uninhabited(ty, ctx.genv);
-
-        if let &TypeData::Slice(check::SliceType { item, len: Some(len) }) = &self.packages.underlying_type(ty).data {
-            let slot_ty = ty_ll.pointer();
-            let slot = self.alloca_new_ty(slot_ty, name, ctx).ptr();
-            let item_ty = self.type_allow_uninhabited(item, ctx.genv);
-            let ptr = self.gc_malloc(item_ty, self.llvm.size_type().const_int(len as u128), node, ctx);
-            let ptr = self.bodyb.bitcast(ptr, slot_ty);
-            self.bodyb.store(ptr, slot);
-            ptr.indirect()
-        } else {
-            self.alloca_new_ty(ty_ll, name, ctx)
-        }
-    }
-
-    fn alloca_new_ty(&mut self, ty: TypeRef, name: &str, ctx: &mut ExprCtx) -> Value {
-        let cur_bb = self.bodyb.cur_bb().unwrap();
-        if let Some(last_alloca) = self.last_alloca {
-            self.bodyb.position_after(last_alloca);
-        } else {
-            self.bodyb.position_at_start(ctx.fn_.entry_bb());
-        }
-        let r = self.bodyb.alloca(name, ty);
-        self.last_alloca = Some(r);
-        self.bodyb.position_at_end(cur_bb);
-        r.indirect()
-    }
-
     /// Returns `item_ty*`
     fn gc_malloc(&self, item_ty: TypeRef, len: ValueRef, node: NodeId, ctx: &mut ExprCtx) -> ValueRef {
         let item_size = self.llvm.size_type().const_int(self.llvm.abi_size_bytes(item_ty) as u128);
@@ -988,99 +617,6 @@ impl<'a> Codegen<'a> {
         let line = ctx.package.hir.node_kind(node).span.start; // FIXME
         let ptr = intrinsic::gc_debug_malloc(&self.llvm, self.bodyb, len_bytes, &file, line as u32);
         self.bodyb.bitcast(ptr, item_ty.pointer())
-    }
-
-    fn fn_call(&mut self,
-        callee_node: Option<NodeId>,
-        callee_ty: TypeId,
-        callee: Value,
-        args: &[Value],
-        ctx: &mut ExprCtx,
-    ) -> Result<Value> {
-        let callee_ty = self.normalized(callee_ty);
-        let intrinsic = self.packages.as_lang_item(callee_ty)
-            .and_then(|v| v.into_intrinsic().ok());
-        let intrinsic = if let Some(intr) = intrinsic {
-            match intr {
-                IntrinsicItem::Panic => None,
-                IntrinsicItem::Transmute => {
-                    assert_eq!(args.len(), 1);
-                    let src = args[0];
-                    let src = self.make_ptr(src, ctx);
-                    let src_size = self.llvm.abi_size_bytes(src.type_().inner());
-
-                    let dst_ty = self.packages.underlying_type(callee_ty).data.as_fn().unwrap().result;
-                    let dst_ty = if let Ok(v) = self.type_(dst_ty, ctx.genv) {
-                        v
-                    } else {
-                        todo!("must fail in frontend");
-                    };
-                    let dst_size = self.llvm.abi_size_bytes(dst_ty);
-
-                    if src_size != dst_size {
-                        todo!("must fail in frontend");
-                    }
-
-                    let dst = self.alloca_new_ty(dst_ty, "", ctx);
-
-                    let i8ptr = self.llvm.int_type(8).pointer();
-                    let src_ptr = self.bodyb.bitcast(src, i8ptr);
-                    let dst_ptr = self.bodyb.bitcast(dst.ptr(), i8ptr);
-                    let len = match self.llvm.pointer_size_bits() {
-                        32 => self.llvm.int_type(32),
-                        64 => self.llvm.int_type(64),
-                        _ => unreachable!(),
-                    }.const_int(src_size as u128);
-                    intrinsic::memcpy(&self.llvm, self.bodyb, dst_ptr, src_ptr, len,
-                        self.llvm.int_type(1).const_int(0));
-
-                    Some(dst)
-                }
-                IntrinsicItem::Unreachable => {
-                    assert!(args.is_empty());
-                    Some(self.unit_literal())
-                }
-            }
-        } else {
-            None
-        };
-
-        let r = if let Some(v) = intrinsic {
-            v
-        } else {
-            let mut args = args.to_vec();
-            if let Some(slice_ty) = callee_node.and_then(|v| ctx.package.check_data.method_call_self_coercion(v)) {
-                // [T; N] -> [T]
-                let arr = self.make_ptr(args[0], ctx);
-                let arr_ty = arr.type_().inner();
-                let item_ty = arr_ty.inner();
-                let len = arr_ty.array_len();
-
-                debug_assert!(matches!(self.packages.underlying_type(slice_ty).data, TypeData::Slice(_)));
-                let slice_ty = self.type_(slice_ty, ctx.genv)?;
-
-                let slice_var = self.alloca_new_ty(slice_ty, "slice_coercion", ctx).ptr();
-                let ptr = self.bodyb.bitcast(arr, item_ty.pointer());
-                self.bodyb.store(ptr, self.bodyb.struct_gep(slice_var, 0));
-                self.bodyb.store(self.llvm.size_type().const_int(len as u128), self.bodyb.struct_gep(slice_var, 1));
-
-                args[0] = slice_var.indirect();
-            };
-
-            let mut args: Vec<_> = args.into_iter()
-                .map(|v| v.deref(self.bodyb))
-                .collect();
-            let callee = callee.deref(self.bodyb);
-            self.bodyb.call(callee, &mut args).direct()
-        };
-
-        let ret_ty = self.packages.underlying_type(callee_ty).data.as_fn().unwrap().result;
-        if self.packages.as_primitive(ret_ty) == Some(PrimitiveType::Never) {
-            self.bodyb.unreachable();
-            Err(())
-        } else {
-            Ok(r)
-        }
     }
 }
 
