@@ -1,0 +1,40 @@
+fn f1(_ v: bool) -> String {
+    if v {
+        return "true"
+    } else {
+        return "false"
+    }
+}
+
+fn f2() -> String {
+    let r = return "f2";
+    prints("dead code");
+    r
+}
+
+fn f3() {
+    prints("f3"); println();
+    return {};
+}
+
+fn f4() {
+    prints("f4"); println();
+    let i = 0;
+    while true {
+        print_i32(i); println();
+        if i == 2 {
+            return;
+        }
+        i = i + 1;
+    }
+    unreachable()
+}
+
+fn main() {
+    prints(f1(true)); println();
+    prints(f1(false)); println();
+    prints(f2()); println();
+    f3();
+    f4();
+    return
+}

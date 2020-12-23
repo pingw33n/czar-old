@@ -129,6 +129,27 @@ impl<'a> Codegen<'a> {
                 }
                 r.unwrap_or_else(|| self.unit_literal().into())
             }
+            NodeKind::CtlFlowAbort => {
+                let CtlFlowAbort { kind, label, value } = ctx.package.hir.ctl_flow_abort(node);
+                if label.is_some() {
+                    todo!();
+                }
+
+                let value = if let &Some(v) = value {
+                    self.expr(v, ctx)?
+                } else {
+                    self.unit_literal()
+                };
+                match *kind {
+                    CtlFlowAbortKind::Return => {
+                        let v = value.deref(self.bodyb);
+                        self.bodyb.ret(v);
+                    }
+                    CtlFlowAbortKind::Break => todo!(),
+                    CtlFlowAbortKind::Continue => todo!(),
+                }
+                return Err(());
+            }
             NodeKind::FieldAccess => {
                 let receiver = ctx.package.hir.field_access(node).receiver;
                 let receiver = self.expr(receiver, ctx)?;

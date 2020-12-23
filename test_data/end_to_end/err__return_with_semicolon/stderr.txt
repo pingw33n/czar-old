@@ -1,0 +1,4 @@
+error: mismatching return types: function `f::()` expects `i32`, found `{}`
+  --> main.cz:2:14
+2 |     return 42;
+                 ~

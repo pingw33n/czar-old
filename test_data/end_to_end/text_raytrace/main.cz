@@ -89,21 +89,19 @@ module sphere {
         fn intersect(self, ray: Ray) -> {hit: bool, tval: f32} {
             let l = self.center.sub(ray.orig);
             let tca = l.dot(ray.dir);
-            if tca >= 0.0 {
-                let d2 = l.dot(l) - tca * tca;
-                let r2 = self.radius * self.radius;
-                if d2 <= r2 {
-                    let thc = sqrtf(r2 - d2);
-                    let t0 = tca - thc;
-                    //let t1 = tca + thc;
-                    if t0 <= 10000.0 {
-                        {hit: true, tval: t0}
-                    } else {
-                        {hit: false, tval: -1.0_f32}
-                    }
-                } else {
-                    {hit: false, tval: -1.0_f32}
-                }
+            if tca < 0.0 {
+                return {hit: false, tval: -1.0_f32}
+            }
+            let d2 = l.dot(l) - tca * tca;
+            let r2 = self.radius * self.radius;
+            if d2 > r2 {
+                return {hit: false, tval: -1.0_f32};
+            }
+            let thc = sqrtf(r2 - d2);
+            let t0 = tca - thc;
+            //let t1 = tca + thc;
+            if t0 <= 10000.0 {
+                {hit: true, tval: t0}
             } else {
                 {hit: false, tval: -1.0_f32}
             }
